@@ -1,0 +1,70 @@
+@import './base.css';
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+a,
+.green {
+  text-decoration: none;
+  color: hsla(160, 100%, 37%, 1);
+  transition: 0.4s;
+  padding: 3px;
+}
+
+@media (hover: hover) {
+  a:hover {
+    background-color: hsla(160, 100%, 37%, 0.2);
+  }
+}
+
+/* VueFlow styling */
+:deep(.vue-flow__container) {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu;
+}
+
+:deep(.vue-flow__node) {
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+:deep(.vue-flow__node:hover) {
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+  transform: scale(1.05);
+}
+
+:deep(.vue-flow__node.selected) {
+  box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+  border-color: #764ba2;
+}
+
+:deep(.vue-flow__edge-path) {
+  stroke: #667eea;
+  stroke-width: 2px;
+}
+
+:deep(.vue-flow__edge.animated path) {
+  stroke-dasharray: 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -10;
+  }
+}
