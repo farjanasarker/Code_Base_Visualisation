@@ -1,2 +1,0 @@
-1 | Python Learning | Completed
-2 | Vue Learning | Completed
