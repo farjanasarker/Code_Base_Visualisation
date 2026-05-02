@@ -8,59 +8,76 @@ driver = GraphDatabase.driver(
     auth=("41ba1e28", "PXi2zC7QElI7PCf-cuK6S0E-DhuVxukey8ysxwPfzJE")
 )
 
-def add_edge(caller, callee):
+# ========== SESSION MANAGEMENT ==========
+def delete_session_data(session_id: str) -> None:
+    """Delete all nodes and relationships for a specific session"""
     try:
-        with driver.session() as session:
-            session.run("""
-                MERGE (a:Function {name: $caller})
-                MERGE (b:Function {name: $callee})
+        with driver.session() as db_session:
+            db_session.run("""
+                MATCH (n {session_id: $session_id})
+                DETACH DELETE n
+            """, session_id=session_id)
+            logger.info(f"✅ Deleted Neo4j data for session: {session_id}")
+    except Exception as e:
+        logger.error(f"❌ Error deleting session data: {str(e)}")
+        raise
+
+
+def add_edge(caller, callee, session_id: str):
+    try:
+        with driver.session() as db_session:
+            db_session.run("""
+                MERGE (a:Function {name: $caller, session_id: $session_id})
+                MERGE (b:Function {name: $callee, session_id: $session_id})
                 MERGE (a)-[:CALLS]->(b)
-            """, caller=caller, callee=callee)
+            """, caller=caller, callee=callee, session_id=session_id)
     except Exception as e:
         logger.error(f"Error adding edge: {str(e)}")
         raise
 
-def clear_graph():
+def clear_graph(session_id: str):
     try:
-        with driver.session() as session:
-            session.run("""
-                MATCH (n)
+        with driver.session() as db_session:
+            db_session.run("""
+                MATCH (n {session_id: $session_id})
                 DETACH DELETE n
-            """)
+            """, session_id=session_id)
     except Exception as e:
         logger.error(f"Error clearing graph: {str(e)}")
         raise
 
-def get_neighbors(function_name):
+def get_neighbors(function_name: str, session_id: str):
     try:
-        with driver.session() as session:
-            result = session.run("""
-                MATCH (a:Function {name: $name})-[:CALLS]->(b)
+        with driver.session() as db_session:
+            result = db_session.run("""
+                MATCH (a:Function {name: $name, session_id: $session_id})-[:CALLS]->(b)
                 RETURN b.name AS name
-            """, name=function_name)
+            """, name=function_name, session_id=session_id)
             return [r["name"] for r in result]
     except Exception as e:
         logger.error(f"Error getting neighbors: {str(e)}")
         raise
 
 
-def get_full_graph():
+def get_full_graph(session_id: str):
     try:
-        with driver.session() as session:
-            node_result = session.run(
+        with driver.session() as db_session:
+            node_result = db_session.run(
                 """
-                MATCH (n:Function)
+                MATCH (n:Function {session_id: $session_id})
                 RETURN n.name AS name
                 ORDER BY n.name
-                """
+                """,
+                session_id=session_id
             )
 
-            edge_result = session.run(
+            edge_result = db_session.run(
                 """
-                MATCH (a:Function)-[:CALLS]->(b:Function)
+                MATCH (a:Function {session_id: $session_id})-[:CALLS]->(b:Function {session_id: $session_id})
                 RETURN a.name AS source, b.name AS target
                 ORDER BY source, target
-                """
+                """,
+                session_id=session_id
             )
 
             nodes = [{"id": r["name"]} for r in node_result]
@@ -75,16 +92,16 @@ def get_full_graph():
         raise
 
 
-def store_all(functions):
+def store_all(functions, session_id: str):
     """Store modules, files, functions and CALLS edges from a list of function dicts."""
     try:
-        with driver.session() as session:
+        with driver.session() as db_session:
             for fn in functions:
-                session.run("""
-                    MERGE (mod:Module {name: $module})
-                    MERGE (fil:File {path: $file, language: $language})
+                db_session.run("""
+                    MERGE (mod:Module {name: $module, session_id: $session_id})
+                    MERGE (fil:File {path: $file, language: $language, session_id: $session_id})
                     MERGE (fil)-[:BELONGS_TO]->(mod)
-                    MERGE (func:Function {name: $name, file: $file})
+                    MERGE (func:Function {name: $name, file: $file, session_id: $session_id})
                     SET func.line_start   = $line_start,
                         func.line_end     = $line_end,
                         func.complexity   = $complexity,
@@ -104,50 +121,52 @@ def store_all(functions):
                     "fan_in": fn.get("fan_in"),
                     "fan_out": fn.get("fan_out"),
                     "virtual_module": fn.get("virtual_module"),
+                    "session_id": session_id,
                 })
 
             # Create CALLS edges
             for fn in functions:
                 for called in fn.get("calls", []):
-                    session.run("""
-                        MATCH (caller:Function {name: $caller, file: $file})
-                        MATCH (callee:Function {name: $callee})
+                    db_session.run("""
+                        MATCH (caller:Function {name: $caller, file: $file, session_id: $session_id})
+                        MATCH (callee:Function {name: $callee, session_id: $session_id})
                         MERGE (caller)-[:CALLS]->(callee)
-                    """, caller=fn.get("name"), file=fn.get("file"), callee=called)
+                    """, caller=fn.get("name"), file=fn.get("file"), callee=called, session_id=session_id)
+            
             # Persist chunk (virtual_module) nodes and relationships
             for fn in functions:
                 vm = fn.get("virtual_module")
                 fpath = fn.get("file")
                 if vm and vm != fpath:
-                    session.run("""
-                        MATCH (fil:File {path: $file})
-                        MERGE (chunk:Chunk {name: $vm})
+                    db_session.run("""
+                        MATCH (fil:File {path: $file, session_id: $session_id})
+                        MERGE (chunk:Chunk {name: $vm, session_id: $session_id})
                         MERGE (chunk)-[:IN_FILE]->(fil)
-                        MATCH (func:Function {name: $name, file: $file})
+                        MATCH (func:Function {name: $name, file: $file, session_id: $session_id})
                         MERGE (func)-[:PART_OF]->(chunk)
-                    """, file=fpath, vm=vm, name=fn.get("name"))
+                    """, file=fpath, vm=vm, name=fn.get("name"), session_id=session_id)
     except Exception as e:
         logger.error(f"Error storing functions: {str(e)}")
         raise
 
 
-def get_tier1():
+def get_tier1(session_id: str):
     """Return module-level graph (nodes + edges)."""
     try:
-        with driver.session() as session:
-            result = session.run("""
-                MATCH (m1:Module)<-[:BELONGS_TO]-(:File)<-[:DEFINED_IN]-(f1:Function)
-                      -[:CALLS]->(f2:Function)-[:DEFINED_IN]->(:File)-[:BELONGS_TO]->(m2:Module)
+        with driver.session() as db_session:
+            result = db_session.run("""
+                MATCH (m1:Module {session_id: $session_id})<-[:BELONGS_TO]-(:File {session_id: $session_id})<-[:DEFINED_IN]-(f1:Function {session_id: $session_id})
+                      -[:CALLS]->(f2:Function {session_id: $session_id})-[:DEFINED_IN]->(:File {session_id: $session_id})-[:BELONGS_TO]->(m2:Module {session_id: $session_id})
                 WHERE m1 <> m2
                 RETURN m1.name AS source, m2.name AS target, count(*) AS call_count
-            """)
+            """, session_id=session_id)
             edges = [{"source": r["source"], "target": r["target"], "call_count": r["call_count"]} for r in result]
 
             # nodes: aggregate module stats
-            node_res = session.run("""
-                MATCH (m:Module)<-[:BELONGS_TO]-(fil:File)<-[:DEFINED_IN]-(f:Function)
+            node_res = db_session.run("""
+                MATCH (m:Module {session_id: $session_id})<-[:BELONGS_TO]-(fil:File {session_id: $session_id})<-[:DEFINED_IN]-(f:Function {session_id: $session_id})
                 RETURN m.name AS module, sum(f.line_end - f.line_start) AS loc, count(distinct f.name) AS fn_count, collect(distinct fil.language) AS languages
-            """)
+            """, session_id=session_id)
             nodes = [{"id": r["module"], "type": "module", "loc": int(r["loc"] or 0), "fn_count": int(r["fn_count"]), "languages": r["languages"]} for r in node_res]
 
             return {"nodes": nodes, "edges": edges, "tier": 1}
@@ -156,17 +175,17 @@ def get_tier1():
         raise
 
 
-def get_tier2(module_name: str):
+def get_tier2(module_name: str, session_id: str):
     try:
-        with driver.session() as session:
-            result = session.run("""
-                MATCH (fil:File)-[:BELONGS_TO]->(mod:Module {name: $module})
-                OPTIONAL MATCH (fil)<-[:DEFINED_IN]-(fn:Function)-[:CALLS]->(fn2:Function)
-                              -[:DEFINED_IN]->(fil2:File)-[:BELONGS_TO]->(mod)
+        with driver.session() as db_session:
+            result = db_session.run("""
+                MATCH (fil:File {session_id: $session_id})-[:BELONGS_TO]->(mod:Module {name: $module, session_id: $session_id})
+                OPTIONAL MATCH (fil)<-[:DEFINED_IN]-(fn:Function {session_id: $session_id})-[:CALLS]->(fn2:Function {session_id: $session_id})
+                              -[:DEFINED_IN]->(fil2:File {session_id: $session_id})-[:BELONGS_TO]->(mod)
                 WHERE fil <> fil2
                 RETURN fil.path AS source_file, fil2.path AS target_file,
                        fil.language AS language, count(fn) AS call_count
-            """, module=module_name)
+            """, module=module_name, session_id=session_id)
             edges = []
             nodes_map = {}
             for r in result:
@@ -180,11 +199,11 @@ def get_tier2(module_name: str):
                     edges.append({"source": src, "target": tgt, "call_count": r["call_count"]})
 
             # count functions per file
-            fn_counts = session.run("""
-                MATCH (fil:File)-[:BELONGS_TO]->(mod:Module {name: $module})
-                OPTIONAL MATCH (fil)<-[:DEFINED_IN]-(fn:Function)
+            fn_counts = db_session.run("""
+                MATCH (fil:File {session_id: $session_id})-[:BELONGS_TO]->(mod:Module {name: $module, session_id: $session_id})
+                OPTIONAL MATCH (fil)<-[:DEFINED_IN]-(fn:Function {session_id: $session_id})
                 RETURN fil.path AS file, count(fn) AS fn_count, fil.language AS language
-            """, module=module_name)
+            """, module=module_name, session_id=session_id)
             for r in fn_counts:
                 f = r["file"]
                 if f in nodes_map:
@@ -198,49 +217,51 @@ def get_tier2(module_name: str):
         raise
 
 
-def get_tier3(file_path: str):
+
+
+def get_tier3(file_path: str, session_id: str):
     try:
-        with driver.session() as session:
+        with driver.session() as db_session:
             # First check if chunk (virtual module) nodes exist for this file
-            chunk_res = session.run("""
-                MATCH (fil:File {path: $file})
-                OPTIONAL MATCH (chunk:Chunk)-[:IN_FILE]->(fil)
+            chunk_res = db_session.run("""
+                MATCH (fil:File {path: $file, session_id: $session_id})
+                OPTIONAL MATCH (chunk:Chunk {session_id: $session_id})-[:IN_FILE]->(fil)
                 RETURN chunk.name AS chunk_name, count(*) AS cnt
-            """, file=file_path)
+            """, file=file_path, session_id=session_id)
             chunks = [r["chunk_name"] for r in chunk_res if r["chunk_name"]]
 
             if chunks and len(chunks) > 1:
                 # return chunk-level graph
-                nodes_q = session.run("""
-                    MATCH (fil:File {path: $file})
-                    MATCH (chunk:Chunk)-[:IN_FILE]->(fil)
-                    OPTIONAL MATCH (chunk)<-[:PART_OF]-(f:Function)
+                nodes_q = db_session.run("""
+                    MATCH (fil:File {path: $file, session_id: $session_id})
+                    MATCH (chunk:Chunk {session_id: $session_id})-[:IN_FILE]->(fil)
+                    OPTIONAL MATCH (chunk)<-[:PART_OF]-(f:Function {session_id: $session_id})
                     RETURN chunk.name AS id, count(f) AS fn_count, collect(distinct f.language) AS languages
-                """, file=file_path)
+                """, file=file_path, session_id=session_id)
                 nodes = [{"id": r["id"], "type": "chunk", "fn_count": int(r["fn_count"] or 0), "language": (r["languages"][0] if r["languages"] else None)} for r in nodes_q]
 
-                edges_q = session.run("""
-                    MATCH (fil:File {path: $file})
-                    MATCH (c1:Chunk)-[:IN_FILE]->(fil)
-                    MATCH (c2:Chunk)-[:IN_FILE]->(fil)
-                    MATCH (f1:Function)-[:PART_OF]->(c1)
-                    MATCH (f1)-[:CALLS]->(f2:Function)-[:PART_OF]->(c2)
+                edges_q = db_session.run("""
+                    MATCH (fil:File {path: $file, session_id: $session_id})
+                    MATCH (c1:Chunk {session_id: $session_id})-[:IN_FILE]->(fil)
+                    MATCH (c2:Chunk {session_id: $session_id})-[:IN_FILE]->(fil)
+                    MATCH (f1:Function {session_id: $session_id})-[:PART_OF]->(c1)
+                    MATCH (f1)-[:CALLS]->(f2:Function {session_id: $session_id})-[:PART_OF]->(c2)
                     WHERE c1 <> c2
                     RETURN c1.name AS source, c2.name AS target, count(*) AS call_count
-                """, file=file_path)
+                """, file=file_path, session_id=session_id)
                 edges = [{"source": r["source"], "target": r["target"], "call_count": int(r["call_count"])} for r in edges_q]
 
                 return {"nodes": nodes, "edges": edges, "tier": 3, "file": file_path, "chunked": True}
 
             # Fallback: return function-level graph for the file
-            result = session.run("""
-                MATCH (fn:Function)-[:DEFINED_IN]->(fil:File {path: $file})
-                OPTIONAL MATCH (fn)-[:CALLS]->(fn2:Function)-[:DEFINED_IN]->(fil)
+            result = db_session.run("""
+                MATCH (fn:Function {session_id: $session_id})-[:DEFINED_IN]->(fil:File {path: $file, session_id: $session_id})
+                OPTIONAL MATCH (fn)-[:CALLS]->(fn2:Function {session_id: $session_id})-[:DEFINED_IN]->(fil)
                 RETURN fn.name AS source, fn2.name AS target,
                        fn.complexity AS complexity,
                        fn.fan_in AS fan_in, fn.fan_out AS fan_out,
                        fn.line_start AS line_start, fn.line_end AS line_end
-            """, file=file_path)
+            """, file=file_path, session_id=session_id)
             nodes = {}
             edges = []
             for r in result:

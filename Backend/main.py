@@ -1,20 +1,50 @@
 import os
 import tempfile
 import zipfile
+import uuid
+import shutil
+import asyncio
 from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from analyzer import analyze_files, build_module_graph, decide_render_strategy
-from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3
+from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, delete_session_data
 import logging
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# ========== SESSION MANAGEMENT ==========
+# In-memory session storage
+active_sessions: Dict[str, Dict[str, Any]] = {}
+# {
+#   "uuid-123": {
+#       "created_at": datetime,
+#       "last_active": datetime,
+#       "files": ["file1.py", "file2.py"],
+#       "upload_dir": "/path/to/uploads/uuid-123"
+#   }
+# }
+
+UPLOADS_BASE_DIR = Path("./uploads")
+SESSION_TIMEOUT = timedelta(hours=3)  # Sessions auto-cleanup after 3 hours of inactivity
+
 # In-memory cache of last parsed upload (used when Neo4j is unavailable)
 PARSED_CACHE: dict = {"functions": [], "tier1": None}
+
+# Per-session cache
+SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
+# {
+#   "uuid-123": {
+#       "functions": [...],
+#       "tier1": {...},
+#       "render_strategy": "..."
+#   }
+# }
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_FILE_SIZE = 500 * 1024  # 500KB per source file
@@ -57,10 +87,232 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ========== SESSION UTILITIES ==========
+def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """Get session metadata or None if not found"""
+    return active_sessions.get(session_id)
+
+
+def create_session() -> str:
+    """Create new session, return session_id"""
+    session_id = str(uuid.uuid4())
+    
+    # Create session directory
+    session_dir = UPLOADS_BASE_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Track session
+    active_sessions[session_id] = {
+        "created_at": datetime.now(),
+        "last_active": datetime.now(),
+        "files": [],
+        "upload_dir": str(session_dir)
+    }
+    
+    logger.info(f"✅ Session created: {session_id}")
+    return session_id
+
+
+def update_session_activity(session_id: str) -> None:
+    """Update session's last active timestamp"""
+    if session_id in active_sessions:
+        active_sessions[session_id]["last_active"] = datetime.now()
+
+
+def end_session_cleanup(session_id: str) -> bool:
+    """Clean up session: delete from Neo4j, disk, and RAM"""
+    try:
+        session_info = active_sessions.pop(session_id, None)
+        
+        if not session_info:
+            logger.warning(f"⚠️ Session not found: {session_id}")
+            return False
+        
+        # Delete from Neo4j
+        try:
+            delete_session_data(session_id)
+            logger.info(f"✅ Cleaned Neo4j data for session: {session_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to clean Neo4j for {session_id}: {e}")
+        
+        # Delete from disk
+        upload_dir = Path(session_info["upload_dir"])
+        if upload_dir.exists():
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            logger.info(f"✅ Deleted upload directory: {upload_dir}")
+        
+        # Delete from session cache
+        SESSION_CACHE.pop(session_id, None)
+        
+        logger.info(f"✅ Session fully cleaned: {session_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error cleaning session {session_id}: {e}")
+        return False
+
+
+async def cleanup_orphan_sessions() -> None:
+    """Background task: periodically clean up inactive sessions"""
+    while True:
+        try:
+            await asyncio.sleep(1800)  # Every 30 minutes
+            
+            now = datetime.now()
+            orphan_sessions = []
+            
+            for session_id, session_data in list(active_sessions.items()):
+                inactivity = now - session_data["last_active"]
+                
+                if inactivity > SESSION_TIMEOUT:
+                    orphan_sessions.append(session_id)
+                    logger.warning(f"⚠️ Session expired (3h inactive): {session_id}")
+            
+            for session_id in orphan_sessions:
+                end_session_cleanup(session_id)
+                logger.info(f"🧹 Orphan session cleaned: {session_id}")
+            
+            if orphan_sessions:
+                logger.info(f"🧹 Cleaned {len(orphan_sessions)} orphan sessions")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in cleanup task: {e}")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background cleanup task on app startup"""
+    logger.info("🚀 Backend startup - creating cleanup task")
+    
+    # Create uploads directory
+    UPLOADS_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Start background cleanup
+    asyncio.create_task(cleanup_orphan_sessions())
+
+
+def validate_session(session_id: Optional[str]) -> str:
+    """Validate session_id from request header"""
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Missing X-Session-ID header")
+    
+    if session_id not in active_sessions:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    
+    return session_id
+
+
 @app.get("/health")
 def health():
     """Health check endpoint"""
-    return {"status": "ok", "message": "Backend is running"}
+    return {
+        "status": "ok",
+        "message": "Backend is running",
+        "active_sessions": len(active_sessions),
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+# ========== SESSION ENDPOINTS ==========
+@app.post("/start-session")
+async def start_session():
+    """
+    Create new session for a user
+    Frontend calls this on first load or after page refresh
+    Returns session_id to be stored in sessionStorage
+    """
+    try:
+        session_id = create_session()
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "message": "Session created",
+            "expires_in_hours": SESSION_TIMEOUT.total_seconds() / 3600
+        }
+    except Exception as e:
+        logger.error(f"❌ Error creating session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+
+
+@app.delete("/end-session")
+async def end_session(request: Request):
+    """
+    Clean up session when browser closes
+    Frontend sends this via sendBeacon before closing
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        
+        if not session_id:
+            raise HTTPException(status_code=400, detail="Missing X-Session-ID header")
+        
+        success = end_session_cleanup(session_id)
+        
+        return {
+            "status": "success" if success else "not_found",
+            "session_id": session_id,
+            "message": "Session cleaned" if success else "Session not found"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error ending session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to end session: {str(e)}")
+
+
+@app.get("/sessions/info")
+async def get_session_info(request: Request):
+    """Get current session info (debugging/monitoring)"""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        
+        if not session_id or session_id not in active_sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        session_data = active_sessions[session_id]
+        
+        return {
+            "session_id": session_id,
+            "created_at": session_data["created_at"].isoformat(),
+            "last_active": session_data["last_active"].isoformat(),
+            "inactivity_minutes": (datetime.now() - session_data["last_active"]).total_seconds() / 60,
+            "files": session_data["files"],
+            "upload_dir": session_data["upload_dir"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error fetching session info: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/admin/sessions")
+async def list_all_sessions():
+    """
+    Get all active sessions (admin endpoint)
+    Shows current session count and details
+    """
+    try:
+        sessions_info = []
+        
+        for sid, data in active_sessions.items():
+            inactivity = datetime.now() - data["last_active"]
+            sessions_info.append({
+                "session_id": sid,
+                "created_at": data["created_at"].isoformat(),
+                "inactivity_minutes": inactivity.total_seconds() / 60,
+                "files_count": len(data["files"])
+            })
+        
+        return {
+            "status": "success",
+            "total_sessions": len(active_sessions),
+            "sessions": sessions_info
+        }
+    except Exception as e:
+        logger.error(f"❌ Error listing sessions: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 def detect_language(ext: str) -> str:
@@ -193,13 +445,26 @@ async def persist_folder_upload(files: list[UploadFile], destination_root: str) 
 
 @app.post("/upload")
 async def upload(
+    request: Request,
     file: UploadFile | None = File(default=None),
     files: list[UploadFile] | None = File(default=None),
 ):
+    """
+    Upload file(s) and analyze code
+    Requires X-Session-ID header to track which user owns the data
+    """
     try:
+        # Validate session
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+        
+        # Get session's upload directory
+        session_info = active_sessions[session_id]
+        session_upload_dir = Path(session_info["upload_dir"])
+        session_upload_dir.mkdir(parents=True, exist_ok=True)
+        
         with tempfile.TemporaryDirectory() as tmpdir:
-            clear_graph()
-
             if file is not None:
                 file_name = file.filename or "upload.txt"
                 file_bytes = await file.read()
@@ -232,26 +497,38 @@ async def upload(
 
         functions = analyze_files(all_files)
 
-        # cache parsed functions for fallback
+        # Update session's file list
+        session_info["files"] = [f["path"] for f in all_files]
+
+        # cache parsed functions for this session
         try:
+            tier1 = build_module_graph(functions)
+            SESSION_CACHE[session_id] = {
+                "functions": functions,
+                "tier1": tier1
+            }
+            
+            # Also update global cache for fallback
             PARSED_CACHE["functions"] = functions
-            PARSED_CACHE["tier1"] = build_module_graph(functions)
+            PARSED_CACHE["tier1"] = tier1
+            
         except Exception:
-            logger.exception("Failed to cache parsed functions")
+            logger.exception(f"Failed to cache parsed functions for session {session_id}")
 
-        # Persist richer graph to Neo4j (best-effort)
+        # Persist to Neo4j with session_id (best-effort)
         try:
-            store_all(functions)
+            store_all(functions, session_id)
+            logger.info(f"✅ Stored graph to Neo4j for session {session_id}")
         except Exception:
-            # non-fatal: log and continue
-            logger.exception("Failed to store full graph to Neo4j")
+            logger.exception(f"⚠️ Failed to store graph to Neo4j for session {session_id}")
 
-        tier1 = PARSED_CACHE.get("tier1") or build_module_graph(functions)
+        tier1 = SESSION_CACHE.get(session_id, {}).get("tier1") or PARSED_CACHE.get("tier1") or build_module_graph(functions)
         render = decide_render_strategy(len(tier1["nodes"]))
 
         return {
             "message": "Graph generated",
             "status": "success",
+            "session_id": session_id,
             "tier1_graph": tier1,
             "render_strategy": render,
             "total_functions": len(functions),
@@ -263,13 +540,17 @@ async def upload(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
+        logger.error(f"Upload error for session {session_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @app.get("/expand/{function_name}")
-def expand(function_name: str):
+def expand(request: Request, function_name: str):
     try:
-        neighbors = get_neighbors(function_name)
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+        
+        neighbors = get_neighbors(function_name, session_id)
         return {
             "nodes": [{"id": n} for n in neighbors],
             "edges": [
@@ -277,32 +558,46 @@ def expand(function_name: str):
                 for n in neighbors
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Expand error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching graph: {str(e)}")
 
 
 @app.get("/graph/tier1")
-def api_tier1():
+def api_tier1(request: Request):
     try:
-        return get_tier1()
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+        
+        return get_tier1(session_id)
+    except HTTPException:
+        raise
     except Exception:
-        logger.exception("Failed to fetch tier1 from DB, falling back to cache")
-        # fallback to cached parsed functions
-        tier = PARSED_CACHE.get("tier1")
+        logger.exception(f"Failed to fetch tier1 from DB for session {session_id}")
+        # fallback to session cache
+        tier = SESSION_CACHE.get(session_id, {}).get("tier1")
         if tier:
             return tier
         raise HTTPException(status_code=500, detail="Error fetching tier1 graph and no cache available")
 
 
 @app.get("/graph/tier2/{module_name}")
-def api_tier2(module_name: str):
+def api_tier2(request: Request, module_name: str):
     try:
-        return get_tier2(module_name)
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+        
+        return get_tier2(module_name, session_id)
+    except HTTPException:
+        raise
     except Exception:
-        logger.exception("Failed to fetch tier2 from DB, falling back to cache")
-        # fallback: build from cached parsed functions
-        functions = PARSED_CACHE.get("functions", [])
+        logger.exception(f"Failed to fetch tier2 from DB for session {session_id}")
+        # fallback: build from session cache
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
         if functions:
             from analyzer import build_file_graph
             return build_file_graph(module_name, functions)
@@ -310,12 +605,19 @@ def api_tier2(module_name: str):
 
 
 @app.get("/graph/tier3")
-def api_tier3(file_path: str):
+def api_tier3(request: Request, file_path: str):
     try:
-        return get_tier3(file_path)
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+        
+        return get_tier3(file_path, session_id)
+    except HTTPException:
+        raise
     except Exception:
-        logger.exception("Failed to fetch tier3 from DB, falling back to cache")
-        functions = PARSED_CACHE.get("functions", [])
+        logger.exception(f"Failed to fetch tier3 from DB for session {session_id}")
+        # fallback: build from session cache
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
         if functions:
             from analyzer import build_function_graph
             return build_function_graph(file_path, functions)

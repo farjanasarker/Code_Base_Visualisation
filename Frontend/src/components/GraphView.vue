@@ -71,13 +71,13 @@
 </template>
 
 <script setup>
-import { markRaw, nextTick, ref } from "vue";
+import { markRaw, nextTick, ref, inject } from "vue";
 import { MarkerType, Position, useVueFlow, VueFlow } from "@vue-flow/core";
-import axios from "axios";
 import FunctionNode from "./FunctionNode.vue";
 import BottomBackEdge from "./BottomBackEdge.vue";
 
-const BACKEND_URL = "http://localhost:8000";
+// Inject session manager
+const sessionManager = inject('sessionManager');
 
 const nodes = ref([]);
 const edges = ref([]);
@@ -305,65 +305,79 @@ const resetGraphState = () => {
 const uploadWithFormData = async (formData, sourceName) => {
   resetGraphState();
 
-  const response = await axios.post(`${BACKEND_URL}/upload`, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  });
+  try {
+    const response = await sessionManager.apiCall('/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await response.json();
 
-  uploadedFile.value = sourceName;
-  uploadSuccess.value = true;
+    uploadedFile.value = sourceName;
+    uploadSuccess.value = true;
 
-  const render = response.data.render_strategy;
-  const tier1Response = await axios.get(`${BACKEND_URL}/graph/tier1`);
-  const tier1 = tier1Response.data;
+    const render = data.render_strategy;
+    
+    const tier1Response = await sessionManager.apiCall('/graph/tier1', {
+      method: 'GET',
+    });
+    const tier1 = await tier1Response.json();
 
-  if (!tier1 || !Array.isArray(tier1.nodes)) {
-    uploadError.value = 'No graph data returned from backend.';
-    nodes.value = [];
-    edges.value = [];
-    return;
-  }
-
-  const isSingleFile = (response.data.total_files ?? 0) === 1;
-  const hasModuleNodes = tier1.nodes.length > 0;
-
-  // If single-file upload, show function view directly
-  if (isSingleFile) {
-    const fileId = sourceName;
-    try {
-      const fnRes = await axios.get(`${BACKEND_URL}/graph/tier3`, { params: { file_path: fileId } });
-      if (fnRes.data?.nodes?.length) {
-        // For single-file uploads, initially show only the main/root function
-        await renderFunctionView(fileId, fnRes.data, { rootOnly: true });
-      } else {
-        // If backend returns nothing, at least keep the screen clear instead of showing a fake module layer.
-        nodes.value = [];
-        edges.value = [];
-        uploadError.value = 'No function graph found for this file.';
-      }
-      window.__render_strategy = render;
+    if (!tier1 || !Array.isArray(tier1.nodes)) {
+      uploadError.value = 'No graph data returned from backend.';
+      nodes.value = [];
+      edges.value = [];
       return;
-    } catch (err) {
-      console.warn('Failed to fetch tier3 for single file, falling back to module view', err);
-      // fall through to module view
     }
-  }
 
-  // present module view for ZIP/folder uploads, or fallback to nodes only when no edges exist
-  if (hasModuleNodes) {
-    await renderModuleRoot(tier1.nodes);
-  } else {
+    const isSingleFile = (data.total_files ?? 0) === 1;
+    const hasModuleNodes = tier1.nodes.length > 0;
+
+    // If single-file upload, show function view directly
+    if (isSingleFile) {
+      const fileId = sourceName;
+      try {
+        const fnRes = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(fileId)}`, {
+          method: 'GET',
+        });
+        const fnData = await fnRes.json();
+        if (fnData?.nodes?.length) {
+          // For single-file uploads, initially show only the main/root function
+          await renderFunctionView(fileId, fnData, { rootOnly: true });
+        } else {
+          // If backend returns nothing, at least keep the screen clear instead of showing a fake module layer.
+          nodes.value = [];
+          edges.value = [];
+          uploadError.value = 'No function graph found for this file.';
+        }
+        window.__render_strategy = render;
+        return;
+      } catch (err) {
+        console.warn('Failed to fetch tier3 for single file, falling back to module view', err);
+        // fall through to module view
+      }
+    }
+
+    // present module view for ZIP/folder uploads, or fallback to nodes only when no edges exist
+    if (hasModuleNodes) {
+      await renderModuleRoot(tier1.nodes);
+    } else {
+      nodes.value = [];
+      edges.value = [];
+      uploadError.value = 'No module nodes were returned by the backend.';
+    }
+    // save render strategy for frontend decisions
+    window.__render_strategy = render;
+    // expose basic stats
+    discoveredFunctions.value = [];
+    selectedRoot.value = '';
+    functionLayoutMode.value = false;
+  } catch (err) {
+    console.error("Error uploading file:", err);
+    uploadError.value =
+      err.message || "Failed to upload file. Make sure backend is running.";
     nodes.value = [];
     edges.value = [];
-    uploadError.value = 'No module nodes were returned by the backend.';
   }
-  // save render strategy for frontend decisions
-  window.__render_strategy = render;
-  // expose basic stats
-  discoveredFunctions.value = [];
-  selectedRoot.value = '';
-  functionLayoutMode.value = false;
 };
 
 const renderFunctionView = async (fileId, functionGraph) => {
@@ -489,14 +503,17 @@ const onNodeClick = async ({ node }) => {
   try {
     if (type === 'module') {
       // fetch files for module
-      const res = await axios.get(`${BACKEND_URL}/graph/tier2/${encodeURIComponent(node.id)}`);
+      const response = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(node.id)}`, {
+        method: 'GET',
+      });
+      const res = await response.json();
       const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
-      const newNodes = res.data.nodes.map((f, index) => {
-        const pos = getRootChildPosition(node, index, res.data.nodes.length);
+      const newNodes = res.nodes.map((f, index) => {
+        const pos = getRootChildPosition(node, index, res.nodes.length);
         nodeLevelMap.value.set(f.id, parentLevel + 1);
         return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
       });
-      const newEdges = toVueFlowEdges(res.data.edges, [...nodes.value, ...newNodes]);
+      const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes]);
       const existingIds = new Set(nodes.value.map((n) => n.id));
       const existingEdgeIds = new Set(edges.value.map((e) => e.id));
       nodes.value = [...nodes.value, ...newNodes.filter(n => !existingIds.has(n.id))];
@@ -508,16 +525,19 @@ const onNodeClick = async ({ node }) => {
       fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
     } else if (type === 'file' || type === 'chunk') {
       // fetch functions for file
-      const res = await axios.get(`${BACKEND_URL}/graph/tier3`, { params: { file_path: node.id } });
+      const response = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(node.id)}`, {
+        method: 'GET',
+      });
+      const res = await response.json();
       const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
-      const newNodes = res.data.nodes.map((fn, index) => {
-        const pos = getChildPosition(node, index, res.data.nodes.length);
+      const newNodes = res.nodes.map((fn, index) => {
+        const pos = getChildPosition(node, index, res.nodes.length);
         nodeLevelMap.value.set(fn.id, parentLevel + 1);
         // respect backend-provided node type (chunk vs function vs file)
         const nodeType = fn.type === 'chunk' ? 'chunk' : (fn.type === 'file' ? 'file' : 'function');
         return createNode(fn.id, pos, { fullLabel: fn.id, nodeType, language: fn.language, callCount: fn.fan_out });
       });
-      const newEdges = toVueFlowEdges(res.data.edges, [...nodes.value, ...newNodes]);
+      const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes]);
       const existingIds = new Set(nodes.value.map((n) => n.id));
       const existingEdgeIds = new Set(edges.value.map((e) => e.id));
       nodes.value = [...nodes.value, ...newNodes.filter(n => !existingIds.has(n.id))];
@@ -529,11 +549,14 @@ const onNodeClick = async ({ node }) => {
       fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
     } else {
       // function node - optionally expand via existing expand endpoint
-      const res = await axios.get(`${BACKEND_URL}/expand/${encodeURIComponent(node.id)}`);
+      const response = await sessionManager.apiCall(`/expand/${encodeURIComponent(node.id)}`, {
+        method: 'GET',
+      });
+      const res = await response.json();
       const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
       const incomingIds = new Set();
       const outgoingIds = new Set();
-      (res.data.edges || []).forEach((edge) => {
+      (res.edges || []).forEach((edge) => {
         if (edge.target === node.id) {
           incomingIds.add(edge.source);
         }
@@ -546,7 +569,7 @@ const onNodeClick = async ({ node }) => {
       const outgoingNodes = [];
       const neutralNodes = [];
 
-      res.data.nodes.forEach((n) => {
+      res.nodes.forEach((n) => {
         if (outgoingIds.has(n.id)) {
           outgoingNodes.push(n);
         } else if (incomingIds.has(n.id)) {
@@ -572,7 +595,7 @@ const onNodeClick = async ({ node }) => {
         nodeLevelMap.value.set(n.id, level);
         newNodes.push(createNode(n.id, pos, { fullLabel: n.id, nodeType: 'function' }));
       });
-      const newEdges = toVueFlowEdges(res.data.edges, [...nodes.value, ...newNodes], { forceStraight: true });
+      const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes], { forceStraight: true });
       const existingIds = new Set(nodes.value.map((n) => n.id));
       const existingEdgeIds = new Set(edges.value.map((e) => e.id));
       nodes.value = [...nodes.value, ...newNodes.filter(n => !existingIds.has(n.id))];
