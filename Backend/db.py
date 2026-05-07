@@ -217,6 +217,47 @@ def get_tier2(module_name: str, session_id: str):
         raise
 
 
+def get_all_files_graph(session_id: str):
+    """Return file-level graph across all files in the session (used when no module structure exists)."""
+    try:
+        with driver.session() as db_session:
+            # Cross-file call edges
+            result = db_session.run("""
+                MATCH (fn:Function {session_id: $session_id})-[:DEFINED_IN]->(fil:File {session_id: $session_id})
+                MATCH (fn)-[:CALLS]->(fn2:Function {session_id: $session_id})-[:DEFINED_IN]->(fil2:File {session_id: $session_id})
+                WHERE fil <> fil2
+                RETURN fil.path AS source_file, fil2.path AS target_file,
+                       fil.language AS language, count(fn) AS call_count
+            """, session_id=session_id)
+            edges = []
+            nodes_map = {}
+            for r in result:
+                src = r["source_file"]
+                tgt = r["target_file"]
+                if src and src not in nodes_map:
+                    nodes_map[src] = {"id": src, "type": "file", "language": r["language"], "fn_count": 0}
+                if tgt and tgt not in nodes_map:
+                    nodes_map[tgt] = {"id": tgt, "type": "file", "language": r["language"], "fn_count": 0}
+                if src and tgt:
+                    edges.append({"source": src, "target": tgt, "call_count": int(r["call_count"])})
+
+            # All files (including isolated ones)
+            file_res = db_session.run("""
+                MATCH (fil:File {session_id: $session_id})
+                OPTIONAL MATCH (fil)<-[:DEFINED_IN]-(fn:Function {session_id: $session_id})
+                RETURN fil.path AS file, fil.language AS language, count(fn) AS fn_count
+            """, session_id=session_id)
+            for r in file_res:
+                f = r["file"]
+                if f and f not in nodes_map:
+                    nodes_map[f] = {"id": f, "type": "file", "language": r["language"], "fn_count": int(r["fn_count"] or 0)}
+                elif f:
+                    nodes_map[f]["fn_count"] = int(r["fn_count"] or 0)
+
+            return {"nodes": list(nodes_map.values()), "edges": edges, "tier": "files"}
+    except Exception as e:
+        logger.error(f"Error building file graph: {str(e)}")
+        raise
 
 
 def get_tier3(file_path: str, session_id: str):

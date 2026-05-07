@@ -1,54 +1,124 @@
 <template>
   <div class="graph-container">
-    <!-- Upload Section -->
-    <div class="upload-section">
-      <div class="upload-content">
-        <div class="upload-actions">
-          <label for="file-input" class="upload-label" :class="{ disabled: uploading }">
-            <span v-if="!uploading" class="upload-text">
-              📦 Upload File / ZIP
-            </span>
-            <span v-else class="upload-text uploading">
-              ⏳ Uploading...
-            </span>
-          </label>
-          <input
-            id="file-input"
-            type="file"
-            accept=".py,.js,.jsx,.ts,.tsx,.java,.go,.rs,.cpp,.c,.cs,.zip"
-            @change="handleFileUpload"
-            :disabled="uploading"
-            class="file-input"
-          />
 
-          <label for="folder-input" class="upload-label secondary" :class="{ disabled: uploading }">
-            <span class="upload-text">📁 Upload Folder</span>
-          </label>
-          <input
-            id="folder-input"
-            type="file"
-            multiple
-            webkitdirectory
-            directory
-            @change="handleFolderUpload"
-            :disabled="uploading"
-            class="file-input"
-          />
+    <!-- ── Sidebar ─────────────────────────────────── -->
+    <aside class="sidebar">
+      <!-- Brand -->
+      <div class="sidebar-brand">
+        <span class="brand-icon">⬡</span>
+        <div>
+          <div class="brand-name">CodeFlow</div>
+          <div class="brand-sub">Codebase Visualizer</div>
         </div>
-        <p class="upload-hint">Supported: .py, .js, .jsx, .ts, .tsx, .java, .go, .rs, .cpp, .c, .cs, .zip, or folder</p>
-        <p v-if="uploadedFile" class="file-info">
-          Source: <strong>{{ uploadedFile }}</strong>
-        </p>
-        <p v-if="uploadError" class="error-message">
-          ❌ {{ uploadError }}
-        </p>
-        <p v-if="uploadSuccess" class="success-message">
-          ✅ Upload complete! Click modules, files, or functions to drill down.
-        </p>
       </div>
-    </div>
 
-    <!-- Graph Section -->
+      <!-- Back navigation -->
+      <div v-if="navStack.length > 0" class="sidebar-section">
+        <button class="back-btn" @click="goBack">← Back</button>
+        <div class="breadcrumb">
+          <span v-for="(crumb, i) in navStack" :key="i" class="crumb">
+            <span v-if="i > 0" class="crumb-sep">›</span>
+            {{ crumb.label }}
+          </span>
+          <span class="crumb-sep">›</span>
+          <span class="crumb crumb-current">{{ currentLabel }}</span>
+        </div>
+      </div>
+
+      <!-- Upload zone -->
+      <div class="sidebar-section">
+        <div class="section-title">Upload Source</div>
+
+        <label for="file-input" class="upload-zone" :class="{ disabled: uploading }">
+          <div class="upload-zone-icon">{{ uploading ? '⏳' : '📦' }}</div>
+          <div class="upload-zone-text">
+            {{ uploading ? 'Uploading…' : 'Drop file or click to browse' }}
+          </div>
+          <div class="upload-zone-hint">.py .js .ts .java .go .rs .zip</div>
+        </label>
+        <input
+          id="file-input"
+          type="file"
+          accept=".py,.js,.jsx,.ts,.tsx,.java,.go,.rs,.cpp,.c,.cs,.zip"
+          @change="handleFileUpload"
+          :disabled="uploading"
+          class="file-input"
+        />
+
+        <label for="folder-input" class="upload-btn-folder" :class="{ disabled: uploading }">
+          📁 Upload Folder
+        </label>
+        <input
+          id="folder-input"
+          type="file"
+          multiple
+          webkitdirectory
+          directory
+          @change="handleFolderUpload"
+          :disabled="uploading"
+          class="file-input"
+        />
+      </div>
+
+      <!-- Status -->
+      <div v-if="uploadedFile || uploadError || uploadSuccess" class="sidebar-section">
+        <div class="section-title">Status</div>
+        <div v-if="uploadedFile" class="status-file">
+          <span class="status-dot ok"></span>
+          <span class="status-filename" :title="uploadedFile">{{ uploadedFile }}</span>
+        </div>
+        <div v-if="uploadSuccess" class="status-msg ok">
+          Graph loaded — click nodes to drill down
+        </div>
+        <div v-if="nodeCount > 0" class="status-count">
+          <span class="count-num">{{ nodeCount }}</span> nodes visible
+        </div>
+        <div v-if="uploadError" class="status-msg err">
+          {{ uploadError }}
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="sidebar-section">
+        <div class="section-title">Legend</div>
+        <div class="legend">
+          <div class="legend-item">
+            <span class="legend-swatch module"></span>
+            <span class="legend-icon">⬡</span>
+            <span>Module / Package</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch file"></span>
+            <span class="legend-icon">◫</span>
+            <span>Source File</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch function"></span>
+            <span class="legend-icon">ƒ</span>
+            <span>Function</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch chunk"></span>
+            <span class="legend-icon">⚡</span>
+            <span>Chunk (large file)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tips -->
+      <div class="sidebar-section tips">
+        <div class="section-title">How to use</div>
+        <ol class="tips-list">
+          <li>Upload a file, ZIP, or folder</li>
+          <li>Click a <strong>Module</strong> to see files</li>
+          <li>Click a <strong>File</strong> to see functions</li>
+          <li>Click a <strong>Function</strong> to expand callers &amp; callees</li>
+          <li>Hover any node to highlight its edges</li>
+        </ol>
+      </div>
+    </aside>
+
+    <!-- ── Graph canvas ─────────────────────────────── -->
     <div class="graph-section">
       <VueFlow
         v-if="nodes.length > 0"
@@ -60,19 +130,37 @@
         @node-click="onNodeClick"
         @node-mouseenter="onNodeHover"
         @node-mouseleave="onNodeUnhover"
-        fit-view
+        @nodes-initialized="() => fitView({ padding: 0.45, duration: 400, maxZoom: 0.95 })"
+        fit-view-on-init
         class="vue-flow"
-      />
+      >
+        <Controls position="bottom-right" />
+        <MiniMap
+          position="bottom-left"
+          :node-color="(n) => n.data?.nodeType === 'module' ? '#3b82f6' : n.data?.nodeType === 'file' ? '#f59e0b' : n.data?.nodeType === 'chunk' ? '#8b5cf6' : '#6366f1'"
+          :minimap-style="{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px' }"
+        />
+      </VueFlow>
       <div v-else class="empty-state">
-        <p>👆 Upload a supported source file, ZIP, or folder to see the graph</p>
+        <div class="empty-icon">⬡</div>
+        <h2 class="empty-title">No graph loaded</h2>
+        <p class="empty-sub">Upload a source file, ZIP archive, or folder<br>using the panel on the left to get started.</p>
+        <div class="empty-badges">
+          <span>.py</span><span>.js</span><span>.ts</span><span>.java</span><span>.go</span><span>.zip</span>
+        </div>
       </div>
     </div>
+
   </div>
 </template>
 
 <script setup>
-import { markRaw, nextTick, ref, inject } from "vue";
+import { markRaw, nextTick, ref, inject, computed } from "vue";
 import { MarkerType, Position, useVueFlow, VueFlow } from "@vue-flow/core";
+import { MiniMap } from "@vue-flow/minimap";
+import { Controls } from "@vue-flow/controls";
+import "@vue-flow/minimap/dist/style.css";
+import "@vue-flow/controls/dist/style.css";
 import FunctionNode from "./FunctionNode.vue";
 import BottomBackEdge from "./BottomBackEdge.vue";
 
@@ -90,6 +178,8 @@ const nodeLevelMap = ref(new Map());
 const discoveredFunctions = ref([]);
 const selectedRoot = ref("");
 const functionLayoutMode = ref(false);
+const navStack = ref([]);   // [{label, nodes, edges, expandedNodes, nodeLevelMap}]
+const currentLabel = ref('');
 const { fitView } = useVueFlow();
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
@@ -98,24 +188,35 @@ const edgeTypes = {
   backcall: markRaw(BottomBackEdge)
 };
 
-const TREE_DEPTH_GAP = 240;
-const TREE_SIBLING_GAP = 150;
-const FUNCTION_TREE_DEPTH_GAP = 260;
-const FUNCTION_TREE_SIBLING_GAP = 140;
+const nodeCount = computed(() => nodes.value.length);
+
+const TREE_DEPTH_GAP = 200;         // vertical gap between parent and children rows
+const TREE_SIBLING_GAP = 320;       // horizontal gap between sibling nodes
+const FUNCTION_TREE_DEPTH_GAP = 200;
+const FUNCTION_TREE_SIBLING_GAP = 320;
 const MAX_CHILDREN_PER_COLUMN = 2;
+
+// Edge color per source node type
+const EDGE_COLORS = {
+  module:   '#3b82f6',
+  file:     '#f59e0b',
+  function: '#6366f1',
+  chunk:    '#8b5cf6',
+  default:  '#6366f1'
+};
 
 const defaultEdgeOptions = {
   markerEnd: {
     type: MarkerType.ArrowClosed,
-    width: 26,
-    height: 26,
-    color: "#0f3b33"
+    width: 18,
+    height: 18,
+    color: EDGE_COLORS.default
   },
   style: {
-    stroke: "#0f3b33",
-    strokeWidth: 3.5,
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
+    stroke: EDGE_COLORS.default,
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round'
   },
   animated: false
 };
@@ -186,49 +287,41 @@ const createNode = (id, position, opts = {}) => {
       isRoot
     },
     position,
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
+    sourcePosition: Position.Bottom,
+    targetPosition: Position.Top,
     style: {
-      width: isRoot ? '88px' : nodeType === 'module' ? '92px' : '68px',
-      height: isRoot ? '88px' : nodeType === 'module' ? '92px' : '68px'
+      width: '170px',
+      height: '58px'
     },
     draggable: false
   };
 };
 
 const getChildPosition = (parentNode, childIndex, totalChildren) => {
-  const columnCount = Math.max(1, Math.ceil(totalChildren / MAX_CHILDREN_PER_COLUMN));
-  const column = Math.floor(childIndex / MAX_CHILDREN_PER_COLUMN);
-  const columnStart = column * MAX_CHILDREN_PER_COLUMN;
-  const itemsInColumn = Math.min(MAX_CHILDREN_PER_COLUMN, totalChildren - columnStart);
-  const rowInColumn = childIndex % MAX_CHILDREN_PER_COLUMN;
-  const yOffset = rowInColumn - (itemsInColumn - 1) / 2;
-  const xOffset = (column + 1) * TREE_DEPTH_GAP + Math.max(0, columnCount - 2) * 35;
-
+  const centerOffset = (totalChildren - 1) / 2;
   return {
-    x: parentNode.position.x + xOffset,
-    y: parentNode.position.y + yOffset * TREE_SIBLING_GAP
+    x: parentNode.position.x + (childIndex - centerOffset) * TREE_SIBLING_GAP,
+    y: parentNode.position.y + TREE_DEPTH_GAP
   };
 };
 
 const getRootChildPosition = (parentNode, childIndex, totalChildren) => {
-  const fanGap = 145;
   const centerOffset = (totalChildren - 1) / 2;
-
   return {
-    x: parentNode.position.x + 250,
-    y: parentNode.position.y + (childIndex - centerOffset) * fanGap
+    x: parentNode.position.x + (childIndex - centerOffset) * TREE_SIBLING_GAP,
+    y: parentNode.position.y + TREE_DEPTH_GAP
   };
 };
 
 const getFunctionChildPosition = (parentNode, childIndex, totalChildren, direction = "right") => {
+  // direction "right" = callees → go DOWN; "left" = callers → go UP
   const centerOffset = (totalChildren - 1) / 2;
-  const yOffset = (childIndex - centerOffset) * FUNCTION_TREE_SIBLING_GAP;
-  const xDir = direction === "left" ? -FUNCTION_TREE_DEPTH_GAP : FUNCTION_TREE_DEPTH_GAP;
+  const xOffset = (childIndex - centerOffset) * FUNCTION_TREE_SIBLING_GAP;
+  const yDir = direction === "left" ? -FUNCTION_TREE_DEPTH_GAP : FUNCTION_TREE_DEPTH_GAP;
 
   return {
-    x: parentNode.position.x + xDir,
-    y: parentNode.position.y + yOffset
+    x: parentNode.position.x + xOffset,
+    y: parentNode.position.y + yDir
   };
 };
 
@@ -239,52 +332,128 @@ const toVueFlowEdges = (rawEdges, knownNodes, opts = {}) => {
   return rawEdges.map((e) => {
     const sourcePos = nodePositionMap.get(e.source);
     const targetPos = nodePositionMap.get(e.target);
-    const isForward = !sourcePos || !targetPos || sourcePos.x <= targetPos.x;
-    const verticalDistance = sourcePos && targetPos
-      ? Math.abs(sourcePos.y - targetPos.y)
+    const isForward = !sourcePos || !targetPos || sourcePos.y <= targetPos.y;
+    const horizontalDistance = sourcePos && targetPos
+      ? Math.abs(sourcePos.x - targetPos.x)
       : 0;
-    const backwardOffset = Math.max(110, verticalDistance + 90);
+    const backwardOffset = Math.max(80, horizontalDistance + 60);
     const useStraight = forceStraight;
+
+    // pick color from the source node's type
+    const srcNode = knownNodes.find(n => n.id === e.source);
+    const edgeColor = EDGE_COLORS[srcNode?.data?.nodeType] || EDGE_COLORS.default;
 
     return {
       id: `${e.source}-${e.target}`,
       source: e.source,
       target: e.target,
       animated: false,
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        width: 26,
-        height: 26,
-        color: "#0f3b33"
+        width: 16,
+        height: 16,
+        color: edgeColor
       },
       style: {
-        stroke: "#0f3b33",
-        strokeWidth: 3.5,
-        strokeLinecap: "round",
-        strokeLinejoin: "round",
-        strokeDasharray: useStraight ? "0" : (isForward ? "0" : "7 4")
+        stroke: edgeColor,
+        strokeWidth: 2,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        strokeDasharray: isForward ? '0' : '6 3'
       },
-      type: useStraight ? "straight" : (isForward ? "smoothstep" : "backcall"),
-      pathOptions: useStraight
-        ? { }
-        : (isForward
-          ? { borderRadius: 10, offset: 20 }
-          : { borderRadius: 14, offset: backwardOffset })
+      type: isForward ? 'smoothstep' : 'backcall',
+      pathOptions: isForward
+        ? { borderRadius: 8 }
+        : { borderRadius: 14, offset: backwardOffset }
     };
   });
 };
 
+// Save current state to nav stack before drilling down
+const pushNav = (label) => {
+  navStack.value.push({
+    label: currentLabel.value || 'Root',
+    nodes: JSON.parse(JSON.stringify(nodes.value)),
+    edges: JSON.parse(JSON.stringify(edges.value)),
+    expandedNodes: new Set(expandedNodes.value),
+    nodeLevelMap: new Map(nodeLevelMap.value)
+  });
+  currentLabel.value = label;
+};
+
+const goBack = async () => {
+  const prev = navStack.value.pop();
+  if (!prev) return;
+  nodes.value = prev.nodes;
+  edges.value = prev.edges;
+  expandedNodes.value = prev.expandedNodes;
+  nodeLevelMap.value = prev.nodeLevelMap;
+  currentLabel.value = prev.label;
+  await nextTick();
+  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+};
+
+// Build structural parent→child edges (module→file, file→function)
+const makeParentChildEdges = (parentNode, childNodes) => {
+  return childNodes.map(child => {
+    const edgeColor = EDGE_COLORS[parentNode.data?.nodeType] || EDGE_COLORS.default;
+    return {
+      id: `${parentNode.id}->${child.id}`,
+      source: parentNode.id,
+      target: child.id,
+      animated: false,
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: edgeColor },
+      style: { stroke: edgeColor, strokeWidth: 2, strokeLinecap: 'round', strokeDasharray: '0' },
+      type: 'smoothstep',
+      pathOptions: { borderRadius: 8 }
+    };
+  });
+};
+
+const renderFileRelationsView = async (fileGraph) => {
+  if (!fileGraph || !fileGraph.nodes || fileGraph.nodes.length === 0) {
+    uploadError.value = 'No files found in the uploaded source.';
+    return;
+  }
+  // Grid layout: sqrt-based columns
+  const count = fileGraph.nodes.length;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const newNodes = fileGraph.nodes.map((f, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return createNode(f.id,
+      { x: (col - (cols - 1) / 2) * 260, y: row * 180 },
+      { fullLabel: f.id, nodeType: 'file', language: f.language }
+    );
+  });
+  const newEdges = toVueFlowEdges(fileGraph.edges || [], newNodes);
+  nodes.value = newNodes;
+  edges.value = newEdges;
+  expandedNodes.value.clear();
+  nodeLevelMap.value.clear();
+  fileGraph.nodes.forEach(f => nodeLevelMap.value.set(f.id, 0));
+  navStack.value = [];
+  currentLabel.value = 'Files';
+  await nextTick();
+  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+};
+
 const renderModuleRoot = async (moduleNodes) => {
   // moduleNodes: [{ id, loc, fn_count, languages }]
+  // Spread modules horizontally across the top
   nodes.value = moduleNodes.map((m, i) =>
-    createNode(m.id, { x: 40, y: i * 110 - (moduleNodes.length * 55) }, { fullLabel: m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null })
+    createNode(m.id, { x: i * 210 - ((moduleNodes.length - 1) * 105), y: 0 }, { fullLabel: m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null })
   );
   edges.value = [];
   expandedNodes.value.clear();
   nodeLevelMap.value.clear();
   moduleNodes.forEach((m) => nodeLevelMap.value.set(m.id, 0));
+  navStack.value = [];
+  currentLabel.value = 'Modules';
   await nextTick();
   fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
 };
@@ -332,8 +501,8 @@ const uploadWithFormData = async (formData, sourceName) => {
     const isSingleFile = (data.total_files ?? 0) === 1;
     const hasModuleNodes = tier1.nodes.length > 0;
 
-    // If single-file upload, show function view directly
-    if (isSingleFile) {
+    // If single-file upload (.py/.js/etc, NOT zip), show all functions directly
+    if (isSingleFile && !sourceName.toLowerCase().endsWith('.zip')) {
       const fileId = sourceName;
       try {
         const fnRes = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(fileId)}`, {
@@ -341,10 +510,8 @@ const uploadWithFormData = async (formData, sourceName) => {
         });
         const fnData = await fnRes.json();
         if (fnData?.nodes?.length) {
-          // For single-file uploads, initially show only the main/root function
-          await renderFunctionView(fileId, fnData, { rootOnly: true });
+          await renderFunctionView(fileId, fnData);
         } else {
-          // If backend returns nothing, at least keep the screen clear instead of showing a fake module layer.
           nodes.value = [];
           edges.value = [];
           uploadError.value = 'No function graph found for this file.';
@@ -359,11 +526,79 @@ const uploadWithFormData = async (formData, sourceName) => {
 
     // present module view for ZIP/folder uploads, or fallback to nodes only when no edges exist
     if (hasModuleNodes) {
-      await renderModuleRoot(tier1.nodes);
+      // Auto-expand: if only 1 module, skip the module layer and show files directly
+      if (tier1.nodes.length === 1) {
+        const singleModule = tier1.nodes[0];
+        try {
+          const t2Res = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(singleModule.id)}`, { method: 'GET' });
+          const t2 = await t2Res.json();
+          if (t2?.nodes?.length) {
+            // Render module root first (needed for position anchor), then auto-expand it
+            await renderModuleRoot(tier1.nodes);
+            const moduleNode = nodes.value.find(n => n.id === singleModule.id);
+            if (moduleNode) {
+              const newNodes = t2.nodes.map((f, index) => {
+                const pos = getRootChildPosition(moduleNode, index, t2.nodes.length);
+                nodeLevelMap.value.set(f.id, 1);
+                return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
+              });
+              const newEdges = toVueFlowEdges(t2.edges, [...nodes.value, ...newNodes]);
+              nodes.value = [...nodes.value, ...newNodes];
+              edges.value = [...edges.value, ...newEdges];
+              expandedNodes.value.add(singleModule.id);
+              // auto-expand: show all functions for single-file zips
+              if (t2.nodes.length === 1) {
+                const singleFile = t2.nodes[0];
+                try {
+                  const t3Res = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(singleFile.id)}`, { method: 'GET' });
+                  const t3 = await t3Res.json();
+                  if (t3?.nodes?.length) {
+                    const fileNode = nodes.value.find(n => n.id === singleFile.id);
+                    if (fileNode) {
+                      const fnNodes = t3.nodes.map((fn, i) => {
+                        const pos = getChildPosition(fileNode, i, t3.nodes.length);
+                        nodeLevelMap.value.set(fn.id, 2);
+                        return createNode(fn.id, pos, { fullLabel: fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
+                      });
+                      const structEdges = makeParentChildEdges(fileNode, fnNodes);
+                      const fnCallEdges = toVueFlowEdges(t3.edges, [...nodes.value, ...fnNodes]);
+                      nodes.value = [...nodes.value, ...fnNodes];
+                      edges.value = [...edges.value, ...structEdges, ...fnCallEdges];
+                      expandedNodes.value.add(singleFile.id);
+                    }
+                  }
+                } catch (_) { /* ignore */ }
+              }
+              await nextTick();
+              fitView({ padding: 0.4, duration: 400, maxZoom: 0.9 });
+            }
+          } else {
+            await renderModuleRoot(tier1.nodes);
+          }
+        } catch (_) {
+          await renderModuleRoot(tier1.nodes);
+        }
+      } else {
+        await renderModuleRoot(tier1.nodes);
+      }
     } else {
-      nodes.value = [];
-      edges.value = [];
-      uploadError.value = 'No module nodes were returned by the backend.';
+      // No module structure – fetch and show file-level relations graph
+      try {
+        const filesRes = await sessionManager.apiCall('/graph/files', { method: 'GET' });
+        const filesData = await filesRes.json();
+        if (filesData?.nodes?.length) {
+          await renderFileRelationsView(filesData);
+        } else {
+          uploadError.value = 'No files found in the uploaded source.';
+          nodes.value = [];
+          edges.value = [];
+        }
+      } catch (err) {
+        console.warn('Failed to fetch file graph', err);
+        uploadError.value = 'Could not build file relations graph.';
+        nodes.value = [];
+        edges.value = [];
+      }
     }
     // save render strategy for frontend decisions
     window.__render_strategy = render;
@@ -392,48 +627,45 @@ const renderFunctionView = async (fileId, functionGraph) => {
   const count = functionGraph.nodes.length || 1;
   const radius = Math.max(180, 60 * Math.sqrt(count));
 
-  // support options: { rootOnly: true }
-  const opts = arguments[2] || {};
-  if (opts.rootOnly) {
-    // pick a sensible root: look for 'main', else highest importance (fan_in + fan_out)
-    let root = null;
-    if (Array.isArray(functionGraph.nodes)) {
-      root = functionGraph.nodes.find((n) => n.id === 'main' || n.id.toLowerCase() === 'main');
-      if (!root) {
-        // compute score
-        root = functionGraph.nodes.reduce((best, n) => {
-          const score = (n.fan_in || 0) + (n.fan_out || 0);
-          const bestScore = best ? ((best.fan_in || 0) + (best.fan_out || 0)) : -1;
-          return score > bestScore ? n : best;
-        }, null);
-      }
+  // Build a BFS tree layout from edges so it flows top-down like the image
+  const edgeList = functionGraph.edges || [];
+  const childMap = new Map(functionGraph.nodes.map(n => [n.id, []]));
+  const inDeg = new Map(functionGraph.nodes.map(n => [n.id, 0]));
+  edgeList.forEach(e => {
+    if (childMap.has(e.source) && childMap.has(e.target)) {
+      childMap.get(e.source).push(e.target);
+      inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1);
     }
-
-    if (!root) {
-      // fallback to first node
-      root = functionGraph.nodes[0];
-    }
-
-    // place the root on the left so graph flows left->right
-    const pos = { x: -420, y: 0 };
-    nodeLevelMap.value.set(root.id, 1);
-    nodes.value = [createNode(root.id, pos, { fullLabel: root.id, nodeType: 'function', language: root.language, callCount: root.fan_out, isRoot: true })];
-    edges.value = [];
-    expandedNodes.value.clear();
-    functionLayoutMode.value = true;
-    await nextTick();
-    fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
-    return;
+  });
+  let roots = functionGraph.nodes.filter(n => inDeg.get(n.id) === 0).map(n => n.id);
+  if (roots.length === 0) roots = [functionGraph.nodes[0].id];
+  const levelMap = new Map();
+  const queue = roots.map(r => ({ id: r, lvl: 0 }));
+  const visited = new Set();
+  while (queue.length) {
+    const { id, lvl } = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id); levelMap.set(id, lvl);
+    (childMap.get(id) || []).forEach(c => queue.push({ id: c, lvl: lvl + 1 }));
   }
+  functionGraph.nodes.forEach(n => { if (!levelMap.has(n.id)) levelMap.set(n.id, 0); });
+  const byLevel = new Map();
+  levelMap.forEach((lvl, id) => { if (!byLevel.has(lvl)) byLevel.set(lvl, []); byLevel.get(lvl).push(id); });
+  const posMap = new Map();
+  byLevel.forEach((ids, lvl) => {
+    ids.forEach((id, i) => posMap.set(id, {
+      x: (i - (ids.length - 1) / 2) * FUNCTION_TREE_SIBLING_GAP,
+      y: lvl * FUNCTION_TREE_DEPTH_GAP
+    }));
+  });
 
-  const newNodes = functionGraph.nodes.map((fn, i) => {
-    const angle = (i / count) * Math.PI * 2;
-    const pos = { x: Math.round(center.x + Math.cos(angle) * radius), y: Math.round(center.y + Math.sin(angle) * radius) };
-    nodeLevelMap.value.set(fn.id, 1);
+  const newNodes = functionGraph.nodes.map((fn) => {
+    const pos = posMap.get(fn.id) || { x: 0, y: 0 };
+    nodeLevelMap.value.set(fn.id, levelMap.get(fn.id) || 1);
     return createNode(fn.id, pos, { fullLabel: fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
   });
 
-  const newEdges = toVueFlowEdges(functionGraph.edges, newNodes, { forceStraight: true });
+  const newEdges = toVueFlowEdges(edgeList, newNodes, { forceStraight: false });
   nodes.value = newNodes;
   edges.value = newEdges;
   expandedNodes.value.clear();
@@ -507,46 +739,36 @@ const onNodeClick = async ({ node }) => {
         method: 'GET',
       });
       const res = await response.json();
+      pushNav(node.data?.label || node.id);
       const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
       const newNodes = res.nodes.map((f, index) => {
         const pos = getRootChildPosition(node, index, res.nodes.length);
         nodeLevelMap.value.set(f.id, parentLevel + 1);
         return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
       });
-      const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes]);
+      // structural edges: module → each file
+      const structuralEdges = makeParentChildEdges(node, newNodes);
+      // peer edges: file ↔ file from backend
+      const peerEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes]);
       const existingIds = new Set(nodes.value.map((n) => n.id));
       const existingEdgeIds = new Set(edges.value.map((e) => e.id));
       nodes.value = [...nodes.value, ...newNodes.filter(n => !existingIds.has(n.id))];
-      edges.value = [...edges.value, ...newEdges.filter(e => !existingEdgeIds.has(e.id))];
-      // collapse other modules visually
+      edges.value = [...edges.value,
+        ...structuralEdges.filter(e => !existingEdgeIds.has(e.id)),
+        ...peerEdges.filter(e => !existingEdgeIds.has(e.id))
+      ];
       collapseOthers('module', node.id);
       expandedNodes.value.add(node.id);
       await nextTick();
       fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
     } else if (type === 'file' || type === 'chunk') {
-      // fetch functions for file
+      // Drill into function call graph for this file
       const response = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(node.id)}`, {
         method: 'GET',
       });
       const res = await response.json();
-      const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
-      const newNodes = res.nodes.map((fn, index) => {
-        const pos = getChildPosition(node, index, res.nodes.length);
-        nodeLevelMap.value.set(fn.id, parentLevel + 1);
-        // respect backend-provided node type (chunk vs function vs file)
-        const nodeType = fn.type === 'chunk' ? 'chunk' : (fn.type === 'file' ? 'file' : 'function');
-        return createNode(fn.id, pos, { fullLabel: fn.id, nodeType, language: fn.language, callCount: fn.fan_out });
-      });
-      const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes]);
-      const existingIds = new Set(nodes.value.map((n) => n.id));
-      const existingEdgeIds = new Set(edges.value.map((e) => e.id));
-      nodes.value = [...nodes.value, ...newNodes.filter(n => !existingIds.has(n.id))];
-      edges.value = [...edges.value, ...newEdges.filter(e => !existingEdgeIds.has(e.id))];
-      // collapse other files within view
-      collapseOthers('file', node.id);
-      expandedNodes.value.add(node.id);
-      await nextTick();
-      fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
+      pushNav(node.data?.label || node.id);
+      await renderFunctionView(node.id, res);
     } else {
       // function node - optionally expand via existing expand endpoint
       const response = await sessionManager.apiCall(`/expand/${encodeURIComponent(node.id)}`, {
@@ -595,6 +817,7 @@ const onNodeClick = async ({ node }) => {
         nodeLevelMap.value.set(n.id, level);
         newNodes.push(createNode(n.id, pos, { fullLabel: n.id, nodeType: 'function' }));
       });
+      pushNav(node.data?.label || node.id);
       const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes], { forceStraight: true });
       const existingIds = new Set(nodes.value.map((n) => n.id));
       const existingEdgeIds = new Set(edges.value.map((e) => e.id));
@@ -612,38 +835,59 @@ const onNodeClick = async ({ node }) => {
 };
 
 const onNodeHover = ({ node }) => {
-  // highlight edges connected to this node, dim others
+  // Find directly connected node IDs
+  const connectedIds = new Set([node.id]);
+  edges.value.forEach((e) => {
+    if (e.source === node.id) connectedIds.add(e.target);
+    if (e.target === node.id) connectedIds.add(e.source);
+  });
+
+  // Brighten related edges, dim unrelated
   edges.value = edges.value.map((e) => {
     const isRelated = e.source === node.id || e.target === node.id;
+    const baseColor = e.style?.stroke || EDGE_COLORS.default;
     return {
       ...e,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: isRelated ? 18 : 14,
+        height: isRelated ? 18 : 14,
+        color: isRelated ? baseColor : '#e2e8f0'
+      },
       style: {
         ...(e.style || {}),
-        stroke: isRelated ? '#e11d48' : '#94a3b8',
-        strokeWidth: isRelated ? 4 : 1,
+        stroke: isRelated ? baseColor : '#e2e8f0',
+        strokeWidth: isRelated ? 3 : 1.5,
         opacity: isRelated ? 1 : 0.25
       },
-      animated: !!isRelated,
+      animated: isRelated,
     };
   });
-  // optionally highlight node
+
+  // Highlight connected nodes, fade unconnected
   nodes.value = nodes.value.map((n) => ({
     ...n,
     style: {
-      ...(n.style || {}),
-      opacity: n.id === node.id ? 1 : 0.35
+      ...n.style,
+      opacity: connectedIds.has(n.id) ? 1 : 0.25,
+      filter: n.id === node.id ? 'drop-shadow(0 0 6px rgba(99,102,241,0.5))' : 'none'
     }
   }));
 };
 
-const onNodeUnhover = ({ node }) => {
-  // restore default edge/node styles
+const onNodeUnhover = () => {
+  // restore original edge colors and node opacity
   edges.value = edges.value.map((e) => ({
     ...e,
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 16,
+      height: 16,
+      color: e.style?.stroke || EDGE_COLORS.default
+    },
     style: {
       ...(e.style || {}),
-      stroke: defaultEdgeOptions.style.stroke,
-      strokeWidth: defaultEdgeOptions.style.strokeWidth,
+      strokeWidth: 2,
       opacity: 1
     },
     animated: false,
@@ -651,8 +895,9 @@ const onNodeUnhover = ({ node }) => {
   nodes.value = nodes.value.map((n) => ({
     ...n,
     style: {
-      ...(n.style || {}),
-      opacity: 1
+      ...n.style,
+      opacity: 1,
+      filter: 'none'
     }
   }));
 };
@@ -686,137 +931,274 @@ const collapseOthers = (nodeType, keepId) => {
 </script>
 
 <style scoped>
+/* ── Layout ────────────────────────────────────────── */
 .graph-container {
   display: flex;
+  flex-direction: row;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Sidebar ───────────────────────────────────────── */
+.sidebar {
+  width: 264px;
+  min-width: 264px;
+  background: #0f172a;
+  color: #e2e8f0;
+  display: flex;
   flex-direction: column;
-  height: calc(100vh - 80px);
-  background: white;
+  gap: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
 }
 
-.upload-section {
-  background: #f8f9fa;
-  border-bottom: 2px solid #e0e0e0;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+/* Brand */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid #1e293b;
+}
+.brand-icon {
+  font-size: 28px;
+  line-height: 1;
+  color: #818cf8;
+}
+.brand-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+}
+.brand-sub {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 1px;
 }
 
-.upload-content {
-  max-width: 1200px;
-  margin: 0 auto;
+/* Sidebar sections */
+.sidebar-section {
+  padding: 16px 18px;
+  border-bottom: 1px solid #1e293b;
+}
+.sidebar-section.tips {
+  flex: 1;
+}
+.section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+  margin-bottom: 10px;
 }
 
-.upload-actions {
+/* Back button */
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  margin-bottom: 8px;
+}
+.back-btn:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+.breadcrumb {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
   align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: #475569;
 }
-
-.upload-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.upload-label:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.upload-label.secondary {
-  background: linear-gradient(135deg, #2f6f61 0%, #3f8f7a 100%);
-}
-
-.upload-label.secondary:hover {
-  box-shadow: 0 4px 12px rgba(63, 143, 122, 0.4);
-}
-
-.upload-label.disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-  transform: none;
-  box-shadow: none;
-}
-
-.upload-text.uploading {
-  opacity: 0.7;
-}
-
-.upload-hint {
-  margin-top: 10px;
-  color: #666;
-  font-size: 13px;
-}
-
-.root-picker {
-  margin-top: 12px;
+.crumb { color: #64748b; }
+.crumb-current { color: #94a3b8; font-weight: 600; }
+.crumb-sep { color: #334155; margin: 0 2px; 
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.root-label {
-  font-size: 13px;
-  color: #3a3a3a;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  color: #94a3b8;
+  font-size: 12px;
   font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  margin-bottom: 8px;
 }
+.back-btn:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: #475569;
+}
+.crumb { color: #64748b; }
+.crumb-current { color: #94a3b8; font-weight: 600; }
+.crumb-sep { color: #334155; margin: 0 2px; }
 
-.root-select {
-  min-width: 220px;
-  border: 1px solid #cfd8dc;
+/* Upload zone */
+.upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 12px;
+  border: 2px dashed #334155;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 180ms, background 180ms;
+  background: #1e293b;
+  margin-bottom: 8px;
+}
+.upload-zone:hover:not(.disabled) {
+  border-color: #818cf8;
+  background: #1e2a45;
+}
+.upload-zone.disabled { opacity: 0.5; cursor: not-allowed; }
+.upload-zone-icon { font-size: 24px; }
+.upload-zone-text { font-size: 12px; font-weight: 600; color: #cbd5e1; line-height: 1.3; }
+.upload-zone-hint { font-size: 10px; color: #475569; margin-top: 2px; }
+
+.upload-btn-folder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 180ms, border-color 180ms, color 180ms;
+}
+.upload-btn-folder:hover:not(.disabled) {
+  background: #253347;
+  border-color: #64748b;
+  color: #e2e8f0;
+}
+.upload-btn-folder.disabled { opacity: 0.5; cursor: not-allowed; }
+.file-input { display: none; }
+
+/* Status */
+.status-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.ok  { background: #22c55e; }
+.status-dot.err { background: #f87171; }
+.status-filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-msg {
+  font-size: 12px;
+  line-height: 1.4;
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 7px 10px;
+}
+.status-msg.ok  { background: #14532d33; color: #86efac; }
+.status-msg.err { background: #7f1d1d33; color: #fca5a5; }
+.status-count {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.count-num {
+  font-weight: 700;
+  color: #818cf8;
+}
+
+/* Legend */
+.legend { display: flex; flex-direction: column; gap: 7px; }
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.legend-swatch.module   { background: #3b82f6; }
+.legend-swatch.file     { background: #f59e0b; }
+.legend-swatch.function { background: #10b981; }
+.legend-swatch.chunk    { background: #8b5cf6; }
+.legend-icon {
   font-size: 13px;
-  color: #1f2a37;
-  background: #fff;
+  width: 16px;
+  text-align: center;
+  color: #cbd5e1;
 }
 
-.root-select:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+/* Tips */
+.tips-list {
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
-
-.file-input {
-  display: none;
+.tips-list li {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
 }
+.tips-list strong { color: #94a3b8; }
 
-.file-info {
-  margin-top: 12px;
-  color: #666;
-  font-size: 14px;
-}
-
-.file-info strong {
-  color: #667eea;
-  font-family: monospace;
-}
-
-.error-message {
-  margin-top: 12px;
-  color: #d32f2f;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.success-message {
-  margin-top: 12px;
-  color: #388e3c;
-  font-size: 14px;
-  font-weight: 500;
-}
-
+/* ── Graph canvas ──────────────────────────────────── */
 .graph-section {
   flex: 1;
   position: relative;
   overflow: hidden;
+  background: #f4f6f9;
+  background-image: radial-gradient(circle, #d1d9e6 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 .vue-flow {
@@ -824,17 +1206,46 @@ const collapseOthers = (nodeType, keepId) => {
   height: 100%;
 }
 
+/* ── Empty state ───────────────────────────────────── */
 .empty-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #999;
-  font-size: 18px;
-  background: linear-gradient(
-    135deg,
-    rgba(102, 126, 234, 0.05) 0%,
-    rgba(118, 75, 162, 0.05) 100%
-  );
+  gap: 12px;
+  text-align: center;
+  padding: 40px;
+}
+.empty-icon {
+  font-size: 56px;
+  opacity: 0.15;
+  line-height: 1;
+}
+.empty-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #334155;
+}
+.empty-sub {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.6;
+}
+.empty-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.empty-badges span {
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: monospace;
 }
 </style>

@@ -10,8 +10,8 @@ from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from analyzer import analyze_files, build_module_graph, decide_render_strategy
-from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, delete_session_data
+from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data
+from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph
 import logging
 
 logger = logging.getLogger(__name__)
@@ -500,12 +500,14 @@ async def upload(
         # Update session's file list
         session_info["files"] = [f["path"] for f in all_files]
 
-        # cache parsed functions for this session
+        # cache parsed functions and raw file list for this session
         try:
             tier1 = build_module_graph(functions)
             SESSION_CACHE[session_id] = {
                 "functions": functions,
-                "tier1": tier1
+                "tier1": tier1,
+                # store raw file info (without content) for fallback file graph
+                "all_files": [{"path": f["path"], "language": f["language"]} for f in all_files],
             }
             
             # Also update global cache for fallback
@@ -602,6 +604,33 @@ def api_tier2(request: Request, module_name: str):
             from analyzer import build_file_graph
             return build_file_graph(module_name, functions)
         raise HTTPException(status_code=500, detail="Error fetching tier2 graph and no cache available")
+
+
+@app.get("/graph/files")
+def api_all_files(request: Request):
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+        return get_all_files_graph(session_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(f"Failed to fetch file graph from DB for session {session_id}")
+        # Fallback: build from session cache
+        cache = SESSION_CACHE.get(session_id, {})
+        functions = cache.get("functions", [])
+        if functions:
+            return build_all_files_graph(functions)
+        # Last resort: raw file list with no edges
+        raw_files = cache.get("all_files", [])
+        if raw_files:
+            return {
+                "nodes": [{"id": f["path"], "type": "file", "language": f["language"], "fn_count": 0} for f in raw_files],
+                "edges": [],
+                "tier": "files",
+            }
+        raise HTTPException(status_code=500, detail="Error fetching file graph and no cache available")
 
 
 @app.get("/graph/tier3")

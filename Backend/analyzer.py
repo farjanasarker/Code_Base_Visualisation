@@ -557,6 +557,38 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
     return {"nodes": nodes, "edges": edges, "tier": 1}
 
 
+def build_all_files_graph(all_functions: List[Dict]) -> Dict:
+    """Build a flat file-relations graph across all files (no module grouping)."""
+    files_map: Dict[str, Dict] = {}
+    for fn in all_functions:
+        f = fn.get("file")
+        if not f:
+            continue
+        if f not in files_map:
+            files_map[f] = {"language": fn.get("language"), "fn_count": 0}
+        files_map[f]["fn_count"] += 1
+
+    fn_to_file = {fn.get("name"): fn.get("file") for fn in all_functions}
+    file_calls: Dict[tuple, int] = {}
+    for fn in all_functions:
+        for called in fn.get("calls", []):
+            src_f = fn.get("file")
+            tgt_f = fn_to_file.get(called)
+            if src_f and tgt_f and tgt_f != src_f:
+                key = (src_f, tgt_f)
+                file_calls[key] = file_calls.get(key, 0) + 1
+
+    nodes = [
+        {"id": f, "type": "file", "language": info["language"], "fn_count": info["fn_count"]}
+        for f, info in files_map.items()
+    ]
+    edges = [
+        {"source": src, "target": tgt, "call_count": cnt}
+        for (src, tgt), cnt in file_calls.items()
+    ]
+    return {"nodes": nodes, "edges": edges, "tier": "files"}
+
+
 def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
     files_in_module = {}
     for fn in all_functions:

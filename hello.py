@@ -1,5 +1,6 @@
 def a():
     b()
+    d()
 
 def b():
     print("hello")
@@ -11,3 +12,4 @@ def c():
 
 def d():
     print("d")
+    c()
