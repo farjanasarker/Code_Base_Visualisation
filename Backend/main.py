@@ -392,7 +392,7 @@ def walk_folder(root_path: str) -> list[dict]:
 
             files.append(
                 {
-                    "path": str(filepath.relative_to(root_path)),
+                    "path": filepath.relative_to(root_path).as_posix(),
                     "language": detect_language(ext),
                     "size": size,
                     "content": content,
@@ -426,7 +426,7 @@ async def persist_folder_upload(files: list[UploadFile], destination_root: str) 
 
     for uploaded in files:
         file_name = uploaded.filename or ""
-        safe_rel_path = sanitize_relative_path(file_name)
+        safe_rel_path = sanitize_relative_path(file_name.replace("\\", "/"))
         ext = safe_rel_path.suffix.lower()
 
         if ext not in SUPPORTED_EXTENSIONS or ext == ".zip":
@@ -519,7 +519,7 @@ async def upload(
 
         # Persist to Neo4j with session_id (best-effort)
         try:
-            store_all(functions, session_id)
+            store_all(functions, session_id, all_files)
             logger.info(f"✅ Stored graph to Neo4j for session {session_id}")
         except Exception:
             logger.exception(f"⚠️ Failed to store graph to Neo4j for session {session_id}")
@@ -612,6 +612,25 @@ def api_all_files(request: Request):
         session_id = request.headers.get("X-Session-ID")
         session_id = validate_session(session_id)
         update_session_activity(session_id)
+
+        cache = SESSION_CACHE.get(session_id, {})
+        functions = cache.get("functions", [])
+        raw_files = cache.get("all_files", [])
+
+        if functions:
+            graph = build_all_files_graph(functions)
+            existing = {n["id"] for n in graph.get("nodes", [])}
+            for f in raw_files:
+                fp = f.get("path")
+                if fp and fp not in existing:
+                    graph["nodes"].append({
+                        "id": fp,
+                        "type": "file",
+                        "language": f.get("language"),
+                        "fn_count": 0,
+                    })
+            return graph
+
         return get_all_files_graph(session_id)
     except HTTPException:
         raise
@@ -639,7 +658,14 @@ def api_tier3(request: Request, file_path: str):
         session_id = request.headers.get("X-Session-ID")
         session_id = validate_session(session_id)
         update_session_activity(session_id)
-        
+
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        if functions:
+            from analyzer import build_function_graph
+            graph = build_function_graph(file_path, functions)
+            if graph.get("nodes"):
+                return graph
+
         return get_tier3(file_path, session_id)
     except HTTPException:
         raise

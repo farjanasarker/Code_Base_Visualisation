@@ -273,13 +273,27 @@ const formatNodeLabel = (name) => {
   return `${name.slice(0, 8)}...`;
 };
 
+const getDisplayLabel = (fullLabel, nodeType = 'module') => {
+  if (!fullLabel) {
+    return '';
+  }
+
+  if (nodeType === 'file') {
+    const normalized = fullLabel.replace(/\\/g, '/');
+    const baseName = normalized.split('/').filter(Boolean).pop() || normalized;
+    return formatNodeLabel(baseName);
+  }
+
+  return formatNodeLabel(fullLabel);
+};
+
 const createNode = (id, position, opts = {}) => {
   const { label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false, language } = opts;
   return {
     id,
     type: 'functionNode',
     data: {
-      label: label || formatNodeLabel(fullLabel || id),
+      label: label || getDisplayLabel(fullLabel || id, nodeType),
       fullLabel: fullLabel || id,
       callCount,
       nodeType,
@@ -442,6 +456,57 @@ const renderFileRelationsView = async (fileGraph) => {
   fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
 };
 
+const renderTier1Graph = async (tier1) => {
+  if (!tier1 || !Array.isArray(tier1.nodes) || tier1.nodes.length === 0) {
+    uploadError.value = 'No graph data returned from backend.';
+    nodes.value = [];
+    edges.value = [];
+    return;
+  }
+
+  const moduleNodes = tier1.nodes.filter((n) => n.type === 'module');
+  const fileNodes = tier1.nodes.filter((n) => n.type === 'file');
+
+  if (moduleNodes.length === 0) {
+    await renderFileRelationsView(tier1);
+    return;
+  }
+
+  const mixedNodes = [];
+  const moduleCols = Math.max(1, moduleNodes.length);
+  const fileCols = Math.max(1, fileNodes.length);
+
+  moduleNodes.forEach((m, index) => {
+    mixedNodes.push(
+      createNode(
+        m.id,
+        { x: index * 210 - ((moduleCols - 1) * 105), y: 0 },
+        { fullLabel: m.label || m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null }
+      )
+    );
+  });
+
+  fileNodes.forEach((f, index) => {
+    mixedNodes.push(
+      createNode(
+        f.id,
+        { x: index * 210 - ((fileCols - 1) * 105), y: 180 },
+        { fullLabel: f.id, nodeType: 'file', language: f.language }
+      )
+    );
+  });
+
+  nodes.value = mixedNodes;
+  edges.value = toVueFlowEdges(tier1.edges || [], mixedNodes);
+  expandedNodes.value.clear();
+  nodeLevelMap.value.clear();
+  tier1.nodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
+  navStack.value = [];
+  currentLabel.value = 'Modules';
+  await nextTick();
+  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+};
+
 const renderModuleRoot = async (moduleNodes) => {
   // moduleNodes: [{ id, loc, fn_count, languages }]
   // Spread modules horizontally across the top
@@ -485,13 +550,16 @@ const uploadWithFormData = async (formData, sourceName) => {
     uploadSuccess.value = true;
 
     const render = data.render_strategy;
-    
-    const tier1Response = await sessionManager.apiCall('/graph/tier1', {
-      method: 'GET',
-    });
-    const tier1 = await tier1Response.json();
+    const tier1 = data.tier1_graph || null;
 
-    if (!tier1 || !Array.isArray(tier1.nodes)) {
+    const resolvedTier1 = tier1 || await (async () => {
+      const tier1Response = await sessionManager.apiCall('/graph/tier1', {
+        method: 'GET',
+      });
+      return await tier1Response.json();
+    })();
+
+    if (!resolvedTier1 || !Array.isArray(resolvedTier1.nodes)) {
       uploadError.value = 'No graph data returned from backend.';
       nodes.value = [];
       edges.value = [];
@@ -499,7 +567,8 @@ const uploadWithFormData = async (formData, sourceName) => {
     }
 
     const isSingleFile = (data.total_files ?? 0) === 1;
-    const hasModuleNodes = tier1.nodes.length > 0;
+    const hasModuleNodes = resolvedTier1.nodes.some((n) => n.type === 'module');
+    const hasFileNodes = resolvedTier1.nodes.some((n) => n.type === 'file');
 
     // If single-file upload (.py/.js/etc, NOT zip), show all functions directly
     if (isSingleFile && !sourceName.toLowerCase().endsWith('.zip')) {
@@ -524,66 +593,63 @@ const uploadWithFormData = async (formData, sourceName) => {
       }
     }
 
-    // present module view for ZIP/folder uploads, or fallback to nodes only when no edges exist
-    if (hasModuleNodes) {
+    // Render tier1 exactly as the backend classified it.
+    if (hasModuleNodes && !hasFileNodes && resolvedTier1.nodes.length === 1) {
       // Auto-expand: if only 1 module, skip the module layer and show files directly
-      if (tier1.nodes.length === 1) {
-        const singleModule = tier1.nodes[0];
-        try {
-          const t2Res = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(singleModule.id)}`, { method: 'GET' });
-          const t2 = await t2Res.json();
-          if (t2?.nodes?.length) {
-            // Render module root first (needed for position anchor), then auto-expand it
-            await renderModuleRoot(tier1.nodes);
-            const moduleNode = nodes.value.find(n => n.id === singleModule.id);
-            if (moduleNode) {
-              const newNodes = t2.nodes.map((f, index) => {
-                const pos = getRootChildPosition(moduleNode, index, t2.nodes.length);
-                nodeLevelMap.value.set(f.id, 1);
-                return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
-              });
-              const newEdges = toVueFlowEdges(t2.edges, [...nodes.value, ...newNodes]);
-              nodes.value = [...nodes.value, ...newNodes];
-              edges.value = [...edges.value, ...newEdges];
-              expandedNodes.value.add(singleModule.id);
-              // auto-expand: show all functions for single-file zips
-              if (t2.nodes.length === 1) {
-                const singleFile = t2.nodes[0];
-                try {
-                  const t3Res = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(singleFile.id)}`, { method: 'GET' });
-                  const t3 = await t3Res.json();
-                  if (t3?.nodes?.length) {
-                    const fileNode = nodes.value.find(n => n.id === singleFile.id);
-                    if (fileNode) {
-                      const fnNodes = t3.nodes.map((fn, i) => {
-                        const pos = getChildPosition(fileNode, i, t3.nodes.length);
-                        nodeLevelMap.value.set(fn.id, 2);
-                        return createNode(fn.id, pos, { fullLabel: fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
-                      });
-                      const structEdges = makeParentChildEdges(fileNode, fnNodes);
-                      const fnCallEdges = toVueFlowEdges(t3.edges, [...nodes.value, ...fnNodes]);
-                      nodes.value = [...nodes.value, ...fnNodes];
-                      edges.value = [...edges.value, ...structEdges, ...fnCallEdges];
-                      expandedNodes.value.add(singleFile.id);
-                    }
+      const singleModule = resolvedTier1.nodes[0];
+      try {
+        const t2Res = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(singleModule.id)}`, { method: 'GET' });
+        const t2 = await t2Res.json();
+        if (t2?.nodes?.length) {
+          // Render module root first (needed for position anchor), then auto-expand it
+          await renderModuleRoot(resolvedTier1.nodes);
+          const moduleNode = nodes.value.find(n => n.id === singleModule.id);
+          if (moduleNode) {
+            const newNodes = t2.nodes.map((f, index) => {
+              const pos = getRootChildPosition(moduleNode, index, t2.nodes.length);
+              nodeLevelMap.value.set(f.id, 1);
+              return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
+            });
+            const newEdges = toVueFlowEdges(t2.edges, [...nodes.value, ...newNodes]);
+            nodes.value = [...nodes.value, ...newNodes];
+            edges.value = [...edges.value, ...newEdges];
+            expandedNodes.value.add(singleModule.id);
+            if (t2.nodes.length === 1) {
+              const singleFile = t2.nodes[0];
+              try {
+                const t3Res = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(singleFile.id)}`, { method: 'GET' });
+                const t3 = await t3Res.json();
+                if (t3?.nodes?.length) {
+                  const fileNode = nodes.value.find(n => n.id === singleFile.id);
+                  if (fileNode) {
+                    const fnNodes = t3.nodes.map((fn, i) => {
+                      const pos = getChildPosition(fileNode, i, t3.nodes.length);
+                      nodeLevelMap.value.set(fn.id, 2);
+                      return createNode(fn.id, pos, { fullLabel: fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
+                    });
+                    const structEdges = makeParentChildEdges(fileNode, fnNodes);
+                    const fnCallEdges = toVueFlowEdges(t3.edges, [...nodes.value, ...fnNodes]);
+                    nodes.value = [...nodes.value, ...fnNodes];
+                    edges.value = [...edges.value, ...structEdges, ...fnCallEdges];
+                    expandedNodes.value.add(singleFile.id);
                   }
-                } catch (_) { /* ignore */ }
-              }
-              await nextTick();
-              fitView({ padding: 0.4, duration: 400, maxZoom: 0.9 });
+                }
+              } catch (_) { /* ignore */ }
             }
-          } else {
-            await renderModuleRoot(tier1.nodes);
+            await nextTick();
+            fitView({ padding: 0.4, duration: 400, maxZoom: 0.9 });
           }
-        } catch (_) {
-          await renderModuleRoot(tier1.nodes);
+        } else {
+          await renderModuleRoot(resolvedTier1.nodes);
         }
-      } else {
-        await renderModuleRoot(tier1.nodes);
+      } catch (_) {
+        await renderModuleRoot(resolvedTier1.nodes);
       }
+    } else if (hasModuleNodes || hasFileNodes) {
+      await renderTier1Graph(resolvedTier1);
     } else {
       // No module structure – fetch and show file-level relations graph
-      try {
+        try {
         const filesRes = await sessionManager.apiCall('/graph/files', { method: 'GET' });
         const filesData = await filesRes.json();
         if (filesData?.nodes?.length) {

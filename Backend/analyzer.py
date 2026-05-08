@@ -4,6 +4,7 @@ from typing import List, Dict, Tuple
 import importlib
 import ast
 import logging
+import re
 
 from db import add_edge
 
@@ -186,20 +187,102 @@ class UniversalParser:
         try:
             parser = get_parser(language)
         except Exception:
-            return self._parse_python_ast(filepath, content) if language == "python" else []
+            if language == "python":
+                return self._parse_python_ast(filepath, content)
+            if language == "java":
+                return self._parse_java_regex(filepath, content)
+            return []
 
         try:
             tree = parser.parse(bytes(content, "utf8"))
         except Exception:
-            return self._parse_python_ast(filepath, content) if language == "python" else []
+            if language == "python":
+                return self._parse_python_ast(filepath, content)
+            if language == "java":
+                return self._parse_java_regex(filepath, content)
+            return []
 
         functions = self._extract_functions(tree, content, filepath, language)
-        if not functions and language == "python":
-            return self._parse_python_ast(filepath, content)
+        if not functions:
+            if language == "python":
+                return self._parse_python_ast(filepath, content)
+            if language == "java":
+                return self._parse_java_regex(filepath, content)
 
         for fn in functions:
             fn.calls = self._extract_calls(tree, content, language, fn.name)
             fn.fan_out = len(fn.calls)
+        return functions
+
+    def _parse_java_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
+        module = Path(filepath).parts[0] if Path(filepath).parts else "root"
+        class_match = re.search(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)", content)
+        class_name = class_match.group(1) if class_match else None
+
+        # Match Java methods and constructors with bodies.
+        method_pattern = re.compile(
+            r"(?ms)^\s*(?:@[\w.]+\s*)*(?:public|protected|private|static|final|native|synchronized|abstract|strictfp|\s)+"
+            r"(?:[\w<>\[\],.?]+\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{"
+        )
+
+        functions: List[ParsedFunction] = []
+        seen = set()
+        keywords = {
+            "if", "for", "while", "switch", "catch", "return", "new", "throw", "super", "this",
+            "try", "else", "case", "do", "synchronized",
+        }
+
+        for match in method_pattern.finditer(content):
+            fn_name = match.group(1)
+            key = (fn_name, match.start())
+            if key in seen:
+                continue
+            seen.add(key)
+
+            start_line = content.count("\n", 0, match.start()) + 1
+
+            # Find body range by brace matching.
+            brace_start = content.find("{", match.end() - 1)
+            if brace_start < 0:
+                continue
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+
+            method_body = content[brace_start:end_idx + 1]
+            end_line = content.count("\n", 0, end_idx) + 1
+
+            calls = []
+            for call_match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", method_body):
+                callee = call_match.group(1)
+                if callee not in keywords and callee != fn_name:
+                    calls.append(callee)
+
+            complexity = 1
+            for kw in ["if", "for", "while", "case", "catch", "&&", "||"]:
+                complexity += method_body.count(kw)
+
+            functions.append(ParsedFunction(
+                name=fn_name,
+                file=filepath,
+                language="java",
+                module=module,
+                virtual_module=class_name or module,
+                line_start=start_line,
+                line_end=end_line,
+                complexity=complexity,
+                calls=sorted(set(calls)),
+                fan_out=len(set(calls)),
+            ))
+
         return functions
 
     def _parse_python_ast(self, filepath: str, content: str) -> List[ParsedFunction]:
@@ -456,6 +539,91 @@ def filter_top_nodes(functions: List[Dict], max_n: int = 100) -> List[Dict]:
     return sorted(functions, key=lambda f: f.get("fan_in", 0) + f.get("fan_out", 0), reverse=True)[:max_n]
 
 
+def _detect_module_structure(files: List[Dict]) -> Dict[str, str]:
+    """
+    Detect module assignments from the uploaded folder hierarchy.
+
+    Rules:
+    1. Prefer the path that starts at the uploaded root folder.
+     2. If a file lives directly under src/, it has no module and should be
+         rendered as a file node.
+     3. If a file lives under src/<subdir>/..., its module is the subdir path
+         relative to src.
+     4. If a file is not under src/, its module is its parent directory.
+
+    Examples:
+    - lab6/src/Builder.java -> lab6/src
+    - lab6/src/lab6b/Image.java -> lab6/src/lab6b
+    - lab6/README.md -> lab6
+
+    Returns a mapping of file path -> module name.
+    """
+    module_map = {}
+
+    def _normalize_path(path: str) -> str:
+        return path.replace("\\", "/")
+
+    def _as_module_path(path: str) -> str:
+        normalized = _normalize_path(path)
+        parts = Path(normalized).parts
+        if not parts:
+            return "root"
+
+        try:
+            src_index = parts.index("src")
+        except ValueError:
+            src_index = -1
+
+        if src_index >= 0:
+            remaining = parts[src_index + 1:]
+            if len(remaining) <= 1:
+                return ""
+
+            module_parts = list(remaining[:-1])
+            return Path(*module_parts).as_posix() if module_parts else ""
+
+        if len(parts) > 1:
+            return Path(*parts[:-1]).as_posix()
+
+        return ""
+
+    for file_info in files:
+        path = file_info.get("path", "")
+        if path:
+            module_map[path] = _as_module_path(path)
+
+    return module_map
+
+
+def _extract_file_imports(content: str, language: str) -> List[str]:
+    if language != "java":
+        return []
+
+    imports = []
+    for match in re.finditer(r"^\s*import\s+(?:static\s+)?([\w.]+)\s*;", content, re.MULTILINE):
+        imports.append(match.group(1).split(".")[-1])
+
+    # Also treat class references as file-level relations for same-package Java files.
+    for match in re.finditer(r"\bnew\s+([A-Z][A-Za-z0-9_]*)\s*\(", content):
+        imports.append(match.group(1))
+
+    for match in re.finditer(r"\bextends\s+([A-Z][A-Za-z0-9_]*)\b", content):
+        imports.append(match.group(1))
+
+    for match in re.finditer(r"\bimplements\s+([A-Z][A-Za-z0-9_\s,]*)\b", content):
+        names = [p.strip() for p in match.group(1).split(",") if p.strip()]
+        imports.extend(names)
+
+    # De-duplicate while preserving order
+    seen = set()
+    deduped = []
+    for name in imports:
+        if name not in seen:
+            seen.add(name)
+            deduped.append(name)
+    return deduped
+
+
 def analyze_files(files: List[Dict]) -> List[Dict]:
     """Parse all supported files, apply file strategies, chunk god files and store edges via `add_edge`.
 
@@ -463,6 +631,14 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
     """
     parser = UniversalParser()
     all_functions: List[ParsedFunction] = []
+    
+    # Detect module structure
+    module_map = _detect_module_structure(files)
+    file_import_map = {}
+
+    for file_info in files:
+        file_path = file_info.get("path", "<in-memory>")
+        file_import_map[file_path] = _extract_file_imports(file_info.get("content", ""), file_info.get("language", ""))
 
     # First pass: parse files and decide strategies
     for file_info in files:
@@ -474,39 +650,36 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
         if not content.strip():
             continue
 
-        strategy = detect_file_strategy(file_info.get("path", "<in-memory>"), content)
+        file_path = file_info.get("path", "<in-memory>").replace("\\", "/")
+        strategy = detect_file_strategy(file_path, content)
         if strategy == "data_file":
             continue
 
-        parsed = parser.parse_file(file_info.get("path", "<in-memory>"), content, lang)
+        parsed = parser.parse_file(file_path, content, lang)
+        
+        # Override module based on detected structure
+        detected_module = module_map.get(file_info.get("path", ""), "root")
+        for p in parsed:
+            p.module = detected_module
 
         # convert ParsedFunction objects to dicts for chunking convenience
         parsed_dicts = [p.__dict__ for p in parsed]
 
         if strategy == "god_file":
-            chunks = chunk_god_file(file_info.get("path", "<in-memory>"), content, lang, parsed_dicts)
+            chunks = chunk_god_file(file_path, content, lang, parsed_dicts)
             # assign virtual modules
             for chunk in chunks:
                 names_in_chunk = {f["name"] for f in chunk["functions"]}
                 for p in parsed:
                     if p.name in names_in_chunk:
                         p.virtual_module = chunk["virtual_module"]
-                        p.module = chunk["virtual_module"]
 
         all_functions.extend(parsed)
 
     # compute fan-in
     all_functions = parser.compute_fan_in(all_functions)
 
-    # store edges in DB for functions that call other parsed functions
-    name_set = {fn.name for fn in all_functions}
-    for fn in all_functions:
-        for called in fn.calls:
-            if called in name_set:
-                try:
-                    add_edge(fn.name, called)
-                except Exception:
-                    logger.exception("failed to add edge to DB")
+    # CALLS edges are persisted later in store_all() with proper session scoping.
 
     # return serializable list of dicts
     return [
@@ -522,37 +695,94 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
             "calls": fn.calls,
             "fan_in": fn.fan_in,
             "fan_out": fn.fan_out,
+            "imports": file_import_map.get(fn.file, []),
         }
         for fn in all_functions
     ]
 
 
 def build_module_graph(all_functions: List[Dict]) -> Dict:
-    module_stats = {}
-    for fn in all_functions:
-        m = fn.get("module")
-        if m not in module_stats:
-            module_stats[m] = {"loc": 0, "fn_count": 0, "languages": set()}
-        module_stats[m]["loc"] += (fn.get("line_end", 0) - fn.get("line_start", 0))
-        module_stats[m]["fn_count"] += 1
-        module_stats[m]["languages"].add(fn.get("language"))
+    group_stats = {}
+    fn_to_group = {}
 
-    fn_to_module = {fn.get("name"): fn.get("module") for fn in all_functions}
-    module_calls = {}
+    file_to_imports = {}
+
     for fn in all_functions:
+        module_name = (fn.get("module") or "").strip()
+        if module_name:
+            group_id = module_name
+            group_type = "module"
+            label = module_name
+        else:
+            group_id = fn.get("file")
+            group_type = "file"
+            label = fn.get("file")
+
+        fn_to_group[fn.get("name")] = group_id
+
+        if group_id not in group_stats:
+            group_stats[group_id] = {
+                "id": group_id,
+                "type": group_type,
+                "label": label,
+                "loc": 0,
+                "fn_count": 0,
+                "languages": set(),
+            }
+
+        group_stats[group_id]["loc"] += (fn.get("line_end", 0) - fn.get("line_start", 0))
+        group_stats[group_id]["fn_count"] += 1
+        group_stats[group_id]["languages"].add(fn.get("language"))
+        if fn.get("imports"):
+            file_to_imports.setdefault(fn.get("file"), set()).update(fn.get("imports", []))
+
+    file_to_group = {}
+    for fn in all_functions:
+        file_path = fn.get("file")
+        if not file_path:
+            continue
+        module_name = (fn.get("module") or "").strip()
+        file_to_group[file_path] = module_name if module_name else file_path
+
+    file_name_to_group = {}
+    for fn in all_functions:
+        file_path = fn.get("file")
+        if not file_path:
+            continue
+        file_key = Path(file_path).stem
+        file_name_to_group.setdefault(file_key, file_to_group.get(file_path, file_path))
+
+    group_calls = {}
+    for fn in all_functions:
+        src_group = fn_to_group.get(fn.get("name"))
         for called in fn.get("calls", []):
-            target_module = fn_to_module.get(called)
-            if target_module and target_module != fn.get("module"):
-                key = (fn.get("module"), target_module)
-                module_calls[key] = module_calls.get(key, 0) + 1
+            tgt_group = fn_to_group.get(called)
+            if tgt_group and tgt_group != src_group:
+                key = (src_group, tgt_group)
+                group_calls[key] = group_calls.get(key, 0) + 1
+
+    for file_path, imported_names in file_to_imports.items():
+        src_group = file_to_group.get(file_path)
+        for imported_name in imported_names:
+            tgt_group = file_name_to_group.get(imported_name)
+            if tgt_group and tgt_group != src_group:
+                key = (src_group, tgt_group)
+                group_calls[key] = group_calls.get(key, 0) + 1
 
     nodes = [
-        {"id": m, "type": "module", "loc": s["loc"], "fn_count": s["fn_count"], "languages": list(s["languages"])}
-        for m, s in module_stats.items()
+        {
+            "id": s["id"],
+            "type": s["type"],
+            "label": s["label"],
+            "loc": s["loc"],
+            "fn_count": s["fn_count"],
+            "languages": list(s["languages"]),
+        }
+        for s in group_stats.values()
     ]
     edges = [
         {"source": src, "target": tgt, "call_count": cnt}
-        for (src, tgt), cnt in module_calls.items()
+        for (src, tgt), cnt in group_calls.items()
     ]
     return {"nodes": nodes, "edges": edges, "tier": 1}
 
@@ -560,6 +790,7 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
 def build_all_files_graph(all_functions: List[Dict]) -> Dict:
     """Build a flat file-relations graph across all files (no module grouping)."""
     files_map: Dict[str, Dict] = {}
+    file_imports: Dict[str, set] = {}
     for fn in all_functions:
         f = fn.get("file")
         if not f:
@@ -567,8 +798,11 @@ def build_all_files_graph(all_functions: List[Dict]) -> Dict:
         if f not in files_map:
             files_map[f] = {"language": fn.get("language"), "fn_count": 0}
         files_map[f]["fn_count"] += 1
+        if fn.get("imports"):
+            file_imports.setdefault(f, set()).update(fn.get("imports", []))
 
     fn_to_file = {fn.get("name"): fn.get("file") for fn in all_functions}
+    file_name_to_file = {Path(fn.get("file")).stem: fn.get("file") for fn in all_functions if fn.get("file")}
     file_calls: Dict[tuple, int] = {}
     for fn in all_functions:
         for called in fn.get("calls", []):
@@ -576,6 +810,13 @@ def build_all_files_graph(all_functions: List[Dict]) -> Dict:
             tgt_f = fn_to_file.get(called)
             if src_f and tgt_f and tgt_f != src_f:
                 key = (src_f, tgt_f)
+                file_calls[key] = file_calls.get(key, 0) + 1
+
+    for src_file, imported_names in file_imports.items():
+        for imported_name in imported_names:
+            tgt_f = file_name_to_file.get(imported_name)
+            if tgt_f and tgt_f != src_file:
+                key = (src_file, tgt_f)
                 file_calls[key] = file_calls.get(key, 0) + 1
 
     nodes = [
@@ -601,13 +842,24 @@ def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
 
     fn_to_file = {fn.get("name"): fn.get("file") for fn in all_functions if fn.get("module") == module_name}
     file_calls = {}
+    file_imports = {}
     for fn in all_functions:
         if fn.get("module") != module_name:
             continue
+        if fn.get("imports"):
+            file_imports.setdefault(fn.get("file"), set()).update(fn.get("imports", []))
         for called in fn.get("calls", []):
             target_file = fn_to_file.get(called)
             if target_file and target_file != fn.get("file"):
                 key = (fn.get("file"), target_file)
+                file_calls[key] = file_calls.get(key, 0) + 1
+
+    file_name_to_file = {Path(fn.get("file")).stem: fn.get("file") for fn in all_functions if fn.get("module") == module_name and fn.get("file")}
+    for src_file, imported_names in file_imports.items():
+        for imported_name in imported_names:
+            target_file = file_name_to_file.get(imported_name)
+            if target_file and target_file != src_file:
+                key = (src_file, target_file)
                 file_calls[key] = file_calls.get(key, 0) + 1
 
     nodes = [

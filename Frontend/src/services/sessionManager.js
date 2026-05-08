@@ -85,10 +85,15 @@ class SessionManager {
       headers['Content-Type'] = 'application/json';
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+    const doFetch = (sessionHeader) => fetch(`${API_BASE}${endpoint}`, {
       ...options,
-      headers,
+      headers: {
+        ...headers,
+        'X-Session-ID': sessionHeader,
+      },
     });
+
+    let response = await doFetch(sessionId);
 
     // Handle common HTTP errors
     if (!response.ok) {
@@ -98,7 +103,14 @@ class SessionManager {
         throw new Error('Session expired. Please refresh the page.');
       }
       if (response.status === 404) {
-        throw new Error('Session not found. Starting new session...');
+        // Session may be lost after backend restart. Re-create and retry once.
+        this.clearSession();
+        const newSessionId = await this.init();
+        response = await doFetch(newSessionId);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response;
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
