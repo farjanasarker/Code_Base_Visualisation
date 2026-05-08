@@ -7,7 +7,7 @@
       <div class="sidebar-brand">
         <span class="brand-icon">⬡</span>
         <div>
-          <div class="brand-name">CodeFlow</div>
+          <div class="brand-name">CodeLens</div>
           <div class="brand-sub">Codebase Visualizer</div>
         </div>
       </div>
@@ -773,15 +773,30 @@ const handleFolderUpload = async (event) => {
   if (selectedFiles.length === 0) return;
 
   try {
+    const CLIENT_SKIP_DIRS = ["node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build", ".idea", ".vscode", "uploads"];
     const formData = new FormData();
+    let accepted = 0;
+    let skipped = 0;
+
     selectedFiles.forEach((file) => {
       const relPath = file.webkitRelativePath || file.name;
+      const parts = relPath.split("/").map(p => p.toLowerCase());
+      const isSkipped = parts.some(p => CLIENT_SKIP_DIRS.includes(p));
+      if (isSkipped) {
+        skipped += 1;
+        return;
+      }
       formData.append("files", file, relPath);
+      accepted += 1;
     });
 
-    const firstPath = selectedFiles[0].webkitRelativePath || "folder";
+    if (skipped > 0) {
+      uploadError.value = `${skipped} files were skipped (ignored folders like venv/node_modules).`;
+    }
+
+    const firstPath = selectedFiles.find(f => f.webkitRelativePath)?.webkitRelativePath || selectedFiles[0].name || "folder";
     const folderName = firstPath.split("/")[0] || "folder";
-    await uploadWithFormData(formData, `${folderName} (${selectedFiles.length} files)`);
+    await uploadWithFormData(formData, `${folderName} (${accepted} files, ${skipped} skipped)`);
   } catch (err) {
     console.error("Error uploading folder:", err);
     uploadError.value =

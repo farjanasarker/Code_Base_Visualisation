@@ -64,6 +64,8 @@ SKIP_DIRS = {
     "uploads"
 }
 
+SKIP_DIRS_LOWER = {d.lower() for d in SKIP_DIRS}
+
 SUPPORTED_EXTENSIONS = {
     ".py",
     ".js",
@@ -347,6 +349,10 @@ def validate_upload(file_name: str, size: int) -> None:
         raise ValueError("Unsupported file type")
 
 
+def has_skipped_dir(path_parts: tuple[str, ...]) -> bool:
+    return any(part.lower() in SKIP_DIRS_LOWER for part in path_parts)
+
+
 def handle_zip(zip_path: str, extract_to: str) -> str:
     extract_root = Path(extract_to).resolve()
 
@@ -366,7 +372,7 @@ def handle_zip(zip_path: str, extract_to: str) -> str:
                 raise ValueError(f"Path too deep in ZIP: {member}")
 
             # Skip files located under ignored directories (e.g., node_modules)
-            if any(part in SKIP_DIRS for part in member_parts):
+            if has_skipped_dir(member_parts):
                 continue
 
             ext = Path(member).suffix.lower()
@@ -385,10 +391,14 @@ def handle_zip(zip_path: str, extract_to: str) -> str:
 
 
 def walk_folder(root_path: str) -> list[dict]:
-    files = []
+    return walk_folder(root_path, MAX_FILE_COUNT)
+
+
+def walk_folder(root_path: str, max_files: int = MAX_FILE_COUNT) -> list[dict]:
+    files: list[dict] = []
 
     for dirpath, dirnames, filenames in os.walk(root_path):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames if d.lower() not in SKIP_DIRS_LOWER]
 
         for filename in filenames:
             filepath = Path(dirpath) / filename
@@ -415,8 +425,12 @@ def walk_folder(root_path: str) -> list[dict]:
                 }
             )
 
-            if len(files) > MAX_FILE_COUNT:
-                raise ValueError("Too many source files")
+            # SKIP_DIRS-filtered counting: truncate and return when limit reached
+            if len(files) >= max_files:
+                logger.warning(
+                    f"⚠️ File limit reached: {max_files} files collected, remaining files skipped. (SKIP_DIRS-filtered count)"
+                )
+                return files
 
     return files
 
@@ -434,15 +448,18 @@ def sanitize_relative_path(raw_name: str) -> Path:
 
 
 async def persist_folder_upload(files: list[UploadFile], destination_root: str) -> None:
-    if len(files) > MAX_FILE_COUNT:
-        raise ValueError("Too many uploaded files")
-
     root_path = Path(destination_root)
     root_path.mkdir(parents=True, exist_ok=True)
+
+    accepted_files = 0
 
     for uploaded in files:
         file_name = uploaded.filename or ""
         safe_rel_path = sanitize_relative_path(file_name.replace("\\", "/"))
+
+        if has_skipped_dir(safe_rel_path.parts):
+            continue
+
         ext = safe_rel_path.suffix.lower()
 
         if ext not in SUPPORTED_EXTENSIONS or ext == ".zip":
@@ -450,6 +467,14 @@ async def persist_folder_upload(files: list[UploadFile], destination_root: str) 
 
         file_bytes = await uploaded.read()
         validate_upload(file_name, len(file_bytes))
+
+        accepted_files += 1
+        if accepted_files >= MAX_FILE_COUNT:
+            logger.warning(
+                f"⚠️ Folder upload file limit reached at {MAX_FILE_COUNT} source files (SKIP_DIRS already excluded). Truncating."
+            )
+            # stop accepting more files; proceed with what we've written
+            break
 
         target = (root_path / safe_rel_path).resolve()
         if not str(target).startswith(str(root_path.resolve())):
@@ -507,6 +532,26 @@ async def upload(
 
             else:
                 raise HTTPException(status_code=400, detail="No file(s) provided")
+
+        # Remove any files that live under SKIP_DIRS (catch any missed cases)
+        orig_count = len(all_files)
+        filtered = []
+        for f in all_files:
+            try:
+                parts = tuple(Path(f.get("path", "")).parts)
+            except Exception:
+                parts = tuple()
+            if not has_skipped_dir(parts):
+                filtered.append(f)
+        filtered_out = orig_count - len(filtered)
+        if filtered_out:
+            logger.info(f"Filtered out {filtered_out} files under SKIP_DIRS before analysis")
+        all_files = filtered
+
+        if len(all_files) >= MAX_FILE_COUNT:
+            logger.warning(
+                f"⚠️ File count at or above limit after SKIP_DIRS filtering: {len(all_files)} files (limit {MAX_FILE_COUNT}). Remaining files were skipped."
+            )
 
         if not all_files:
             # Record error on session for easier debugging
