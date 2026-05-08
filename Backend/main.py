@@ -49,7 +49,7 @@ SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_FILE_SIZE = 500 * 1024  # 500KB per source file
 MAX_FILE_COUNT = 1000
-MAX_DEPTH = 10
+MAX_DEPTH = 50
 
 SKIP_DIRS = {
     "node_modules",
@@ -61,6 +61,7 @@ SKIP_DIRS = {
     "build",
     ".idea",
     ".vscode",
+    "uploads"
 }
 
 SUPPORTED_EXTENSIONS = {
@@ -77,6 +78,9 @@ SUPPORTED_EXTENSIONS = {
     ".cs",
     ".zip",
 }
+
+# Extensions considered "source files" for size/count checks inside archives
+SOURCE_EXTENSIONS = {e for e in SUPPORTED_EXTENSIONS if e != ".zip"}
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -278,7 +282,9 @@ async def get_session_info(request: Request):
             "last_active": session_data["last_active"].isoformat(),
             "inactivity_minutes": (datetime.now() - session_data["last_active"]).total_seconds() / 60,
             "files": session_data["files"],
-            "upload_dir": session_data["upload_dir"]
+            "upload_dir": session_data["upload_dir"],
+            "last_upload_error": session_data.get("last_upload_error"),
+            "last_upload_error_files": session_data.get("last_upload_error_files", [])
         }
     except HTTPException:
         raise
@@ -346,23 +352,33 @@ def handle_zip(zip_path: str, extract_to: str) -> str:
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         members = zf.infolist()
-        if len(members) > MAX_FILE_COUNT:
-            raise ValueError("Too many files in ZIP")
 
+        # Count only source files for the MAX_FILE_COUNT limit
+        source_file_count = 0
         for info in members:
+            if info.is_dir():
+                continue
             member = info.filename
             member_parts = Path(member).parts
 
+            # Enforce path depth for all members
             if len(member_parts) > MAX_DEPTH:
                 raise ValueError(f"Path too deep in ZIP: {member}")
 
-            member_path = (extract_root / member).resolve()
-            if not str(member_path).startswith(str(extract_root)):
-                raise ValueError(f"Zip slip detected: {member}")
+            # Skip files located under ignored directories (e.g., node_modules)
+            if any(part in SKIP_DIRS for part in member_parts):
+                continue
 
-            if not member.endswith("/") and info.file_size > MAX_FILE_SIZE:
-                raise ValueError(f"File too large inside ZIP: {member}")
+            ext = Path(member).suffix.lower()
+            if ext in SOURCE_EXTENSIONS:
+                source_file_count += 1
+                if info.file_size > MAX_FILE_SIZE:
+                    raise ValueError(f"Source file too large inside ZIP: {member}")
 
+        if source_file_count > MAX_FILE_COUNT:
+            raise ValueError("Too many source files in ZIP")
+
+        # Safe to extract; non-source files will be ignored later by walk_folder
         zf.extractall(extract_root)
 
     return str(extract_root)
@@ -493,6 +509,11 @@ async def upload(
                 raise HTTPException(status_code=400, detail="No file(s) provided")
 
         if not all_files:
+            # Record error on session for easier debugging
+            try:
+                active_sessions[session_id]["last_upload_error"] = "No supported source files found"
+            except Exception:
+                pass
             raise HTTPException(status_code=400, detail="No supported source files found")
 
         functions = analyze_files(all_files)
@@ -537,7 +558,23 @@ async def upload(
             "total_files": len(all_files),
         }
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
+        # Log and attach the validation error to the session for debugging
+        logger.error(f"Validation error for session {session_id if 'session_id' in locals() else 'unknown'}: {str(e)}")
+        try:
+            if 'session_id' in locals() and session_id in active_sessions:
+                active_sessions[session_id]["last_upload_error"] = str(e)
+                # also record filenames if available
+                fnames = []
+                try:
+                    if files:
+                        fnames = [f.filename for f in files]
+                    elif file:
+                        fnames = [file.filename]
+                except Exception:
+                    fnames = []
+                active_sessions[session_id]["last_upload_error_files"] = fnames
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
