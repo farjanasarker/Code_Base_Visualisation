@@ -668,7 +668,7 @@ def api_tier1(request: Request):
         raise HTTPException(status_code=500, detail="Error fetching tier1 graph and no cache available")
 
 
-@app.get("/graph/tier2/{module_name}")
+@app.get("/graph/tier2/{module_name:path}")
 def api_tier2(request: Request, module_name: str):
     try:
         session_id = request.headers.get("X-Session-ID")

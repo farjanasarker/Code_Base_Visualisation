@@ -595,30 +595,155 @@ def _detect_module_structure(files: List[Dict]) -> Dict[str, str]:
     return module_map
 
 
+def _module_basename(module_path: str) -> str:
+    """
+    Extract a usable stem from a module specifier string.
+
+    Examples
+    --------
+    './utils/helpers'  → 'helpers'
+    '../db'            → 'db'
+    'lodash'           → 'lodash'
+    'pkg/name'         → 'name'
+    """
+    # take the last path component's stem (handles multi-level paths too)
+    stem = Path(module_path.rstrip("/")).stem if module_path else ""
+    return stem
+
+
+def _build_stem_to_files(all_functions: List[Dict]) -> Dict[str, List[str]]:
+    """Build a mapping of file stem -> list of file paths (handles duplicate stems)."""
+    from collections import defaultdict
+    stem_map: Dict[str, List[str]] = defaultdict(list)
+    seen: set = set()
+    for fn in all_functions:
+        fp = fn.get("file")
+        if fp and fp not in seen:
+            seen.add(fp)
+            stem = Path(fp).stem
+            stem_map[stem].append(fp)
+            # Also index without extension in case require() includes '.js'
+            # e.g. require('../controllers/ticketController.js') -> stem already correct
+    return stem_map
+
+
+def _resolve_import(raw_import: str, stem_to_files: Dict[str, List[str]], importing_file: str = "") -> str | None:
+    """
+    Resolve a raw import/require path to an actual file path.
+
+    When multiple files share the same stem (e.g. controllers/auth.js and
+    routes/auth.js both have stem 'auth'), use the directory hint embedded
+    in the import specifier to pick the best match.
+
+    Examples
+    --------
+    '../controllers/auth'  → 'controllers/auth.js'   (not routes/auth.js)
+    '../utils/sendMail'    → 'utils/sendMail.js'
+    """
+    stem = Path(raw_import.rstrip("/")).stem
+    candidates = stem_to_files.get(stem, [])
+
+    if not candidates:
+        return None
+
+    # Filter out self-reference (a file importing itself makes no sense)
+    if importing_file:
+        candidates = [c for c in candidates if c != importing_file]
+    if not candidates:
+        return None
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Use directory segments from the import specifier as hints
+    # e.g. '../controllers/auth' -> parts after stripping leading dots: ['controllers', 'auth']
+    hint_parts = [p for p in Path(raw_import).parts if p not in (".", "..")]
+    # Walk hint parts from most-specific to least-specific (excluding the final filename)
+    dir_hints = [h.lower() for h in hint_parts[:-1]]
+
+    for hint in reversed(dir_hints):
+        for candidate in candidates:
+            cand_dirs = [p.lower() for p in Path(candidate).parts[:-1]]
+            if hint in cand_dirs:
+                return candidate
+
+    # Fallback: first candidate
+    return candidates[0]
+
+
 def _extract_file_imports(content: str, language: str) -> List[str]:
-    if language != "java":
-        return []
-
     imports = []
-    for match in re.finditer(r"^\s*import\s+(?:static\s+)?([\w.]+)\s*;", content, re.MULTILINE):
-        imports.append(match.group(1).split(".")[-1])
 
-    # Also treat class references as file-level relations for same-package Java files.
-    for match in re.finditer(r"\bnew\s+([A-Z][A-Za-z0-9_]*)\s*\(", content):
-        imports.append(match.group(1))
+    if language == "java":
+        # import com.example.Foo; → "Foo"
+        for match in re.finditer(r"^\s*import\s+(?:static\s+)?([\w.]+)\s*;", content, re.MULTILINE):
+            imports.append(match.group(1).split(".")[-1])
+        # new ClassName(  /  extends X  /  implements X, Y
+        for match in re.finditer(r"\bnew\s+([A-Z][A-Za-z0-9_]*)\s*\(", content):
+            imports.append(match.group(1))
+        for match in re.finditer(r"\bextends\s+([A-Z][A-Za-z0-9_]*)\b", content):
+            imports.append(match.group(1))
+        for match in re.finditer(r"\bimplements\s+([A-Z][A-Za-z0-9_\s,]*)\b", content):
+            names = [p.strip() for p in match.group(1).split(",") if p.strip()]
+            imports.extend(names)
 
-    for match in re.finditer(r"\bextends\s+([A-Z][A-Za-z0-9_]*)\b", content):
-        imports.append(match.group(1))
+    elif language in ("javascript", "typescript"):
+        # ES module:  import X from './foo'   /  import { X } from './foo'
+        # require():  require('./foo')
+        # Store the raw specifier so callers can do directory-hint resolution.
+        # External packages (no leading dot) are stored as their stem only.
+        for match in re.finditer(
+            r"""import\s+(?:[\w*{}\s,]+\s+from\s+)?['"]([^'"]+)['"]""", content
+        ):
+            raw = match.group(1)
+            imports.append(raw if raw.startswith(".") else _module_basename(raw))
+        for match in re.finditer(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""", content):
+            raw = match.group(1)
+            imports.append(raw if raw.startswith(".") else _module_basename(raw))
 
-    for match in re.finditer(r"\bimplements\s+([A-Z][A-Za-z0-9_\s,]*)\b", content):
-        names = [p.strip() for p in match.group(1).split(",") if p.strip()]
-        imports.extend(names)
+    elif language == "python":
+        # import foo.bar  /  from foo.bar import baz
+        for match in re.finditer(r"^\s*import\s+([\w.]+)", content, re.MULTILINE):
+            imports.append(match.group(1).split(".")[0])
+        for match in re.finditer(r"^\s*from\s+([\w.]+)\s+import", content, re.MULTILINE):
+            raw = match.group(1)
+            # relative imports like "from . import x" are skipped (no useful file target)
+            if raw.startswith("."):
+                continue
+            imports.append(raw.split(".")[0])
+
+    elif language == "go":
+        # import "pkg/name"  /  import ( "pkg/name" \n "other" )
+        for match in re.finditer(r'"([\w./\-]+)"', content):
+            imports.append(_module_basename(match.group(1)))
+
+    elif language == "rust":
+        # use crate::foo::bar;  /  use foo::{Bar, Baz};
+        for match in re.finditer(r"^\s*use\s+([\w:]+)", content, re.MULTILINE):
+            first = match.group(1).split("::")[0]
+            if first not in ("crate", "super", "self", "std", "core", "alloc"):
+                imports.append(first)
+            else:
+                # intra-crate: take second segment as the local module name
+                parts = match.group(1).split("::")
+                if len(parts) >= 2 and parts[1]:
+                    imports.append(parts[1])
+
+    elif language in ("cpp", "c"):
+        # #include "localfile.h"  — angle-bracket system headers are intentionally skipped
+        for match in re.finditer(r'#include\s+"([^"]+)"', content):
+            imports.append(Path(match.group(1)).stem)
+
+    elif language == "csharp":
+        # using Foo.Bar;  /  using static Foo.Bar;
+        for match in re.finditer(r"^\s*using\s+(?:static\s+)?([\w.]+)\s*;", content, re.MULTILINE):
+            imports.append(match.group(1).split(".")[-1])
 
     # De-duplicate while preserving order
-    seen = set()
-    deduped = []
+    seen: set = set()
+    deduped: List[str] = []
     for name in imports:
-        if name not in seen:
+        if name and name not in seen:
             seen.add(name)
             deduped.append(name)
     return deduped
@@ -681,6 +806,36 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
 
     # CALLS edges are persisted later in store_all() with proper session scoping.
 
+    # Build set of files that already have at least one parsed function
+    files_with_functions = {fn.file for fn in all_functions}
+
+    # For files that produced 0 functions (e.g. JS without tree-sitter), inject a
+    # lightweight sentinel dict so their imports still flow into the graph builders.
+    file_sentinels: List[Dict] = []
+    for file_info in files:
+        lang = file_info.get("language")
+        if not lang or lang == "unknown":
+            continue
+        raw_path = file_info.get("path", "<in-memory>")
+        norm_path = raw_path.replace("\\", "/")
+        if norm_path in files_with_functions:
+            continue  # already covered by real function dicts
+        detected_module = module_map.get(raw_path, "")
+        file_sentinels.append({
+            "name": "__file__",
+            "file": norm_path,
+            "language": lang,
+            "module": detected_module,
+            "virtual_module": detected_module or norm_path,
+            "line_start": 0,
+            "line_end": 0,
+            "complexity": 0,
+            "calls": [],
+            "fan_in": 0,
+            "fan_out": 0,
+            "imports": file_import_map.get(raw_path, []),
+        })
+
     # return serializable list of dicts
     return [
         {
@@ -698,7 +853,7 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
             "imports": file_import_map.get(fn.file, []),
         }
         for fn in all_functions
-    ]
+    ] + file_sentinels
 
 
 def build_module_graph(all_functions: List[Dict]) -> Dict:
@@ -708,6 +863,7 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
     file_to_imports = {}
 
     for fn in all_functions:
+        is_sentinel = fn.get("name") == "__file__"
         module_name = (fn.get("module") or "").strip()
         if module_name:
             group_id = module_name
@@ -718,7 +874,8 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
             group_type = "file"
             label = fn.get("file")
 
-        fn_to_group[fn.get("name")] = group_id
+        if not is_sentinel:
+            fn_to_group[fn.get("name")] = group_id
 
         if group_id not in group_stats:
             group_stats[group_id] = {
@@ -730,8 +887,9 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
                 "languages": set(),
             }
 
-        group_stats[group_id]["loc"] += (fn.get("line_end", 0) - fn.get("line_start", 0))
-        group_stats[group_id]["fn_count"] += 1
+        if not is_sentinel:
+            group_stats[group_id]["loc"] += (fn.get("line_end", 0) - fn.get("line_start", 0))
+            group_stats[group_id]["fn_count"] += 1
         group_stats[group_id]["languages"].add(fn.get("language"))
         if fn.get("imports"):
             file_to_imports.setdefault(fn.get("file"), set()).update(fn.get("imports", []))
@@ -752,6 +910,9 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
         file_key = Path(file_path).stem
         file_name_to_group.setdefault(file_key, file_to_group.get(file_path, file_path))
 
+    # Build stem->files map for directory-hint resolution
+    stem_to_files_global = _build_stem_to_files(all_functions)
+
     group_calls = {}
     for fn in all_functions:
         src_group = fn_to_group.get(fn.get("name"))
@@ -764,7 +925,12 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
     for file_path, imported_names in file_to_imports.items():
         src_group = file_to_group.get(file_path)
         for imported_name in imported_names:
-            tgt_group = file_name_to_group.get(imported_name)
+            # Try directory-hint resolution first, fall back to stem lookup
+            resolved_file = _resolve_import(imported_name, stem_to_files_global, file_path)
+            if resolved_file:
+                tgt_group = file_to_group.get(resolved_file)
+            else:
+                tgt_group = file_name_to_group.get(_module_basename(imported_name))
             if tgt_group and tgt_group != src_group:
                 key = (src_group, tgt_group)
                 group_calls[key] = group_calls.get(key, 0) + 1
@@ -795,14 +961,16 @@ def build_all_files_graph(all_functions: List[Dict]) -> Dict:
         f = fn.get("file")
         if not f:
             continue
+        is_sentinel = fn.get("name") == "__file__"
         if f not in files_map:
             files_map[f] = {"language": fn.get("language"), "fn_count": 0}
-        files_map[f]["fn_count"] += 1
+        if not is_sentinel:
+            files_map[f]["fn_count"] += 1
         if fn.get("imports"):
             file_imports.setdefault(f, set()).update(fn.get("imports", []))
 
     fn_to_file = {fn.get("name"): fn.get("file") for fn in all_functions}
-    file_name_to_file = {Path(fn.get("file")).stem: fn.get("file") for fn in all_functions if fn.get("file")}
+    stem_to_files = _build_stem_to_files(all_functions)
     file_calls: Dict[tuple, int] = {}
     for fn in all_functions:
         for called in fn.get("calls", []):
@@ -814,7 +982,7 @@ def build_all_files_graph(all_functions: List[Dict]) -> Dict:
 
     for src_file, imported_names in file_imports.items():
         for imported_name in imported_names:
-            tgt_f = file_name_to_file.get(imported_name)
+            tgt_f = _resolve_import(imported_name, stem_to_files, src_file)
             if tgt_f and tgt_f != src_file:
                 key = (src_file, tgt_f)
                 file_calls[key] = file_calls.get(key, 0) + 1
@@ -854,10 +1022,13 @@ def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
                 key = (fn.get("file"), target_file)
                 file_calls[key] = file_calls.get(key, 0) + 1
 
-    file_name_to_file = {Path(fn.get("file")).stem: fn.get("file") for fn in all_functions if fn.get("module") == module_name and fn.get("file")}
+    # Build stem->files restricted to this module for resolution
+    module_fns = [fn for fn in all_functions if fn.get("module") == module_name]
+    stem_to_files_module = _build_stem_to_files(module_fns)
+
     for src_file, imported_names in file_imports.items():
         for imported_name in imported_names:
-            target_file = file_name_to_file.get(imported_name)
+            target_file = _resolve_import(imported_name, stem_to_files_module, src_file)
             if target_file and target_file != src_file:
                 key = (src_file, target_file)
                 file_calls[key] = file_calls.get(key, 0) + 1
