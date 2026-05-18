@@ -1045,24 +1045,27 @@ def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
 
 
 def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
-    # Support two modes:
-    # 1) Normal file-level function graph (nodes are functions)
-    # 2) Chunked / virtual-module graph for very large (god) files
-    file_fns = [fn for fn in all_functions if fn.get("file") == file_path or fn.get("virtual_module") == file_path]
+    # শুধু file path দিয়ে match করো
+    file_fns = [fn for fn in all_functions if fn.get("file") == file_path]
+    
     if not file_fns:
-        # Try matching by virtual_module name if caller passed a virtual module id
+        # God file chunk case: virtual_module id দিয়ে call হয়েছে
         file_fns = [fn for fn in all_functions if fn.get("virtual_module") == file_path]
 
     fn_names = {fn.get("name") for fn in file_fns}
 
-    # Detect whether functions are grouped into virtual modules (chunking)
+    # Chunking check
     virtual_modules = {}
     for fn in file_fns:
-        vm = fn.get("virtual_module") or fn.get("module") or file_path
+        vm = fn.get("virtual_module") or file_path
         virtual_modules.setdefault(vm, []).append(fn)
 
-    # If more than one virtual module/group exists, return a chunked view
-    if len(virtual_modules) > 1:
+    # God file: একই file এ একাধিক virtual_module (class-based chunking)
+    # কিন্তু class এর কারণে split হলে chunk করব না
+    files_in_result = {fn.get("file") for fn in file_fns}
+    
+    if len(virtual_modules) > 1 and len(files_in_result) > 1:
+        # এটা god file chunk view — file_path আসলে একটা virtual_module id
         nodes = []
         for vm_name, fns in virtual_modules.items():
             nodes.append({
@@ -1071,10 +1074,7 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
                 "fn_count": len(fns),
                 "language": fns[0].get("language"),
             })
-
-        # Build edges between chunks based on function-level calls
-        # map function name -> its virtual module
-        fn_to_vm = {fn.get("name"): (fn.get("virtual_module") or fn.get("module") or file_path) for fn in file_fns}
+        fn_to_vm = {fn.get("name"): (fn.get("virtual_module") or file_path) for fn in file_fns}
         chunk_calls = {}
         for fn in file_fns:
             src_vm = fn_to_vm.get(fn.get("name"))
@@ -1083,11 +1083,10 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
                 if tgt_vm and tgt_vm != src_vm:
                     key = (src_vm, tgt_vm)
                     chunk_calls[key] = chunk_calls.get(key, 0) + 1
-
         edges = [{"source": src, "target": tgt, "call_count": cnt} for (src, tgt), cnt in chunk_calls.items()]
         return {"nodes": nodes, "edges": edges, "tier": 3, "file": file_path, "chunked": True}
 
-    # Fallback: simple function-level graph
+    # Normal case: সরাসরি function graph (class split হলেও)
     nodes = [
         {
             "id": fn.get("name"),

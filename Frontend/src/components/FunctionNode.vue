@@ -21,7 +21,7 @@ defineProps({
     <div class="fn-badge">
       <span v-if="data.nodeType === 'module'">M</span>
       <span v-else-if="data.nodeType === 'file'">F</span>
-      <span v-else-if="data.nodeType === 'chunk'">⚡</span>
+      <span v-else-if="data.nodeType === 'chunk'">C</span>
       <span v-else>f</span>
     </div>
 
