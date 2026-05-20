@@ -476,11 +476,12 @@ const renderTier1Graph = async (tier1) => {
   const moduleCols = Math.max(1, moduleNodes.length);
   const fileCols = Math.max(1, fileNodes.length);
 
+  // renderTier1Graph এ module spacing fix করো (210 → 300)
   moduleNodes.forEach((m, index) => {
     mixedNodes.push(
       createNode(
         m.id,
-        { x: index * 210 - ((moduleCols - 1) * 105), y: 0 },
+        { x: index * 300 - ((moduleCols - 1) * 150), y: 0 }, // 210→300, 105→150
         { fullLabel: m.label || m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null }
       )
     );
@@ -814,35 +815,37 @@ const onNodeClick = async ({ node }) => {
 
   const type = node.data?.nodeType || 'module';
   try {
-    if (type === 'module') {
-      // fetch files for module
-      const response = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(node.id)}`, {
-        method: 'GET',
-      });
-      const res = await response.json();
-      pushNav(node.data?.label || node.id);
-      const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
-      const newNodes = res.nodes.map((f, index) => {
-        const pos = getRootChildPosition(node, index, res.nodes.length);
-        nodeLevelMap.value.set(f.id, parentLevel + 1);
-        return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
-      });
-      // structural edges: module → each file
-      const structuralEdges = makeParentChildEdges(node, newNodes);
-      // peer edges: file ↔ file from backend
-      const peerEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes]);
-      const existingIds = new Set(nodes.value.map((n) => n.id));
-      const existingEdgeIds = new Set(edges.value.map((e) => e.id));
-      nodes.value = [...nodes.value, ...newNodes.filter(n => !existingIds.has(n.id))];
-      edges.value = [...edges.value,
-        ...structuralEdges.filter(e => !existingEdgeIds.has(e.id)),
-        ...peerEdges.filter(e => !existingEdgeIds.has(e.id))
-      ];
-      collapseOthers('module', node.id);
-      expandedNodes.value.add(node.id);
-      await nextTick();
-      fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
-    } else if (type === 'file' || type === 'chunk') {
+    // onNodeClick এর module branch-এ — drill down করার সময় clean state রাখো
+  if (type === 'module') {
+    const response = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(node.id)}`, {
+      method: 'GET',
+    });
+    const res = await response.json();
+    pushNav(node.data?.label || node.id);
+    
+    // ← এইটাই key fix: শুধু clicked module + তার children দেখাও
+    const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
+    const newChildNodes = res.nodes.map((f, index) => {
+      const pos = getRootChildPosition(node, index, res.nodes.length);
+      nodeLevelMap.value.set(f.id, parentLevel + 1);
+      return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
+    });
+
+    const structuralEdges = makeParentChildEdges(node, newChildNodes);
+    const peerEdges = toVueFlowEdges(res.edges, [node, ...newChildNodes]);
+
+    // পুরো graph replace করো — শুধু এই module + তার files
+    nodes.value = [node, ...newChildNodes];
+    edges.value = [...structuralEdges, ...peerEdges];
+    expandedNodes.value.clear();
+    expandedNodes.value.add(node.id);
+    nodeLevelMap.value.clear();
+    nodeLevelMap.value.set(node.id, 0);
+    newChildNodes.forEach(n => nodeLevelMap.value.set(n.id, 1));
+
+    await nextTick();
+    fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
+  } else if (type === 'file' || type === 'chunk') {
       // Drill into function call graph for this file
       const response = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(node.id)}`, {
         method: 'GET',
