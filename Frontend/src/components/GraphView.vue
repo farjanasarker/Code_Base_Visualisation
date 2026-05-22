@@ -196,6 +196,31 @@ const FUNCTION_TREE_DEPTH_GAP = 200;
 const FUNCTION_TREE_SIBLING_GAP = 320;
 const MAX_CHILDREN_PER_COLUMN = 2;
 
+// ── Root Module Detection (Option C) ──────────────────
+const detectRootModule = (moduleNodes) => {
+  if (moduleNodes.length < 2) return null;
+  
+  const ids = moduleNodes.map(m => m.id);
+  
+  // প্রতিটা module check করো — সে কি অন্য সবার prefix?
+  for (const candidate of ids) {
+    const prefix = candidate + '/';
+    const isRootOf = ids.filter(id => id !== candidate).every(id => id.startsWith(prefix));
+    if (isRootOf) return candidate;
+  }
+  return null;
+};
+
+const getOrphanFiles = (allTier2Files, subModuleIds) => {
+  // যে files কোনো sub-module-এর অধীনে নয়
+  return allTier2Files.filter(f => {
+    return !subModuleIds.some(modId => f.id.startsWith(modId + '/'));
+  });
+};
+
+// Virtual "Root Files" node ID
+const ROOT_FILES_VIRTUAL_ID = '__root_files__';
+
 // Edge color per source node type
 const EDGE_COLORS = {
   module:   '#3b82f6',
@@ -472,36 +497,74 @@ const renderTier1Graph = async (tier1) => {
     return;
   }
 
-  const mixedNodes = [];
-  const moduleCols = Math.max(1, moduleNodes.length);
-  const fileCols = Math.max(1, fileNodes.length);
+  // ── Option C: detect & strip root module ──
+  const rootModuleId = detectRootModule(moduleNodes);
+  const visibleModules = rootModuleId
+    ? moduleNodes.filter(m => m.id !== rootModuleId)
+    : moduleNodes;
 
-  // renderTier1Graph এ module spacing fix করো (210 → 300)
-  moduleNodes.forEach((m, index) => {
+  // Root module-এর orphan files fetch করো (background)
+  let orphanFiles = [];
+  if (rootModuleId) {
+    try {
+      const t2Res = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(rootModuleId)}`, { method: 'GET' });
+      const t2 = await t2Res.json();
+      const subModuleIds = visibleModules.map(m => m.id);
+      orphanFiles = getOrphanFiles(t2.nodes || [], subModuleIds);
+    } catch (_) { /* ignore, no orphan files node */ }
+  }
+
+  const mixedNodes = [];
+  const totalCols = visibleModules.length + (orphanFiles.length > 0 ? 1 : 0);
+
+  // Sub-modules layout
+  visibleModules.forEach((m, index) => {
     mixedNodes.push(
       createNode(
         m.id,
-        { x: index * 300 - ((moduleCols - 1) * 150), y: 0 }, // 210→300, 105→150
+        { x: index * 300 - ((totalCols - 1) * 150), y: 0 },
         { fullLabel: m.label || m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null }
       )
     );
   });
 
-  fileNodes.forEach((f, index) => {
+  // "Root Files" virtual node (যদি orphan files থাকে)
+  if (orphanFiles.length > 0) {
+    const rfIndex = visibleModules.length;
     mixedNodes.push(
       createNode(
-        f.id,
-        { x: index * 210 - ((fileCols - 1) * 105), y: 180 },
-        { fullLabel: f.id, nodeType: 'file', language: f.language }
+        ROOT_FILES_VIRTUAL_ID,
+        { x: rfIndex * 300 - ((totalCols - 1) * 150), y: 0 },
+        {
+          label: `Root Files`,
+          fullLabel: `Root Files (${orphanFiles.length})`,
+          nodeType: 'rootfiles',
+          language: null
+        }
       )
+    );
+    // orphan files data store করো পরে click-এ লাগবে
+    window.__orphanFiles = orphanFiles;
+  }
+
+  // tier1 edges — root module involve করা edges বাদ দাও
+  const filteredEdges = (tier1.edges || []).filter(e =>
+    e.source !== rootModuleId && e.target !== rootModuleId
+  );
+
+  // file nodes (যদি tier1-এ থাকে)
+  fileNodes.forEach((f, index) => {
+    mixedNodes.push(
+      createNode(f.id, { x: index * 210 - ((fileNodes.length - 1) * 105), y: 180 },
+        { fullLabel: f.id, nodeType: 'file', language: f.language })
     );
   });
 
   nodes.value = mixedNodes;
-  edges.value = toVueFlowEdges(tier1.edges || [], mixedNodes);
+  edges.value = toVueFlowEdges(filteredEdges, mixedNodes);
   expandedNodes.value.clear();
   nodeLevelMap.value.clear();
-  tier1.nodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
+  mixedNodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
   navStack.value = [];
   currentLabel.value = 'Modules';
   await nextTick();
@@ -816,7 +879,24 @@ const onNodeClick = async ({ node }) => {
   const type = node.data?.nodeType || 'module';
   try {
     // onNodeClick এর module branch-এ — drill down করার সময় clean state রাখো
-  if (type === 'module') {
+  if (type === 'module' || type === 'rootfiles') {
+    if (node.id === ROOT_FILES_VIRTUAL_ID) {
+    const orphans = window.__orphanFiles || [];
+    if (orphans.length === 0) return;
+    pushNav('Root Files');
+    const childNodes = orphans.map((f, index) => {
+      const pos = getRootChildPosition(node, index, orphans.length);
+      nodeLevelMap.value.set(f.id, 1);
+      return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
+    });
+    nodes.value = [node, ...childNodes];
+    edges.value = makeParentChildEdges(node, childNodes);
+    expandedNodes.value.clear();
+    expandedNodes.value.add(node.id);
+    await nextTick();
+    fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
+    return;
+    }
     const response = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(node.id)}`, {
       method: 'GET',
     });

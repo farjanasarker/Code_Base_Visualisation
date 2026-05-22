@@ -20,6 +20,7 @@ defineProps({
 
     <div class="fn-badge">
       <span v-if="data.nodeType === 'module'">M</span>
+      <span v-else-if="data.nodeType === 'rootfiles'">RF</span>
       <span v-else-if="data.nodeType === 'file'">F</span>
       <span v-else-if="data.nodeType === 'chunk'">C</span>
       <span v-else>f</span>
@@ -104,6 +105,7 @@ defineProps({
 .fn-card.module  .fn-badge { background: #3b82f6; font-style: normal; font-size: 11px; }
 .fn-card.file    .fn-badge { background: #f59e0b; font-style: normal; font-size: 11px; }
 .fn-card.chunk   .fn-badge { background: #8b5cf6; font-style: normal; font-size: 12px; }
+.fn-card.rootfiles .fn-badge { background: #22c55e; font-style: normal; font-size: 14px; }
 
 /* ── Text body ───────────────────────────────────── */
 .fn-body {
@@ -137,5 +139,17 @@ defineProps({
   height: 10px;
   background: transparent;
   border: 0;
+}
+/* style-এ যোগ করো */
+.fn-card.rootfiles {
+  background: #f0fdf4;
+  border-color: #86efac;
+  border-style: dashed;
+  box-shadow: 0 1px 4px rgba(34,197,94,0.15);
+}
+.fn-card.rootfiles .fn-badge {
+  background: #22c55e;
+  font-style: normal;
+  font-size: 14px;
 }
 </style>
