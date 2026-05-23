@@ -165,6 +165,7 @@ import { markRaw, nextTick, ref, inject, computed } from "vue";
 import { MarkerType, Position, useVueFlow, VueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
 import { Controls } from "@vue-flow/controls";
+import dagre from 'dagre';
 import "@vue-flow/minimap/dist/style.css";
 import "@vue-flow/controls/dist/style.css";
 import FunctionNode from "./FunctionNode.vue";
@@ -201,6 +202,38 @@ const TREE_SIBLING_GAP = 320;       // horizontal gap between sibling nodes
 const FUNCTION_TREE_DEPTH_GAP = 200;
 const FUNCTION_TREE_SIBLING_GAP = 320;
 const MAX_CHILDREN_PER_COLUMN = 2;
+
+// ── Dagre Auto Layout ──────────────────────────────
+const applyDagreLayout = (rawNodes, rawEdges, opts = {}) => {
+  const { rankdir = 'LR', nodesep = 80, ranksep = 160 } = opts;
+  
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir, nodesep, ranksep, marginx: 40, marginy: 40 });
+
+  rawNodes.forEach(n => {
+    g.setNode(n.id, { width: 170, height: 58 });
+  });
+
+  rawEdges.forEach(e => {
+    if (g.hasNode(e.source) && g.hasNode(e.target)) {
+      g.setEdge(e.source, e.target);
+    }
+  });
+
+  dagre.layout(g);
+
+  return rawNodes.map(n => {
+    const pos = g.node(n.id);
+    return {
+      ...n,
+      position: {
+        x: pos.x - 85,  // center: width/2
+        y: pos.y - 29   // center: height/2
+      }
+    };
+  });
+};
 
 // ── Root Module Detection (Option C) ──────────────────
 const detectRootModule = (moduleNodes) => {
@@ -565,12 +598,15 @@ const renderTier1Graph = async (tier1) => {
         { fullLabel: f.id, nodeType: 'file', language: f.language })
     );
   });
-
-  nodes.value = mixedNodes;
-  edges.value = toVueFlowEdges(filteredEdges, mixedNodes);
+  // ── Dagre layout apply করো ──
+  const layoutedNodes = applyDagreLayout(mixedNodes, filteredEdges, { rankdir: 'LR', nodesep: 80, ranksep: 180 });
+  nodes.value = layoutedNodes;
+  edges.value = toVueFlowEdges(filteredEdges, layoutedNodes);  // ← mixedNodes এর বদলে layoutedNodes
+  // nodes.value = mixedNodes;
+  // edges.value = toVueFlowEdges(filteredEdges, mixedNodes);
   expandedNodes.value.clear();
   nodeLevelMap.value.clear();
-  mixedNodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
+  layoutedNodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
   navStack.value = [];
   currentLabel.value = 'Modules';
   await nextTick();
@@ -919,15 +955,17 @@ const onNodeClick = async ({ node }) => {
 
     const structuralEdges = makeParentChildEdges(node, newChildNodes);
     const peerEdges = toVueFlowEdges(res.edges, [node, ...newChildNodes]);
+    const allEdgesRaw = [...structuralEdges, ...peerEdges];
 
-    // পুরো graph replace করো — শুধু এই module + তার files
-    nodes.value = [node, ...newChildNodes];
-    edges.value = [...structuralEdges, ...peerEdges];
+    // ← Dagre layout: module উপরে, files নিচে (TB = top to bottom)
+    const layoutedNodes = applyDagreLayout([node, ...newChildNodes], res.edges, { rankdir: 'TB', nodesep: 60, ranksep: 140 });
+
+    nodes.value = layoutedNodes;
+    edges.value = toVueFlowEdges(allEdgesRaw, layoutedNodes);
     expandedNodes.value.clear();
     expandedNodes.value.add(node.id);
     nodeLevelMap.value.clear();
-    nodeLevelMap.value.set(node.id, 0);
-    newChildNodes.forEach(n => nodeLevelMap.value.set(n.id, 1));
+    layoutedNodes.forEach((n, i) => nodeLevelMap.value.set(n.id, n.id === node.id ? 0 : 1));
 
     await nextTick();
     fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
