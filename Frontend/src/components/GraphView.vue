@@ -87,6 +87,11 @@
             <span class="legend-icon">⬡</span>
             <span>Module / Package</span>
           </div>
+           <div class="legend-item">
+            <span class="legend-swatch rootfiles"></span>
+            <span class="legend-icon">📂</span>
+            <span>Root Files (no module)</span>
+          </div>
           <div class="legend-item">
             <span class="legend-swatch file"></span>
             <span class="legend-icon">◫</span>
@@ -111,6 +116,7 @@
         <ol class="tips-list">
           <li>Upload a file, ZIP, or folder</li>
           <li>Click a <strong>Module</strong> to see files</li>
+          <li>Click a <strong>Root Files</strong> to see orphan files</li>
           <li>Click a <strong>File</strong> to see functions</li>
           <li>Click a <strong>Function</strong> to expand callers &amp; callees</li>
           <li>Hover any node to highlight its edges</li>
@@ -137,7 +143,7 @@
         <Controls position="bottom-right" />
         <MiniMap
           position="bottom-left"
-          :node-color="(n) => n.data?.nodeType === 'module' ? '#3b82f6' : n.data?.nodeType === 'file' ? '#f59e0b' : n.data?.nodeType === 'chunk' ? '#8b5cf6' : '#6366f1'"
+          :node-color="(n) => n.data?.nodeType === 'module' ? '#3b82f6' :n.data?.nodeType === 'rootfiles' ? '#f59e0b' : n.data?.nodeType === 'file' ? '#f59e0b' : n.data?.nodeType === 'chunk' ? '#8b5cf6' : '#6366f1'"
           :minimap-style="{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px' }"
         />
       </VueFlow>
@@ -1331,6 +1337,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex-shrink: 0;
 }
 .legend-swatch.module   { background: #3b82f6; }
+.legend-swatch.rootfiles { background: #22c55e; }
 .legend-swatch.file     { background: #f59e0b; }
 .legend-swatch.function { background: #10b981; }
 .legend-swatch.chunk    { background: #8b5cf6; }
