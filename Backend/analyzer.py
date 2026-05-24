@@ -191,6 +191,12 @@ class UniversalParser:
                 return self._parse_python_ast(filepath, content)
             if language == "java":
                 return self._parse_java_regex(filepath, content)
+            if language in ("javascript", "typescript"):
+                return self._parse_js_ts_regex(filepath, content, language)
+            if language == "go":
+                return self._parse_go_regex(filepath, content)
+            if language == "rust":
+                return self._parse_rust_regex(filepath, content)
             return []
 
         try:
@@ -200,6 +206,12 @@ class UniversalParser:
                 return self._parse_python_ast(filepath, content)
             if language == "java":
                 return self._parse_java_regex(filepath, content)
+            if language in ("javascript", "typescript"):
+                return self._parse_js_ts_regex(filepath, content, language)
+            if language == "go":
+                return self._parse_go_regex(filepath, content)
+            if language == "rust":
+                return self._parse_rust_regex(filepath, content)
             return []
 
         functions = self._extract_functions(tree, content, filepath, language)
@@ -208,6 +220,12 @@ class UniversalParser:
                 return self._parse_python_ast(filepath, content)
             if language == "java":
                 return self._parse_java_regex(filepath, content)
+            if language in ("javascript", "typescript"):
+                return self._parse_js_ts_regex(filepath, content, language)
+            if language == "go":
+                return self._parse_go_regex(filepath, content)
+            if language == "rust":
+                return self._parse_rust_regex(filepath, content)
 
         for fn in functions:
             fn.calls = self._extract_calls(tree, content, language, fn.name)
@@ -281,6 +299,303 @@ class UniversalParser:
                 complexity=complexity,
                 calls=sorted(set(calls)),
                 fan_out=len(set(calls)),
+            ))
+
+        return functions
+
+    def _parse_js_ts_regex(self, filepath: str, content: str, language: str) -> List[ParsedFunction]:
+        module = Path(filepath).parts[0] if Path(filepath).parts else "root"
+
+        fn_patterns = [
+            # function foo(...) { ... }
+            re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{", re.MULTILINE),
+            # const foo = function(...) { ... }
+            re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\([^)]*\)\s*\{", re.MULTILINE),
+            # const foo = (...) => { ... }
+            re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\([^)]*\)\s*=>\s*\{", re.MULTILINE),
+        ]
+
+        # class Foo { bar(...) { ... } }
+        class_pattern = re.compile(r"\bclass\s+([A-Za-z_$][\w$]*)\s*\{", re.MULTILINE)
+        method_pattern = re.compile(r"\n\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{", re.MULTILINE)
+
+        functions: List[ParsedFunction] = []
+        seen = set()
+        keywords = {
+            "if", "for", "while", "switch", "catch", "return", "new", "throw",
+            "try", "else", "case", "do", "typeof", "instanceof", "await", "yield",
+        }
+
+        def _extract_body(start_idx: int) -> Tuple[int, int, str]:
+            brace_start = content.find("{", start_idx)
+            if brace_start < 0:
+                return -1, -1, ""
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+            return brace_start, end_idx, content[brace_start:end_idx + 1]
+
+        # top-level and assigned functions
+        for pattern in fn_patterns:
+            for match in pattern.finditer(content):
+                fn_name = match.group(1)
+                key = (fn_name, match.start())
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                brace_start, end_idx, body = _extract_body(match.end() - 1)
+                if brace_start < 0:
+                    continue
+
+                start_line = content.count("\n", 0, match.start()) + 1
+                end_line = content.count("\n", 0, end_idx) + 1
+
+                calls = []
+                for call_match in re.finditer(r"\b([A-Za-z_$][\w$]*)\s*\(", body):
+                    callee = call_match.group(1)
+                    if callee not in keywords and callee != fn_name:
+                        calls.append(callee)
+
+                complexity = 1
+                for kw in ["if", "for", "while", "case", "catch", "&&", "||", "?", "?:"]:
+                    complexity += body.count(kw)
+
+                functions.append(ParsedFunction(
+                    name=fn_name,
+                    file=filepath,
+                    language=language,
+                    module=module,
+                    virtual_module=module,
+                    line_start=start_line,
+                    line_end=end_line,
+                    complexity=complexity,
+                    calls=sorted(set(calls)),
+                    fan_out=len(set(calls)),
+                ))
+
+        # class methods (best-effort)
+        for class_match in class_pattern.finditer(content):
+            class_name = class_match.group(1)
+            brace_start, end_idx, body = _extract_body(class_match.end() - 1)
+            if brace_start < 0:
+                continue
+            for method_match in method_pattern.finditer(body):
+                method_name = method_match.group(1)
+                if method_name in ("constructor",) or method_name in keywords:
+                    continue
+                key = (f"{class_name}.{method_name}", brace_start + method_match.start())
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                method_brace_start = body.find("{", method_match.end() - 1)
+                if method_brace_start < 0:
+                    continue
+                depth = 0
+                method_end = method_brace_start
+                for i in range(method_brace_start, len(body)):
+                    ch = body[i]
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            method_end = i
+                            break
+
+                full_start = brace_start + method_match.start()
+                full_end = brace_start + method_end
+                start_line = content.count("\n", 0, full_start) + 1
+                end_line = content.count("\n", 0, full_end) + 1
+                method_body = body[method_brace_start:method_end + 1]
+
+                calls = []
+                for call_match in re.finditer(r"\b([A-Za-z_$][\w$]*)\s*\(", method_body):
+                    callee = call_match.group(1)
+                    if callee not in keywords and callee != method_name:
+                        calls.append(callee)
+
+                complexity = 1
+                for kw in ["if", "for", "while", "case", "catch", "&&", "||", "?", "?:"]:
+                    complexity += method_body.count(kw)
+
+                functions.append(ParsedFunction(
+                    name=method_name,
+                    file=filepath,
+                    language=language,
+                    module=module,
+                    virtual_module=class_name or module,
+                    line_start=start_line,
+                    line_end=end_line,
+                    complexity=complexity,
+                    calls=sorted(set(calls)),
+                    fan_out=len(set(calls)),
+                ))
+
+        return functions
+
+    def _parse_go_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
+        module = Path(filepath).parts[0] if Path(filepath).parts else "root"
+
+        # func foo(...) { ... }  /  func (r Receiver) foo(...) { ... }
+        fn_pattern = re.compile(
+            r"\bfunc\s+(?:\([^)]*\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{",
+            re.MULTILINE,
+        )
+
+        functions: List[ParsedFunction] = []
+        seen = set()
+        keywords = {"if", "for", "switch", "select", "return", "go", "defer", "range"}
+
+        for match in fn_pattern.finditer(content):
+            fn_name = match.group(1)
+            key = (fn_name, match.start())
+            if key in seen:
+                continue
+            seen.add(key)
+
+            brace_start = content.find("{", match.end() - 1)
+            if brace_start < 0:
+                continue
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+
+            start_line = content.count("\n", 0, match.start()) + 1
+            end_line = content.count("\n", 0, end_idx) + 1
+            body = content[brace_start:end_idx + 1]
+
+            calls = []
+            for call_match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", body):
+                callee = call_match.group(1)
+                if callee not in keywords and callee != fn_name:
+                    calls.append(callee)
+
+            complexity = 1
+            for kw in ["if", "for", "switch", "case", "select", "&&", "||"]:
+                complexity += body.count(kw)
+
+            functions.append(ParsedFunction(
+                name=fn_name,
+                file=filepath,
+                language="go",
+                module=module,
+                virtual_module=module,
+                line_start=start_line,
+                line_end=end_line,
+                complexity=complexity,
+                calls=sorted(set(calls)),
+                fan_out=len(set(calls)),
+            ))
+
+        return functions
+
+    def _parse_rust_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
+        module = Path(filepath).parts[0] if Path(filepath).parts else "root"
+        
+        # impl block থেকে struct name বের করো (virtual_module-এর জন্য)
+        impl_pattern = re.compile(r'\bimpl(?:<[^>]*>)?\s+([A-Za-z_][A-Za-z0-9_]*)')
+        current_impl = None
+        impl_match = impl_pattern.search(content)
+        if impl_match:
+            current_impl = impl_match.group(1)
+
+        fn_pattern = re.compile(
+            r'(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]*"\s+)?'
+            r'fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\('
+        )
+
+        keywords = {
+            'if', 'while', 'for', 'match', 'loop', 'where', 'let',
+            'return', 'impl', 'trait', 'struct', 'enum', 'type', 'use',
+            'mod', 'pub', 'crate', 'super', 'self', 'Self', 'move',
+        }
+
+        functions: List[ParsedFunction] = []
+        seen = set()
+
+        for match in fn_pattern.finditer(content):
+            fn_name = match.group(1)
+            if fn_name in keywords:
+                continue
+
+            start_line = content.count('\n', 0, match.start()) + 1
+            key = (fn_name, start_line)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            # brace matching দিয়ে body range বের করো
+            brace_pos = content.find('{', match.end())
+            semi_pos = content.find(';', match.end())
+
+            # semicolon আগে থাকলে এটা declaration (trait/extern), body নেই
+            if semi_pos >= 0 and (brace_pos < 0 or semi_pos < brace_pos):
+                continue
+
+            if brace_pos < 0:
+                continue
+
+            depth = 0
+            end_idx = brace_pos
+            for i in range(brace_pos, len(content)):
+                ch = content[i]
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+
+            end_line = content.count('\n', 0, end_idx) + 1
+            body = content[brace_pos:end_idx + 1]
+
+            # calls extract করো
+            call_pat = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:::<[^>]*>)?\s*\(')
+            call_keywords = keywords | {
+                'println', 'eprintln', 'print', 'eprint', 'format', 'write',
+                'writeln', 'assert', 'assert_eq', 'assert_ne', 'panic', 'todo',
+                'unimplemented', 'unreachable', 'dbg', 'vec', 'Some', 'None',
+                'Ok', 'Err', 'Box', 'Vec', 'String', 'HashMap',
+            }
+            calls = list({
+                m.group(1) for m in call_pat.finditer(body)
+                if m.group(1) not in call_keywords and m.group(1) != fn_name
+            })
+
+            complexity = 1 + sum(body.count(kw) for kw in [
+                'if ', 'else if', 'for ', 'while ', 'match ', '&&', '||', '?', 'unwrap()'
+            ])
+
+            functions.append(ParsedFunction(
+                name=fn_name,
+                file=filepath,
+                language='rust',
+                module=module,
+                virtual_module=current_impl or module,
+                line_start=start_line,
+                line_end=end_line,
+                complexity=complexity,
+                calls=calls,
+                fan_out=len(calls),
             ))
 
         return functions
