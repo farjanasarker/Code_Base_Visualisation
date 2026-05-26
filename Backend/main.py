@@ -47,7 +47,7 @@ SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
 # }
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_FILE_SIZE = 500 * 1024  # 500KB per source file
+MAX_FILE_SIZE = 2000 * 1024  # 2MB per source file
 MAX_FILE_COUNT = 1000
 MAX_DEPTH = 50
 

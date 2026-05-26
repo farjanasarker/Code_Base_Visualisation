@@ -51,8 +51,13 @@ def _load_tree_sitter_runtime():
 
         def get_parser(language: str):
             lang = tree_sitter_languages[language]
-            parser = Parser()
-            parser.set_language(lang)
+            # tree-sitter ≥0.22: Parser(language) — set_language নেই
+            try:
+                parser = Parser(lang)
+            except TypeError:
+                # পুরনো API fallback: Parser() তারপর set_language()
+                parser = Parser()
+                parser.set_language(lang)
             return parser
 
         return tree_sitter_languages, get_parser
@@ -214,7 +219,11 @@ class UniversalParser:
                 return self._parse_rust_regex(filepath, content)
             return []
 
-        functions = self._extract_functions(tree, content, filepath, language)
+        try:
+            functions = self._extract_functions(tree, content, filepath, language)
+        except Exception:
+            functions = []
+
         if not functions:
             if language == "python":
                 return self._parse_python_ast(filepath, content)
@@ -446,33 +455,51 @@ class UniversalParser:
     def _parse_go_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
 
-        # func foo(...) { ... }  /  func (r Receiver) foo(...) { ... }
+        # receiver এ * এবং complex types handle করো
         fn_pattern = re.compile(
-            r"\bfunc\s+(?:\([^)]*\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{",
+            r"\bfunc\s+(?:\([^)]*\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(",
             re.MULTILINE,
         )
 
         functions: List[ParsedFunction] = []
         seen = set()
-        keywords = {"if", "for", "switch", "select", "return", "go", "defer", "range"}
+        keywords = {"if", "for", "switch", "select", "return", "go", "defer", 
+                    "range", "make", "new", "len", "cap", "append", "copy",
+                    "delete", "close", "panic", "recover", "print", "println"}
 
         for match in fn_pattern.finditer(content):
             fn_name = match.group(1)
+            if fn_name in keywords:
+                continue
+
             key = (fn_name, match.start())
             if key in seen:
                 continue
             seen.add(key)
 
-            brace_start = content.find("{", match.end() - 1)
-            if brace_start < 0:
+            # { খোঁজো — কিন্তু ; আগে এলে declaration, skip করো
+            search_from = match.end()
+            next_brace = content.find('{', search_from)
+            if next_brace < 0:
                 continue
+
+            # Only skip if ';' appears before '{' on the SAME logical line
+            # (i.e. between the signature and the opening brace, not in comments/later code)
+            # Look for ';' only up to the opening brace (not the whole file)
+            snippet = content[search_from:next_brace]
+            next_semi_local = snippet.find(';')
+            if next_semi_local >= 0:
+                # ';' is between signature end and '{' — this is a declaration, skip
+                continue
+
+            # brace matching
             depth = 0
-            end_idx = brace_start
-            for i in range(brace_start, len(content)):
+            end_idx = next_brace
+            for i in range(next_brace, len(content)):
                 ch = content[i]
-                if ch == "{":
+                if ch == '{':
                     depth += 1
-                elif ch == "}":
+                elif ch == '}':
                     depth -= 1
                     if depth == 0:
                         end_idx = i
@@ -480,7 +507,7 @@ class UniversalParser:
 
             start_line = content.count("\n", 0, match.start()) + 1
             end_line = content.count("\n", 0, end_idx) + 1
-            body = content[brace_start:end_idx + 1]
+            body = content[next_brace:end_idx + 1]
 
             calls = []
             for call_match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", body):
@@ -489,7 +516,7 @@ class UniversalParser:
                     calls.append(callee)
 
             complexity = 1
-            for kw in ["if", "for", "switch", "case", "select", "&&", "||"]:
+            for kw in ["if ", "for ", "switch ", "case ", "select ", "&&", "||"]:
                 complexity += body.count(kw)
 
             functions.append(ParsedFunction(
@@ -673,11 +700,22 @@ class UniversalParser:
             return []
 
         query = lang_obj.query(FUNCTION_QUERIES[language])
-        captures = query.captures(tree.root_node)
+        raw_captures = query.captures(tree.root_node)
+
+        # tree-sitter >= 0.22 returns dict[str, list[Node]]; older returns list[tuple[Node, str]]
+        if isinstance(raw_captures, dict):
+            capture_pairs = [
+                (node, name)
+                for name, nodes in raw_captures.items()
+                for node in nodes
+            ]
+        else:
+            capture_pairs = raw_captures
+
         functions: List[ParsedFunction] = []
         seen = set()
 
-        for node, capture_name in captures:
+        for node, capture_name in capture_pairs:
             if "fn_def" not in capture_name:
                 continue
             # attempt to get the name child
@@ -710,11 +748,20 @@ class UniversalParser:
         if not lang_obj:
             return []
         query = lang_obj.query(CALL_QUERIES[language])
+        raw_captures = query.captures(tree.root_node)
+
         calls = set()
-        for node, _ in query.captures(tree.root_node):
-            called = content[node.start_byte:node.end_byte]
-            if called and called != current_fn_name:
-                calls.add(called)
+        if isinstance(raw_captures, dict):
+            for nodes in raw_captures.values():
+                for node in nodes:
+                    called = content[node.start_byte:node.end_byte]
+                    if called and called != current_fn_name:
+                        calls.add(called)
+        else:
+            for node, _ in raw_captures:
+                called = content[node.start_byte:node.end_byte]
+                if called and called != current_fn_name:
+                    calls.add(called)
         return list(calls)
 
     def _estimate_complexity(self, node, content: str) -> int:
@@ -741,7 +788,6 @@ def count_functions_ast(filepath: str, content: str) -> int:
             tree = ast.parse(content)
         except SyntaxError:
             return 0
-
         count = 0
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -749,7 +795,18 @@ def count_functions_ast(filepath: str, content: str) -> int:
         return count
 
     if not language_name or language_name not in TREE_SITTER_LANGUAGES:
+        # ── tree-sitter নেই, regex fallback ──
+        if language_name == "go":
+            return len(re.findall(
+                r'\bfunc\s+(?:\([^)]*\)\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\(',
+                content
+            ))
+        if language_name == "rust":
+            return len(re.findall(r'\bfn\s+[a-zA-Z_][a-zA-Z0-9_]*\s*[<(]', content))
+        if language_name in ("javascript", "typescript"):
+            return len(re.findall(r'\bfunction\s+[A-Za-z_$]', content))
         return 0
+
     try:
         parser = get_parser(language_name)
         tree = parser.parse(bytes(content, "utf8"))
@@ -757,6 +814,12 @@ def count_functions_ast(filepath: str, content: str) -> int:
         captures = query.captures(tree.root_node)
         return sum(1 for _, name in captures if "fn_def" in name)
     except Exception:
+        # tree-sitter আছে কিন্তু parse fail → regex fallback
+        if language_name == "go":
+            return len(re.findall(
+                r'\bfunc\s+(?:\([^)]*\)\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\(',
+                content
+            ))
         return 0
 
 
@@ -764,6 +827,18 @@ def detect_file_strategy(filepath: str, content: str) -> str:
     """
     Returns one of: "data_file", "large_normal", "god_file", "normal"
     """
+    filename = Path(filepath).name.lower()
+    generated_patterns = ['.pb.go', '.pb.gw.go', '_grpc.pb.go', '.gen.go',
+                          '.generated.go', '_generated.go']
+    if any(filename.endswith(p) for p in generated_patterns):
+        lines = content.split('\n')
+        # অনেক বড় generated file (100k lines ≈ 6MB+) skip করো
+        if len(lines) > 100_000:
+            return "data_file"
+        # generated files সবসময় god_file হিসেবে chunk করো
+        # "normal" return করলে module graph-এ fn_count=0 দেখায়
+        return "god_file"
+
     lines = content.split("\n")
     line_count = len(lines)
     if line_count <= 10_000:
@@ -771,7 +846,7 @@ def detect_file_strategy(filepath: str, content: str) -> str:
 
     fn_count = count_functions_ast(filepath, content)
 
-    if fn_count < 10:
+    if fn_count < 3:      # 10 থেকে 3: tree-sitter ছাড়া undercount হলেও safe
         return "data_file"
     elif fn_count <= 100:
         return "large_normal"
@@ -793,12 +868,26 @@ def chunk_god_file(filepath: str, content: str, language: str, functions: List[D
                 classes.append({"name": node.name, "line_start": start, "line_end": end})
         # For other languages, attempt tree-sitter class extraction
         if not classes and language in TREE_SITTER_LANGUAGES:
-            parser = get_parser(language)
-            tree = parser.parse(bytes(content, "utf8"))
-            q = TREE_SITTER_LANGUAGES[language].query("(class_definition name: (identifier) @class_name) @class_def")
-            for node, _ in q.captures(tree.root_node):
-                # rough line range
-                classes.append({"name": content[node.start_byte:node.end_byte], "line_start": node.start_point[0]+1, "line_end": node.end_point[0]+1})
+            try:
+                parser = get_parser(language)
+                tree = parser.parse(bytes(content, "utf8"))
+                q = TREE_SITTER_LANGUAGES[language].query(
+                    "(class_definition name: (identifier) @class_name) @class_def"
+                )
+                raw = q.captures(tree.root_node)
+                pairs = (
+                    [(n, name) for name, nodes in raw.items() for n in nodes]
+                    if isinstance(raw, dict) else raw
+                )
+                for node, capture_name in pairs:
+                    if "class_def" in capture_name:
+                        classes.append({
+                            "name": content[node.start_byte:node.end_byte],
+                            "line_start": node.start_point[0] + 1,
+                            "line_end": node.end_point[0] + 1,
+                        })
+            except Exception:
+                pass  # class chunking ব্যর্থ হলে complexity/line-range fallback এ যাবে
 
         if classes:
             chunks = []
