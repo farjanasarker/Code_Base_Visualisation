@@ -633,8 +633,12 @@ def expand(request: Request, function_name: str):
         session_id = request.headers.get("X-Session-ID")
         session_id = validate_session(session_id)
         update_session_activity(session_id)
-        
-        neighbors = get_neighbors(function_name, session_id)
+        try:
+            neighbors = get_neighbors(function_name, session_id)
+        except Exception as neo4j_err:
+            logger.warning(f"Neo4j expand failed, using cache: {neo4j_err}")
+            neighbors = _expand_from_cache(function_name, session_id)
+
         return {
             "nodes": [{"id": n} for n in neighbors],
             "edges": [
@@ -647,6 +651,29 @@ def expand(request: Request, function_name: str):
     except Exception as e:
         logger.error(f"Expand error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching graph: {str(e)}")
+
+
+def _expand_from_cache(function_name: str, session_id: str) -> list[str]:
+    """SESSION_CACHE থেকে function এর neighbors বের করো"""
+    functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+    if not functions:
+        return []
+
+    fn_names = {fn["name"] for fn in functions}
+    neighbors = set()
+
+    for fn in functions:
+        if fn["name"] == function_name:
+            # এই function যাদের call করে
+            for called in fn.get("calls", []):
+                if called in fn_names:
+                    neighbors.add(called)
+        else:
+            # অন্য functions যারা এই function কে call করে
+            if function_name in fn.get("calls", []):
+                neighbors.add(fn["name"])
+
+    return list(neighbors)
 
 
 @app.get("/graph/tier1")
