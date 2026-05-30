@@ -1,19 +1,32 @@
 <script setup>
 import { Handle, Position } from "@vue-flow/core";
+import { computed } from "vue";
 
-defineProps({
+const props = defineProps({
   data: {
     type: Object,
     default: () => ({})
   }
+});
+
+const riskTitle = computed(() => {
+  const base = props.data.fullLabel || props.data.label || '';
+  if (props.data.nodeType === 'function' && props.data.fanIn > 0) {
+    return `${base}\n⚠ Changing this will affect ${props.data.fanIn} caller(s)`;
+  }
+  return base;
 });
 </script>
 
 <template>
   <div
     class="fn-card"
-    :class="[data.nodeType || 'function', { 'fn-root': data.isRoot }]"
-    :title="data.fullLabel || data.label"
+    :class="[
+      data.nodeType || 'function',
+      { 'fn-root': data.isRoot },
+      data.riskLevel && data.riskLevel !== 'none' ? `risk-${data.riskLevel}` : ''
+    ]"
+    :title="riskTitle"
   >
     <Handle type="target" :position="Position.Top" class="fn-handle" />
     <Handle type="source" :position="Position.Bottom" class="fn-handle" />
@@ -30,11 +43,18 @@ defineProps({
       <div class="fn-name">{{ data.label }}</div>
       <div class="fn-sub">{{ data.language || data.nodeType }}</div>
     </div>
+
+    <!-- Risk counter badge: only on function nodes that have callers -->
+    <div
+      v-if="data.nodeType === 'function' && data.fanIn > 0"
+      class="risk-dot"
+      :class="`risk-dot-${data.riskLevel || 'none'}`"
+    >{{ data.fanIn }}</div>
   </div>
 </template>
 
 <style scoped>
-/* ── Base card — matches the image style ─────────── */
+/* ── Base card ─────────────────────────────────────── */
 .fn-card {
   width: 100%;
   height: 100%;
@@ -46,35 +66,23 @@ defineProps({
   position: relative;
   overflow: visible;
   cursor: pointer;
-  transition: box-shadow 140ms ease, transform 140ms ease;
-  /* default = function: lavender */
+  transition: box-shadow 140ms ease, transform 140ms ease, border-color 140ms ease;
   background: #eef2ff;
   border: 1.5px solid #c7d2fe;
   box-shadow: 0 1px 4px rgba(99,102,241,0.10);
 }
 
 /* type variants */
-.fn-card.module {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  box-shadow: 0 1px 4px rgba(59,130,246,0.10);
-}
-.fn-card.file {
-  background: #fffbeb;
-  border-color: #fde68a;
-  box-shadow: 0 1px 4px rgba(245,158,11,0.10);
-}
-.fn-card.chunk {
-  background: #f5f3ff;
-  border-color: #ddd6fe;
-  box-shadow: 0 1px 4px rgba(139,92,246,0.10);
-  animation: pulse-chunk 2.8s ease-in-out infinite;
-}
-.fn-card.fn-root {
-  background: #eef2ff;
-  border-color: #a5b4fc;
-  box-shadow: 0 2px 10px rgba(99,102,241,0.20);
-}
+.fn-card.module    { background: #eff6ff; border-color: #bfdbfe; box-shadow: 0 1px 4px rgba(59,130,246,0.10); }
+.fn-card.file      { background: #fffbeb; border-color: #fde68a; box-shadow: 0 1px 4px rgba(245,158,11,0.10); }
+.fn-card.chunk     { background: #f5f3ff; border-color: #ddd6fe; box-shadow: 0 1px 4px rgba(139,92,246,0.10); animation: pulse-chunk 2.8s ease-in-out infinite; }
+.fn-card.fn-root   { background: #eef2ff; border-color: #a5b4fc; box-shadow: 0 2px 10px rgba(99,102,241,0.20); }
+.fn-card.rootfiles { background: #f0fdf4; border-color: #86efac; border-style: dashed; box-shadow: 0 1px 4px rgba(34,197,94,0.15); }
+
+/* ── Risk level overrides (only for function nodes) ── */
+.fn-card.function.risk-high   { border-color: #ef4444; border-width: 2px; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
+.fn-card.function.risk-medium { border-color: #f59e0b; border-width: 2px; box-shadow: 0 0 0 3px rgba(245,158,11,0.15); }
+.fn-card.function.risk-low    { border-color: #22c55e; border-width: 2px; box-shadow: 0 0 0 3px rgba(34,197,94,0.12); }
 
 @keyframes pulse-chunk {
   0%, 100% { box-shadow: 0 1px 4px rgba(139,92,246,0.10); }
@@ -86,7 +94,7 @@ defineProps({
   box-shadow: 0 4px 16px rgba(99,102,241,0.18);
 }
 
-/* ── Circle badge (the "f" or "M" on the left) ─── */
+/* ── Circle badge ─────────────────────────────────── */
 .fn-badge {
   width: 30px;
   height: 30px;
@@ -98,13 +106,12 @@ defineProps({
   font-size: 13px;
   font-weight: 700;
   font-style: italic;
-  /* default purple */
   background: #6366f1;
   color: #fff;
 }
-.fn-card.module  .fn-badge { background: #3b82f6; font-style: normal; font-size: 11px; }
-.fn-card.file    .fn-badge { background: #f59e0b; font-style: normal; font-size: 11px; }
-.fn-card.chunk   .fn-badge { background: #8b5cf6; font-style: normal; font-size: 12px; }
+.fn-card.module    .fn-badge { background: #3b82f6; font-style: normal; font-size: 11px; }
+.fn-card.file      .fn-badge { background: #f59e0b; font-style: normal; font-size: 11px; }
+.fn-card.chunk     .fn-badge { background: #8b5cf6; font-style: normal; font-size: 12px; }
 .fn-card.rootfiles .fn-badge { background: #22c55e; font-style: normal; font-size: 14px; }
 
 /* ── Text body ───────────────────────────────────── */
@@ -133,23 +140,35 @@ defineProps({
   line-height: 1.2;
 }
 
-/* ── Handles (invisible, just connection points) ─ */
+/* ── Risk counter badge (top-right corner) ───────── */
+.risk-dot {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  z-index: 10;
+}
+.risk-dot-high   { background: #ef4444; }
+.risk-dot-medium { background: #f59e0b; }
+.risk-dot-low    { background: #22c55e; }
+.risk-dot-none   { background: #94a3b8; }
+
+/* ── Handles ─────────────────────────────────────── */
 .fn-handle {
   width: 10px;
   height: 10px;
   background: transparent;
   border: 0;
-}
-/* style-এ যোগ করো */
-.fn-card.rootfiles {
-  background: #f0fdf4;
-  border-color: #86efac;
-  border-style: dashed;
-  box-shadow: 0 1px 4px rgba(34,197,94,0.15);
-}
-.fn-card.rootfiles .fn-badge {
-  background: #22c55e;
-  font-style: normal;
-  font-size: 14px;
 }
 </style>

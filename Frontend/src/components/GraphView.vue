@@ -107,6 +107,19 @@
             <span class="legend-icon">⚡</span>
             <span>Chunk (large file)</span>
           </div>
+          <div class="legend-divider"></div>
+          <div class="legend-item">
+            <span class="legend-swatch risk-high-swatch"></span>
+            <span>High Risk (≥10 callers)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch risk-medium-swatch"></span>
+            <span>Medium Risk (3–9)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch risk-low-swatch"></span>
+            <span>Low Risk (1–2)</span>
+          </div>
         </div>
       </div>
 
@@ -121,6 +134,39 @@
           <li>Click a <strong>Function</strong> to expand callers &amp; callees</li>
           <li>Hover any node to highlight its edges</li>
         </ol>
+      </div>
+
+      <!-- Dependency Risk Panel -->
+      <div v-if="riskData" class="sidebar-section risk-panel">
+        <div class="section-title">Dependency Risk</div>
+
+        <!-- Summary chips -->
+        <div class="risk-summary">
+          <span class="risk-chip risk-chip-high">🔴 {{ riskData.summary?.high || 0 }} High</span>
+          <span class="risk-chip risk-chip-medium">🟡 {{ riskData.summary?.medium || 0 }} Med</span>
+          <span class="risk-chip risk-chip-low">🟢 {{ riskData.summary?.low || 0 }} Low</span>
+        </div>
+
+        <!-- Top risky functions list -->
+        <div v-if="riskData.functions?.length" class="risk-list">
+          <div
+            v-for="fn in riskData.functions.slice(0, 10)"
+            :key="fn.name + fn.file"
+            class="risk-item"
+            :class="`risk-item-${fn.risk_level}`"
+            :title="fn.warning"
+          >
+            <span class="risk-item-icon">
+              {{ fn.risk_level === 'high' ? '🔴' : fn.risk_level === 'medium' ? '🟡' : '🟢' }}
+            </span>
+            <div class="risk-item-body">
+              <div class="risk-item-name">{{ fn.name }}</div>
+              <div class="risk-item-warn">{{ fn.warning }}</div>
+            </div>
+            <span class="risk-item-count">{{ fn.fan_in }}</span>
+          </div>
+        </div>
+        <div v-else class="risk-empty">No high-risk dependencies found.</div>
       </div>
     </aside>
 
@@ -143,7 +189,16 @@
         <Controls position="bottom-right" />
         <MiniMap
           position="bottom-left"
-          :node-color="(n) => n.data?.nodeType === 'module' ? '#3b82f6' :n.data?.nodeType === 'rootfiles' ? '#f59e0b' : n.data?.nodeType === 'file' ? '#f59e0b' : n.data?.nodeType === 'chunk' ? '#8b5cf6' : '#6366f1'"
+          :node-color="(n) => {
+            if (n.data?.nodeType === 'module') return '#3b82f6';
+            if (n.data?.nodeType === 'rootfiles') return '#f59e0b';
+            if (n.data?.nodeType === 'file') return '#f59e0b';
+            if (n.data?.nodeType === 'chunk') return '#8b5cf6';
+            if (n.data?.riskLevel === 'high') return '#ef4444';
+            if (n.data?.riskLevel === 'medium') return '#f59e0b';
+            if (n.data?.riskLevel === 'low') return '#22c55e';
+            return '#6366f1';
+          }"
           :minimap-style="{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px' }"
         />
       </VueFlow>
@@ -187,6 +242,7 @@ const selectedRoot = ref("");
 const functionLayoutMode = ref(false);
 const navStack = ref([]);   // [{label, nodes, edges, expandedNodes, nodeLevelMap}]
 const currentLabel = ref('');
+const riskData = ref(null);  // { functions: [...], summary: {...}, total: N }
 const { fitView } = useVueFlow();
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
@@ -352,7 +408,7 @@ const getDisplayLabel = (fullLabel, nodeType = 'module') => {
 };
 
 const createNode = (id, position, opts = {}) => {
-  const { label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false, language } = opts;
+  const { label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false, language, riskLevel = 'none', fanIn = 0 } = opts;
   return {
     id,
     type: 'functionNode',
@@ -362,7 +418,9 @@ const createNode = (id, position, opts = {}) => {
       callCount,
       nodeType,
       language,
-      isRoot
+      isRoot,
+      riskLevel,
+      fanIn,
     },
     position,
     sourcePosition: Position.Bottom,
@@ -731,7 +789,7 @@ const uploadWithFormData = async (formData, sourceName) => {
                     const fnNodes = t3.nodes.map((fn, i) => {
                       const pos = getChildPosition(fileNode, i, t3.nodes.length);
                       nodeLevelMap.value.set(fn.id, 2);
-                      return createNode(fn.id, pos, { fullLabel: fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
+                      return createNode(fn.id, pos, { fullLabel: fn.label || fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
                     });
                     const structEdges = makeParentChildEdges(fileNode, fnNodes);
                     const fnCallEdges = toVueFlowEdges(t3.edges, [...nodes.value, ...fnNodes]);
@@ -778,6 +836,12 @@ const uploadWithFormData = async (formData, sourceName) => {
     discoveredFunctions.value = [];
     selectedRoot.value = '';
     functionLayoutMode.value = false;
+
+    // fetch dependency risk scores in background
+    try {
+      const riskRes = await sessionManager.apiCall('/risk-score', { method: 'GET' });
+      riskData.value = await riskRes.json();
+    } catch (_) { /* non-critical */ }
   } catch (err) {
     console.error("Error uploading file:", err);
     uploadError.value =
@@ -794,6 +858,29 @@ const renderFunctionView = async (fileId, functionGraph) => {
     edges.value = [];
     return;
   }
+
+  // Deduplicate node IDs (safety net against backend sending duplicate IDs)
+  const seenIds = new Set();
+  const dedupedNodes = functionGraph.nodes.filter(n => {
+    if (seenIds.has(n.id)) return false;
+    seenIds.add(n.id);
+    return true;
+  });
+
+  // Limit to MAX_TIER3_DISPLAY nodes — sort by most connected first
+  const MAX_TIER3_DISPLAY = 300;
+  const sortedNodes = [...dedupedNodes].sort(
+    (a, b) => ((b.fan_in || 0) + (b.fan_out || 0)) - ((a.fan_in || 0) + (a.fan_out || 0))
+  );
+  const limitedNodes = sortedNodes.length > MAX_TIER3_DISPLAY
+    ? sortedNodes.slice(0, MAX_TIER3_DISPLAY)
+    : sortedNodes;
+  const limitedIds = new Set(limitedNodes.map(n => n.id));
+  functionGraph = {
+    ...functionGraph,
+    nodes: limitedNodes,
+    edges: (functionGraph.edges || []).filter(e => limitedIds.has(e.source) && limitedIds.has(e.target))
+  };
 
   const center = { x: 0, y: 0 };
   const count = functionGraph.nodes.length || 1;
@@ -834,7 +921,14 @@ const renderFunctionView = async (fileId, functionGraph) => {
   const newNodes = functionGraph.nodes.map((fn) => {
     const pos = posMap.get(fn.id) || { x: 0, y: 0 };
     nodeLevelMap.value.set(fn.id, levelMap.get(fn.id) || 1);
-    return createNode(fn.id, pos, { fullLabel: fn.id, nodeType: fn.type === 'chunk' ? 'chunk' : 'function', language: fn.language, callCount: fn.fan_out });
+    return createNode(fn.id, pos, {
+      fullLabel: fn.label || fn.id,
+      nodeType: fn.type === 'chunk' ? 'chunk' : 'function',
+      language: fn.language,
+      callCount: fn.fan_out,
+      riskLevel: fn.risk_level || 'none',
+      fanIn: fn.fan_in || 0,
+    });
   });
 
   const newEdges = toVueFlowEdges(edgeList, newNodes, { forceStraight: false });
@@ -1016,14 +1110,14 @@ const onNodeClick = async ({ node }) => {
         const level = parentLevel + 1;
         const pos = getFunctionChildPosition(node, index, incomingNodes.length, "left");
         nodeLevelMap.value.set(n.id, level);
-        newNodes.push(createNode(n.id, pos, { fullLabel: n.id, nodeType: 'function' }));
+        newNodes.push(createNode(n.id, pos, { fullLabel: fnIdToLabel(n.id), nodeType: 'function' }));
       });
 
       rightSideNodes.forEach((n, index) => {
         const level = parentLevel + 1;
         const pos = getFunctionChildPosition(node, index, rightSideNodes.length, "right");
         nodeLevelMap.value.set(n.id, level);
-        newNodes.push(createNode(n.id, pos, { fullLabel: n.id, nodeType: 'function' }));
+        newNodes.push(createNode(n.id, pos, { fullLabel: fnIdToLabel(n.id), nodeType: 'function' }));
       });
       pushNav(node.data?.label || node.id);
       const newEdges = toVueFlowEdges(res.edges, [...nodes.value, ...newNodes], { forceStraight: true });
@@ -1108,6 +1202,15 @@ const onNodeUnhover = () => {
       filter: 'none'
     }
   }));
+};
+
+// name:line_start format থেকে display name বের করো (expand response এ label নেই)
+const fnIdToLabel = (id) => {
+  const lastColon = id.lastIndexOf(':');
+  if (lastColon > 0 && /^\d+$/.test(id.slice(lastColon + 1))) {
+    return id.slice(0, lastColon);
+  }
+  return id;
 };
 
 const collapseOthers = (nodeType, keepId) => {
@@ -1374,11 +1477,20 @@ const collapseOthers = (nodeType, keepId) => {
   border-radius: 3px;
   flex-shrink: 0;
 }
-.legend-swatch.module   { background: #3b82f6; }
-.legend-swatch.rootfiles { background: #22c55e; }
-.legend-swatch.file     { background: #f59e0b; }
-.legend-swatch.function { background: #10b981; }
-.legend-swatch.chunk    { background: #8b5cf6; }
+.legend-swatch.module          { background: #3b82f6; }
+.legend-swatch.rootfiles       { background: #22c55e; }
+.legend-swatch.file            { background: #f59e0b; }
+.legend-swatch.function        { background: #10b981; }
+.legend-swatch.chunk           { background: #8b5cf6; }
+.legend-swatch.risk-high-swatch   { background: #ef4444; }
+.legend-swatch.risk-medium-swatch { background: #f59e0b; }
+.legend-swatch.risk-low-swatch    { background: #22c55e; }
+.legend-divider {
+  width: 100%;
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 0;
+}
 .legend-icon {
   font-size: 13px;
   width: 16px;
@@ -1456,5 +1568,83 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 12px;
   font-weight: 600;
   font-family: monospace;
+}
+
+/* ── Dependency Risk Panel ─────────────────────────── */
+.risk-panel { padding-bottom: 12px; }
+
+.risk-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.risk-chip {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.risk-chip-high   { background: #fee2e2; color: #b91c1c; }
+.risk-chip-medium { background: #fef3c7; color: #92400e; }
+.risk-chip-low    { background: #dcfce7; color: #166534; }
+
+.risk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.risk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+  transition: background 120ms;
+}
+.risk-item:hover { background: #f1f5f9; }
+.risk-item-high   { border-left: 3px solid #ef4444; }
+.risk-item-medium { border-left: 3px solid #f59e0b; }
+.risk-item-low    { border-left: 3px solid #22c55e; }
+
+.risk-item-icon { font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+
+.risk-item-body { flex: 1; min-width: 0; }
+.risk-item-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.risk-item-warn {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-item-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #475569;
+  background: #e2e8f0;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-top: 1px;
+}
+
+.risk-empty {
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 8px 0;
 }
 </style>

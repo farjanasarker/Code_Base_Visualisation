@@ -180,6 +180,7 @@ class ParsedFunction:
     calls: List[str] = field(default_factory=list)
     fan_in: int = 0
     fan_out: int = 0
+    risk_level: str = "none"  # none | low | medium | high
 
 
 class UniversalParser:
@@ -779,6 +780,18 @@ class UniversalParser:
             fn.fan_in = call_counts.get(fn.name, 0)
         return all_functions
 
+    def compute_risk_scores(self, all_functions: List[ParsedFunction]) -> List[ParsedFunction]:
+        for fn in all_functions:
+            if fn.fan_in >= 10:
+                fn.risk_level = "high"
+            elif fn.fan_in >= 3:
+                fn.risk_level = "medium"
+            elif fn.fan_in >= 1:
+                fn.risk_level = "low"
+            else:
+                fn.risk_level = "none"
+        return all_functions
+
 
 def count_functions_ast(filepath: str, content: str) -> int:
     ext = Path(filepath).suffix.lower()
@@ -1205,8 +1218,9 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
 
         all_functions.extend(parsed)
 
-    # compute fan-in
+    # compute fan-in then risk scores
     all_functions = parser.compute_fan_in(all_functions)
+    all_functions = parser.compute_risk_scores(all_functions)
 
     # CALLS edges are persisted later in store_all() with proper session scoping.
 
@@ -1254,6 +1268,7 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
             "calls": fn.calls,
             "fan_in": fn.fan_in,
             "fan_out": fn.fan_out,
+            "risk_level": fn.risk_level,
             "imports": file_import_map.get(fn.file, []),
         }
         for fn in all_functions
@@ -1491,23 +1506,50 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
         return {"nodes": nodes, "edges": edges, "tier": 3, "file": file_path, "chunked": True}
 
     # Normal case: সরাসরি function graph (class split হলেও)
+    name_counts: Dict[str, int] = {}
+    for fn in file_fns:
+        name = fn.get("name", "")
+        name_counts[name] = name_counts.get(name, 0) + 1
+    has_duplicates = any(v > 1 for v in name_counts.values())
+
+    def _node_id(fn: Dict) -> str:
+        name = fn.get("name", "")
+        if has_duplicates and name_counts.get(name, 1) > 1:
+            return f"{name}:{fn.get('line_start')}"
+        return name
+
     nodes = [
         {
-            "id": fn.get("name"),
+            "id": _node_id(fn),
+            "label": fn.get("name"),
             "type": "function",
             "line_start": fn.get("line_start"),
             "line_end": fn.get("line_end"),
             "complexity": fn.get("complexity"),
             "fan_in": fn.get("fan_in"),
             "fan_out": fn.get("fan_out"),
+            "risk_level": fn.get("risk_level", "none"),
             "language": fn.get("language"),
         }
         for fn in file_fns
     ]
-    edges = [
-        {"source": fn.get("name"), "target": called}
-        for fn in file_fns
-        for called in fn.get("calls", [])
-        if called in fn_names
-    ]
+
+    # called name → list of node ids (for duplicate targets)
+    name_to_ids: Dict[str, list] = {}
+    for fn in file_fns:
+        name_to_ids.setdefault(fn.get("name", ""), []).append(_node_id(fn))
+
+    seen_edges: set = set()
+    edges = []
+    for fn in file_fns:
+        src_id = _node_id(fn)
+        for called in fn.get("calls", []):
+            if called not in fn_names:
+                continue
+            for tgt_id in name_to_ids.get(called, []):
+                key = (src_id, tgt_id)
+                if key not in seen_edges:
+                    seen_edges.add(key)
+                    edges.append({"source": src_id, "target": tgt_id})
+
     return {"nodes": nodes, "edges": edges, "tier": 3, "file": file_path, "chunked": False}

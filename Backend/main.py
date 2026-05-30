@@ -654,25 +654,70 @@ def expand(request: Request, function_name: str):
 
 
 def _expand_from_cache(function_name: str, session_id: str) -> list[str]:
-    """SESSION_CACHE থেকে function এর neighbors বের করো"""
+    """SESSION_CACHE থেকে function এর neighbors বের করো।
+    function_name হয় plain name অথবা name:line_start format।
+    """
     functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
     if not functions:
         return []
 
-    fn_names = {fn["name"] for fn in functions}
-    neighbors = set()
+    # Duplicate name detection
+    name_counts: Dict[str, int] = {}
+    for fn in functions:
+        n = fn["name"]
+        name_counts[n] = name_counts.get(n, 0) + 1
 
+    def _node_id(fn: Dict) -> str:
+        name = fn["name"]
+        if name_counts.get(name, 1) > 1:
+            return f"{name}:{fn.get('line_start')}"
+        return name
+
+    fn_names = {fn["name"] for fn in functions}
+
+    # name:line format হলে specific function খোঁজো
+    if ":" in function_name:
+        actual_name, line_str = function_name.rsplit(":", 1)
+        try:
+            target_line = int(line_str)
+        except ValueError:
+            target_line = None
+
+        target_fn = next(
+            (fn for fn in functions
+             if fn["name"] == actual_name and fn.get("line_start") == target_line),
+            None,
+        )
+        if not target_fn:
+            return []
+
+        neighbors = set()
+        # এই function যাদের call করে
+        for called in target_fn.get("calls", []):
+            if called in fn_names:
+                for fn in functions:
+                    if fn["name"] == called:
+                        neighbors.add(_node_id(fn))
+        # অন্য functions যারা এই function কে call করে
+        for fn in functions:
+            if actual_name in fn.get("calls", []):
+                neighbors.add(_node_id(fn))
+        neighbors.discard(function_name)
+        return list(neighbors)
+
+    # Plain name (no duplicates)
+    neighbors = set()
     for fn in functions:
         if fn["name"] == function_name:
-            # এই function যাদের call করে
             for called in fn.get("calls", []):
                 if called in fn_names:
-                    neighbors.add(called)
+                    for other in functions:
+                        if other["name"] == called:
+                            neighbors.add(_node_id(other))
         else:
-            # অন্য functions যারা এই function কে call করে
             if function_name in fn.get("calls", []):
-                neighbors.add(fn["name"])
-
+                neighbors.add(_node_id(fn))
+    neighbors.discard(function_name)
     return list(neighbors)
 
 
@@ -786,3 +831,48 @@ def api_tier3(request: Request, file_path: str):
             from analyzer import build_function_graph
             return build_function_graph(file_path, functions)
         raise HTTPException(status_code=500, detail="Error fetching tier3 graph and no cache available")
+
+
+@app.get("/risk-score")
+def api_risk_score(request: Request):
+    """Return all functions ranked by dependency risk (fan_in).
+    Risk levels: high (>=10 callers), medium (>=3), low (>=1), none (0).
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        real_fns = [fn for fn in functions if fn.get("name") != "__file__"]
+
+        summary = {"high": 0, "medium": 0, "low": 0, "none": 0}
+        for fn in real_fns:
+            lvl = fn.get("risk_level", "none")
+            summary[lvl] = summary.get(lvl, 0) + 1
+
+        # Only functions that are called by at least one other function, sorted by risk
+        risky = sorted(
+            [fn for fn in real_fns if fn.get("fan_in", 0) > 0],
+            key=lambda f: f.get("fan_in", 0),
+            reverse=True
+        )
+
+        result = [
+            {
+                "name": fn.get("name"),
+                "file": fn.get("file"),
+                "fan_in": fn.get("fan_in", 0),
+                "fan_out": fn.get("fan_out", 0),
+                "risk_level": fn.get("risk_level", "none"),
+                "warning": f"Changing this will affect {fn.get('fan_in', 0)} caller(s)",
+            }
+            for fn in risky[:50]
+        ]
+
+        return {"functions": result, "summary": summary, "total": len(real_fns)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Risk score error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error computing risk scores: {str(e)}")
