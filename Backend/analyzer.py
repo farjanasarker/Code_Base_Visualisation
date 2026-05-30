@@ -11,6 +11,137 @@ from db import add_edge
 logger = logging.getLogger(__name__)
 
 
+# ── Unreachable-code detection helpers ─────────────────────────────────────
+#
+# A function with fan_in == 0 is NOT necessarily dead.  It may be:
+#   • An OS / framework entry point  (main, __init__, …)
+#   • A callback / event handler     (onClick, on_message, …)
+#   • A runtime-reflected call       (getattr, importlib, …)   ← can't detect
+#   • A library public API           (called by external users) ← can't detect
+#   • A virtual/override method      (called via polymorphism)  ← hard to detect
+#   • Called from a file we did NOT analyse (cross-project)
+#
+# Cross-file calls WITHIN the uploaded codebase ARE already handled:
+# compute_fan_in() aggregates calls across every parsed file, so a function
+# called from another file will have fan_in > 0 and will never appear here.
+#
+# What we CAN do statically is flag functions that have none of the above
+# characteristics as "potentially unreachable" with a confidence level.
+
+# 1. Known entry-point names — definitively not dead
+_ENTRY_POINT_NAMES: frozenset = frozenset({
+    "main", "init", "run", "start", "stop", "shutdown", "close",
+    # Python dunder / magic methods (all __x__ are handled separately)
+    "__init__", "__new__", "__del__", "__repr__", "__str__", "__bytes__",
+    "__format__", "__hash__", "__bool__", "__len__", "__iter__", "__next__",
+    "__call__", "__enter__", "__exit__", "__getitem__", "__setitem__",
+    "__delitem__", "__contains__", "__missing__", "__reversed__",
+    "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__",
+    "__add__", "__radd__", "__iadd__", "__mul__", "__rmul__", "__imul__",
+    "__sub__", "__rsub__", "__isub__", "__truediv__", "__floordiv__",
+    "__mod__", "__pow__", "__lshift__", "__rshift__", "__and__", "__or__",
+    "__xor__", "__int__", "__float__", "__complex__", "__index__",
+    "__abs__", "__neg__", "__pos__", "__invert__", "__round__",
+    "__trunc__", "__floor__", "__ceil__",
+    "__aiter__", "__anext__", "__aenter__", "__aexit__",
+    "__await__", "__get__", "__set__", "__delete__", "__set_name__",
+    "__class_getitem__", "__init_subclass__", "__subclasshook__",
+    "__sizeof__", "__reduce__", "__reduce_ex__", "__copy__", "__deepcopy__",
+    "__getstate__", "__setstate__",
+    # Test-framework lifecycle
+    "setUp", "tearDown", "setUpClass", "tearDownClass",
+    "setUpModule", "tearDownModule", "runTest",
+    # Web / serverless entry points
+    "handler", "lambda_handler", "application", "wsgi_app",
+    "create_app", "make_app", "configure", "bootstrap", "app_factory",
+    # OOP override candidates (common interface methods)
+    "toString", "hashCode", "equals", "compareTo", "compare",
+    "clone", "finalize", "run", "execute", "call",
+    # React / Vue / Angular lifecycle
+    "render", "componentDidMount", "componentWillUnmount",
+    "componentDidUpdate", "shouldComponentUpdate",
+    "getDerivedStateFromProps", "getSnapshotBeforeUpdate",
+    "mounted", "created", "destroyed", "updated",
+    "beforeMount", "beforeCreate", "beforeDestroy", "beforeUpdate",
+    "ngOnInit", "ngOnDestroy", "ngOnChanges", "ngAfterViewInit",
+    "ngAfterContentInit", "ngDoCheck",
+    # Django / Flask / FastAPI views
+    "get", "post", "put", "patch", "delete", "head", "options",
+    # Go
+    "init", "main", "ServeHTTP", "String", "Error",
+    # Rust
+    "new", "default", "fmt", "from", "into", "drop",
+})
+
+# 2. Prefix / suffix patterns that strongly suggest runtime invocation
+_ENTRY_POINT_PREFIXES: tuple = (
+    "test_", "Test", "spec_", "it_", "should_", "given_", "when_", "then_",
+    "on_", "On", "handle_", "Handle",
+    "before_", "after_", "pre_", "post_",
+    "middleware_", "fixture_", "plugin_",
+    "register_", "setup_", "init_",
+    "dispatch_", "emit_", "notify_", "receive_",
+    "visit_",       # Visitor pattern
+)
+
+# 3. Name patterns that suggest the function is invoked at runtime (callback, hook, etc.)
+#    These lower the confidence to "medium" rather than "high".
+_RUNTIME_INVOKE_SUFFIXES: tuple = (
+    "Handler", "handler", "Callback", "callback",
+    "Listener", "listener", "Hook", "hook",
+    "Action", "action", "Event", "event",
+    "Trigger", "trigger", "Observer", "observer",
+    "Middleware", "middleware", "Interceptor", "interceptor",
+    "Decorator", "decorator", "Wrapper", "wrapper",
+    "Resolver", "resolver", "Plugin", "plugin",
+)
+_RUNTIME_INVOKE_KEYWORDS: tuple = (
+    "onClick", "onChange", "onSubmit", "onLoad", "onError",
+    "onSuccess", "onFailure", "onComplete", "onDone", "onReady",
+    "onKeyUp", "onKeyDown", "onMouseOver", "onMouseOut",
+    "onFocus", "onBlur", "onScroll", "onResize",
+)
+
+
+def _is_entry_point(name: str) -> bool:
+    """Return True when a function is a known entry point and must not be flagged."""
+    if name in _ENTRY_POINT_NAMES:
+        return True
+    if name.startswith("__") and name.endswith("__"):   # any dunder
+        return True
+    for prefix in _ENTRY_POINT_PREFIXES:
+        if name.startswith(prefix):
+            return True
+    return False
+
+
+def _is_likely_runtime_invoked(name: str) -> bool:
+    """Return True when the name pattern suggests the function is called at runtime
+    (callback, event handler, hook, etc.) even if fan_in == 0 statically.
+    These are flagged with 'medium' confidence instead of 'high'.
+    """
+    if name in _RUNTIME_INVOKE_KEYWORDS:
+        return True
+    for suffix in _RUNTIME_INVOKE_SUFFIXES:
+        if name.endswith(suffix):
+            return True
+    return False
+
+
+def _is_private_name(name: str, language: str) -> bool:
+    """Heuristic: is this function considered 'private' in its language?
+    Private → higher confidence it's not a public API entry point.
+    """
+    if language == "python":
+        return name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
+    if language in ("javascript", "typescript"):
+        return name.startswith("_") or name.startswith("#")
+    if language in ("java", "csharp"):
+        # lowercase first letter + short name → likely private helper
+        return name[0].islower() and name.startswith(("_", "do", "helper", "util"))
+    return name.startswith("_")
+
+
 # Supported language mapping (file extension -> language name)
 SUPPORTED_EXTENSIONS = {
     '.py': 'python',
@@ -180,7 +311,9 @@ class ParsedFunction:
     calls: List[str] = field(default_factory=list)
     fan_in: int = 0
     fan_out: int = 0
-    risk_level: str = "none"  # none | low | medium | high
+    risk_level: str = "none"      # none | low | medium | high
+    is_dead: bool = False          # True → potentially unreachable
+    dead_confidence: str = "none"  # none | medium | high
 
 
 class UniversalParser:
@@ -792,6 +925,45 @@ class UniversalParser:
                 fn.risk_level = "none"
         return all_functions
 
+    def compute_dead_code(self, all_functions: List[ParsedFunction]) -> List[ParsedFunction]:
+        for fn in all_functions:
+            # fan_in counts calls from ALL parsed files — cross-file calls are
+            # already included, so fan_in > 0 means definitely reachable.
+            if fn.fan_in > 0:
+                fn.is_dead = False
+                fn.dead_confidence = "none"
+                continue
+
+            # Definitive entry points — OS / framework calls these
+            if _is_entry_point(fn.name):
+                fn.is_dead = False
+                fn.dead_confidence = "none"
+                continue
+
+            # Patterns that suggest runtime invocation (callbacks, hooks, …)
+            # We still flag these as potentially unreachable but with only
+            # "medium" confidence because we cannot rule out dynamic dispatch.
+            if _is_likely_runtime_invoked(fn.name):
+                fn.is_dead = True
+                fn.dead_confidence = "medium"
+                continue
+
+            # Private helper — high confidence it's truly unused
+            if _is_private_name(fn.name, fn.language):
+                fn.is_dead = True
+                fn.dead_confidence = "high"
+                continue
+
+            # Public function with no detected callers — could still be:
+            #   • a public library API called by external code
+            #   • invoked via reflection / getattr / importlib
+            #   • a virtual/override method called polymorphically
+            # → medium confidence only
+            fn.is_dead = True
+            fn.dead_confidence = "medium"
+
+        return all_functions
+
 
 def count_functions_ast(filepath: str, content: str) -> int:
     ext = Path(filepath).suffix.lower()
@@ -1166,10 +1338,58 @@ def _extract_file_imports(content: str, language: str) -> List[str]:
     return deduped
 
 
-def analyze_files(files: List[Dict]) -> List[Dict]:
+def detect_unused_imports(content: str, language: str, imports: List[str]) -> List[str]:
+    """Return import names from `imports` that never appear in the non-import body of `content`."""
+    # Strip import statement lines so we don't count the declaration itself as usage
+    lines = content.split("\n")
+    body_lines: List[str] = []
+    in_import_block = False  # for Go multi-line import blocks
+
+    for line in lines:
+        s = line.strip()
+        if language == "python":
+            if s.startswith("import ") or s.startswith("from "):
+                continue
+        elif language in ("javascript", "typescript"):
+            if s.startswith("import ") or ("require(" in s and "=" in s):
+                continue
+        elif language == "java":
+            if s.startswith("import "):
+                continue
+        elif language == "go":
+            if s.startswith("import ("):
+                in_import_block = True
+                continue
+            if in_import_block:
+                if s == ")":
+                    in_import_block = False
+                continue
+            if s.startswith("import "):
+                continue
+        elif language == "rust":
+            if s.startswith("use "):
+                continue
+        elif language in ("c", "cpp"):
+            if s.startswith("#include"):
+                continue
+        elif language == "csharp":
+            if s.startswith("using "):
+                continue
+        body_lines.append(line)
+
+    body = "\n".join(body_lines)
+    unused: List[str] = []
+    for imp in imports:
+        if not re.search(r"\b" + re.escape(imp) + r"\b", body):
+            unused.append(imp)
+    return unused
+
+
+def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]]]:
     """Parse all supported files, apply file strategies, chunk god files and store edges via `add_edge`.
 
-    Returns list of parsed function dicts.
+    Returns (functions_list, unused_import_map) where unused_import_map is
+    {file_path: [unused_import_names]}.
     """
     parser = UniversalParser()
     all_functions: List[ParsedFunction] = []
@@ -1178,9 +1398,15 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
     module_map = _detect_module_structure(files)
     file_import_map = {}
 
+    file_unused_import_map: Dict[str, List[str]] = {}
     for file_info in files:
         file_path = file_info.get("path", "<in-memory>")
-        file_import_map[file_path] = _extract_file_imports(file_info.get("content", ""), file_info.get("language", ""))
+        lang = file_info.get("language", "")
+        content = file_info.get("content", "")
+        imports = _extract_file_imports(content, lang)
+        file_import_map[file_path] = imports
+        if imports:
+            file_unused_import_map[file_path] = detect_unused_imports(content, lang, imports)
 
     # First pass: parse files and decide strategies
     for file_info in files:
@@ -1218,9 +1444,10 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
 
         all_functions.extend(parsed)
 
-    # compute fan-in then risk scores
+    # compute fan-in, risk scores, dead code
     all_functions = parser.compute_fan_in(all_functions)
     all_functions = parser.compute_risk_scores(all_functions)
+    all_functions = parser.compute_dead_code(all_functions)
 
     # CALLS edges are persisted later in store_all() with proper session scoping.
 
@@ -1269,10 +1496,12 @@ def analyze_files(files: List[Dict]) -> List[Dict]:
             "fan_in": fn.fan_in,
             "fan_out": fn.fan_out,
             "risk_level": fn.risk_level,
+            "is_dead": fn.is_dead,
+            "dead_confidence": fn.dead_confidence,
             "imports": file_import_map.get(fn.file, []),
         }
         for fn in all_functions
-    ] + file_sentinels
+    ] + file_sentinels, file_unused_import_map
 
 
 def build_module_graph(all_functions: List[Dict]) -> Dict:
@@ -1529,6 +1758,8 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
             "fan_in": fn.get("fan_in"),
             "fan_out": fn.get("fan_out"),
             "risk_level": fn.get("risk_level", "none"),
+            "is_dead": fn.get("is_dead", False),
+            "dead_confidence": fn.get("dead_confidence", "none"),
             "language": fn.get("language"),
         }
         for fn in file_fns

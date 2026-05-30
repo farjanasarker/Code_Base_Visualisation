@@ -120,6 +120,10 @@
             <span class="legend-swatch risk-low-swatch"></span>
             <span>Low Risk (1–2)</span>
           </div>
+          <div class="legend-item">
+            <span class="legend-swatch dead-swatch"></span>
+            <span>Potentially Unreachable</span>
+          </div>
         </div>
       </div>
 
@@ -168,6 +172,70 @@
         </div>
         <div v-else class="risk-empty">No high-risk dependencies found.</div>
       </div>
+
+      <!-- Potentially Unreachable Panel -->
+      <div v-if="deadCodeData" class="sidebar-section dead-panel">
+        <div class="section-title">Potentially Unreachable</div>
+
+        <!-- Summary chips -->
+        <div class="dead-summary">
+          <span class="dead-chip dead-chip-high" :title="'High confidence: private functions with no callers'">
+            🔒 {{ deadCodeData.summary?.high_confidence || 0 }} private
+          </span>
+          <span class="dead-chip dead-chip-medium" :title="'Medium confidence: may be called dynamically or externally'">
+            👻 {{ deadCodeData.summary?.medium_confidence || 0 }} public
+          </span>
+          <span class="dead-chip dead-chip-imp">📦 {{ deadCodeData.summary?.total_unused_imports || 0 }} imports</span>
+        </div>
+
+        <!-- Unreachable functions -->
+        <div v-if="deadCodeData.unreachable_functions?.length" class="dead-section-label">Unreachable Functions</div>
+        <div v-if="deadCodeData.unreachable_functions?.length" class="dead-list">
+          <div
+            v-for="fn in deadCodeData.unreachable_functions.slice(0, 8)"
+            :key="fn.name + fn.file"
+            class="dead-item"
+            :class="fn.dead_confidence === 'high' ? 'dead-item-high' : 'dead-item-medium'"
+            :title="fn.suggestion"
+          >
+            <span class="dead-item-icon">{{ fn.dead_confidence === 'high' ? '🔒' : '👻' }}</span>
+            <div class="dead-item-body">
+              <div class="dead-item-name">{{ fn.name }}</div>
+              <div class="dead-item-file">{{ fn.file.split('/').pop() }}:{{ fn.line_start }}</div>
+            </div>
+            <span class="dead-conf-badge" :class="fn.dead_confidence === 'high' ? 'conf-high' : 'conf-med'">
+              {{ fn.dead_confidence === 'high' ? 'high' : 'med' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Unused imports -->
+        <div v-if="deadCodeData.unused_imports?.length" class="dead-section-label" style="margin-top:8px">Unused Imports</div>
+        <div v-if="deadCodeData.unused_imports?.length" class="dead-list">
+          <div
+            v-for="entry in deadCodeData.unused_imports.slice(0, 5)"
+            :key="entry.file"
+            class="dead-item dead-import-item"
+            :title="entry.suggestion"
+          >
+            <span class="dead-item-icon">📦</span>
+            <div class="dead-item-body">
+              <div class="dead-item-name" style="text-decoration:none;color:#92400e">{{ entry.file.split('/').pop() }}</div>
+              <div class="dead-item-file">{{ entry.unused.join(', ') }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!deadCodeData.unreachable_functions?.length && !deadCodeData.unused_imports?.length" class="risk-empty">
+          No potentially unreachable code found.
+        </div>
+
+        <!-- Static analysis disclaimer -->
+        <div class="dead-note">
+          ⚠ Static analysis only. Cross-file calls within this upload are handled.
+          Dynamic calls, reflection, and external callers cannot be detected.
+        </div>
+      </div>
     </aside>
 
     <!-- ── Graph canvas ─────────────────────────────── -->
@@ -194,6 +262,7 @@
             if (n.data?.nodeType === 'rootfiles') return '#f59e0b';
             if (n.data?.nodeType === 'file') return '#f59e0b';
             if (n.data?.nodeType === 'chunk') return '#8b5cf6';
+            if (n.data?.isDead) return '#94a3b8';
             if (n.data?.riskLevel === 'high') return '#ef4444';
             if (n.data?.riskLevel === 'medium') return '#f59e0b';
             if (n.data?.riskLevel === 'low') return '#22c55e';
@@ -242,7 +311,8 @@ const selectedRoot = ref("");
 const functionLayoutMode = ref(false);
 const navStack = ref([]);   // [{label, nodes, edges, expandedNodes, nodeLevelMap}]
 const currentLabel = ref('');
-const riskData = ref(null);  // { functions: [...], summary: {...}, total: N }
+const riskData = ref(null);       // { functions: [...], summary: {...}, total: N }
+const deadCodeData = ref(null);   // { dead_functions: [...], unused_imports: [...], summary: {...} }
 const { fitView } = useVueFlow();
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
@@ -408,7 +478,7 @@ const getDisplayLabel = (fullLabel, nodeType = 'module') => {
 };
 
 const createNode = (id, position, opts = {}) => {
-  const { label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false, language, riskLevel = 'none', fanIn = 0 } = opts;
+  const { label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false, language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none' } = opts;
   return {
     id,
     type: 'functionNode',
@@ -421,6 +491,8 @@ const createNode = (id, position, opts = {}) => {
       isRoot,
       riskLevel,
       fanIn,
+      isDead,
+      deadConfidence,
     },
     position,
     sourcePosition: Position.Bottom,
@@ -837,10 +909,14 @@ const uploadWithFormData = async (formData, sourceName) => {
     selectedRoot.value = '';
     functionLayoutMode.value = false;
 
-    // fetch dependency risk scores in background
+    // fetch dependency risk scores and dead code analysis in background
     try {
-      const riskRes = await sessionManager.apiCall('/risk-score', { method: 'GET' });
+      const [riskRes, deadRes] = await Promise.all([
+        sessionManager.apiCall('/risk-score', { method: 'GET' }),
+        sessionManager.apiCall('/dead-code', { method: 'GET' }),
+      ]);
       riskData.value = await riskRes.json();
+      deadCodeData.value = await deadRes.json();
     } catch (_) { /* non-critical */ }
   } catch (err) {
     console.error("Error uploading file:", err);
@@ -928,6 +1004,8 @@ const renderFunctionView = async (fileId, functionGraph) => {
       callCount: fn.fan_out,
       riskLevel: fn.risk_level || 'none',
       fanIn: fn.fan_in || 0,
+      isDead: fn.is_dead || false,
+      deadConfidence: fn.dead_confidence || 'none',
     });
   });
 
@@ -1485,6 +1563,7 @@ const collapseOthers = (nodeType, keepId) => {
 .legend-swatch.risk-high-swatch   { background: #ef4444; }
 .legend-swatch.risk-medium-swatch { background: #f59e0b; }
 .legend-swatch.risk-low-swatch    { background: #22c55e; }
+.legend-swatch.dead-swatch        { background: #94a3b8; border-style: dashed; }
 .legend-divider {
   width: 100%;
   height: 1px;
@@ -1646,5 +1725,104 @@ const collapseOthers = (nodeType, keepId) => {
   color: #94a3b8;
   text-align: center;
   padding: 8px 0;
+}
+
+/* ── Potentially Unreachable Panel ──────────────── */
+.dead-panel { padding-bottom: 12px; }
+
+.dead-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.dead-chip {
+  padding: 3px 7px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.dead-chip-high { background: #f1f5f9; color: #334155; }
+.dead-chip-medium { background: #f8fafc; color: #64748b; }
+.dead-chip-imp  { background: #fef9c3; color: #854d0e; }
+
+.dead-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.dead-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dead-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  cursor: default;
+  transition: background 120ms;
+}
+.dead-item:hover { background: #f1f5f9; }
+/* high confidence: darker dashed border */
+.dead-item-high   { border-color: #94a3b8; background: #f1f5f9; }
+.dead-item-high:hover { background: #e2e8f0; }
+/* medium confidence: lighter */
+.dead-item-medium { border-color: #cbd5e1; }
+.dead-import-item { border-color: #fde68a; background: #fffbeb; }
+.dead-import-item:hover { background: #fef3c7; }
+
+.dead-item-icon { font-size: 12px; flex-shrink: 0; }
+
+.dead-item-body { flex: 1; min-width: 0; }
+.dead-item-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: line-through;
+}
+.dead-item-file {
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
+
+/* confidence badge */
+.dead-conf-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 8px;
+  letter-spacing: 0.03em;
+}
+.conf-high { background: #e2e8f0; color: #334155; }
+.conf-med  { background: #f1f5f9; color: #64748b; }
+
+/* static analysis disclaimer */
+.dead-note {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  font-size: 10px;
+  color: #78350f;
+  line-height: 1.5;
 }
 </style>

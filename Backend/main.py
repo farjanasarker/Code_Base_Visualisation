@@ -561,7 +561,7 @@ async def upload(
                 pass
             raise HTTPException(status_code=400, detail="No supported source files found")
 
-        functions = analyze_files(all_files)
+        functions, unused_imports = analyze_files(all_files)
 
         # Update session's file list
         session_info["files"] = [f["path"] for f in all_files]
@@ -574,11 +574,13 @@ async def upload(
                 "tier1": tier1,
                 # store raw file info (without content) for fallback file graph
                 "all_files": [{"path": f["path"], "language": f["language"]} for f in all_files],
+                "unused_imports": unused_imports,
             }
             
             # Also update global cache for fallback
             PARSED_CACHE["functions"] = functions
             PARSED_CACHE["tier1"] = tier1
+            PARSED_CACHE["unused_imports"] = unused_imports
             
         except Exception:
             logger.exception(f"Failed to cache parsed functions for session {session_id}")
@@ -876,3 +878,102 @@ def api_risk_score(request: Request):
     except Exception as e:
         logger.error(f"Risk score error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error computing risk scores: {str(e)}")
+
+
+@app.get("/dead-code")
+def api_dead_code(request: Request):
+    """Detect potentially unreachable functions and unused imports per file.
+
+    Confidence levels:
+    • high   — private function (name starts with _) with no detected callers.
+               Very likely safe to remove.
+    • medium — public function with no detected callers, OR a name pattern
+               that suggests runtime invocation (callback, hook, listener…).
+               May still be called via reflection, dynamic dispatch, external
+               users, or polymorphism — review before removing.
+
+    Cross-file calls within the uploaded codebase are already handled:
+    fan_in counts callers across every parsed file, so a function called from
+    another file in the project will have fan_in > 0 and is never flagged.
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        cache = SESSION_CACHE.get(session_id, {})
+        functions = cache.get("functions", [])
+        unused_imports: dict = cache.get("unused_imports", {})
+
+        real_fns = [fn for fn in functions if fn.get("name") != "__file__"]
+
+        def _suggestion(fn: dict) -> str:
+            conf = fn.get("dead_confidence", "medium")
+            if conf == "high":
+                return (
+                    f"'{fn['name']}' is a private function with no detected callers. "
+                    "Safe to remove if not used via reflection or monkey-patching."
+                )
+            return (
+                f"'{fn['name']}' has no detected callers within this codebase. "
+                "Verify it is not called dynamically, via reflection, "
+                "as a callback/event handler, or by external consumers before removing."
+            )
+
+        # Potentially unreachable functions, sorted: high confidence first
+        dead_fns = sorted(
+            [
+                {
+                    "name": fn["name"],
+                    "file": fn["file"],
+                    "language": fn.get("language"),
+                    "line_start": fn.get("line_start"),
+                    "line_end": fn.get("line_end"),
+                    "dead_confidence": fn.get("dead_confidence", "medium"),
+                    "suggestion": _suggestion(fn),
+                }
+                for fn in real_fns
+                if fn.get("is_dead", False)
+            ],
+            key=lambda f: 0 if f["dead_confidence"] == "high" else 1,
+        )
+
+        high_count = sum(1 for f in dead_fns if f["dead_confidence"] == "high")
+        medium_count = len(dead_fns) - high_count
+
+        # Unused imports — only files that have at least one unused import
+        unused_import_list = [
+            {
+                "file": file_path,
+                "unused": names,
+                "suggestion": f"Remove unused import(s): {', '.join(names)}",
+            }
+            for file_path, names in unused_imports.items()
+            if names
+        ]
+
+        summary = {
+            "high_confidence": high_count,
+            "medium_confidence": medium_count,
+            "total_unreachable": len(dead_fns),
+            "files_with_unused_imports": len(unused_import_list),
+            "total_unused_imports": sum(len(e["unused"]) for e in unused_import_list),
+        }
+
+        note = (
+            "Static analysis only. Functions invoked via reflection, dynamic dispatch, "
+            "polymorphism, or by external callers outside this upload cannot be detected "
+            "and will appear here even if they are reachable at runtime."
+        )
+
+        return {
+            "unreachable_functions": dead_fns,
+            "unused_imports": unused_import_list,
+            "summary": summary,
+            "note": note,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Dead code analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error running dead code analysis: {str(e)}")
