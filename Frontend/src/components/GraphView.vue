@@ -236,6 +236,48 @@
           Dynamic calls, reflection, and external callers cannot be detected.
         </div>
       </div>
+
+      <!-- Layer Analysis Panel (folder / ZIP only) -->
+      <div v-if="layerViolations" class="sidebar-section layer-panel">
+        <div class="section-title">Layer Analysis</div>
+
+        <!-- Clean state -->
+        <div v-if="layerViolations.summary?.total === 0" class="layer-clean">
+          <span class="layer-clean-icon">✅</span>
+          <div>
+            <div class="layer-clean-title">No layer violations detected.</div>
+            <div class="layer-clean-sub">Perfect layered architecture — every module respects its boundaries.</div>
+          </div>
+        </div>
+
+        <!-- Violations found -->
+        <template v-else>
+          <div class="layer-summary">
+            <span v-if="layerViolations.summary?.high" class="layer-chip layer-chip-high">
+              🔴 {{ layerViolations.summary.high }} critical
+            </span>
+            <span v-if="layerViolations.summary?.medium" class="layer-chip layer-chip-medium">
+              🟡 {{ layerViolations.summary.medium }} warning
+            </span>
+          </div>
+
+          <div class="layer-list">
+            <div
+              v-for="v in (layerViolations.violations || []).slice(0, 8)"
+              :key="v.source_file + v.target_ref"
+              class="layer-item"
+              :class="v.severity === 'high' ? 'layer-item-high' : 'layer-item-medium'"
+              :title="v.message"
+            >
+              <span class="layer-item-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span>
+              <div class="layer-item-body">
+                <div class="layer-item-msg">{{ v.message }}</div>
+                <div class="layer-item-src">{{ v.source_file.split('/').pop() }} → {{ v.target_ref.split('/').pop() }}</div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
     </aside>
 
     <!-- ── Graph canvas ─────────────────────────────── -->
@@ -311,8 +353,9 @@ const selectedRoot = ref("");
 const functionLayoutMode = ref(false);
 const navStack = ref([]);   // [{label, nodes, edges, expandedNodes, nodeLevelMap}]
 const currentLabel = ref('');
-const riskData = ref(null);       // { functions: [...], summary: {...}, total: N }
-const deadCodeData = ref(null);   // { dead_functions: [...], unused_imports: [...], summary: {...} }
+const riskData = ref(null);         // { functions: [...], summary: {...}, total: N }
+const deadCodeData = ref(null);     // { unreachable_functions: [...], unused_imports: [...], summary: {...} }
+const layerViolations = ref(null);  // { by_module: {id: {count, severity}}, summary: {...} }
 const { fitView } = useVueFlow();
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
@@ -478,7 +521,11 @@ const getDisplayLabel = (fullLabel, nodeType = 'module') => {
 };
 
 const createNode = (id, position, opts = {}) => {
-  const { label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false, language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none' } = opts;
+  const {
+    label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false,
+    language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none',
+    violationCount = 0, violationSeverity = 'none'
+  } = opts;
   return {
     id,
     type: 'functionNode',
@@ -493,13 +540,15 @@ const createNode = (id, position, opts = {}) => {
       fanIn,
       isDead,
       deadConfidence,
+      violationCount,
+      violationSeverity,
     },
     position,
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
     style: {
       width: '170px',
-      height: '58px'
+      height: '58px',
     },
     draggable: false
   };
@@ -688,11 +737,18 @@ const renderTier1Graph = async (tier1) => {
 
   // Sub-modules layout
   visibleModules.forEach((m, index) => {
+    const viol = layerViolations.value?.by_module?.[m.id] || null;
     mixedNodes.push(
       createNode(
         m.id,
         { x: index * 300 - ((totalCols - 1) * 150), y: 0 },
-        { fullLabel: m.label || m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null }
+        {
+          fullLabel: m.label || m.id,
+          nodeType: 'module',
+          language: (m.languages && m.languages[0]) || null,
+          violationCount: viol?.count || 0,
+          violationSeverity: viol?.severity || 'none',
+        }
       )
     );
   });
@@ -745,10 +801,19 @@ const renderTier1Graph = async (tier1) => {
 
 const renderModuleRoot = async (moduleNodes) => {
   // moduleNodes: [{ id, loc, fn_count, languages }]
-  // Spread modules horizontally across the top
-  nodes.value = moduleNodes.map((m, i) =>
-    createNode(m.id, { x: i * 210 - ((moduleNodes.length - 1) * 105), y: 0 }, { fullLabel: m.id, nodeType: 'module', language: (m.languages && m.languages[0]) || null })
-  );
+  nodes.value = moduleNodes.map((m, i) => {
+    const viol = layerViolations.value?.by_module?.[m.id] || null;
+    return createNode(
+      m.id,
+      { x: i * 210 - ((moduleNodes.length - 1) * 105), y: 0 },
+      {
+        fullLabel: m.id, nodeType: 'module',
+        language: (m.languages && m.languages[0]) || null,
+        violationCount: viol?.count || 0,
+        violationSeverity: viol?.severity || 'none',
+      }
+    );
+  });
   edges.value = [];
   expandedNodes.value.clear();
   nodeLevelMap.value.clear();
@@ -909,14 +974,22 @@ const uploadWithFormData = async (formData, sourceName) => {
     selectedRoot.value = '';
     functionLayoutMode.value = false;
 
-    // fetch dependency risk scores and dead code analysis in background
+    // fetch risk scores, dead code, and layer violations in background
     try {
-      const [riskRes, deadRes] = await Promise.all([
+      const isFolder = !isSingleFile || sourceName.toLowerCase().endsWith('.zip');
+      const requests = [
         sessionManager.apiCall('/risk-score', { method: 'GET' }),
-        sessionManager.apiCall('/dead-code', { method: 'GET' }),
-      ]);
-      riskData.value = await riskRes.json();
-      deadCodeData.value = await deadRes.json();
+        sessionManager.apiCall('/dead-code',  { method: 'GET' }),
+      ];
+      if (isFolder) {
+        requests.push(sessionManager.apiCall('/layer-violations', { method: 'GET' }));
+      }
+      const results = await Promise.all(requests);
+      riskData.value     = await results[0].json();
+      deadCodeData.value = await results[1].json();
+      if (isFolder && results[2]) {
+        layerViolations.value = await results[2].json();
+      }
     } catch (_) { /* non-critical */ }
   } catch (err) {
     console.error("Error uploading file:", err);
@@ -1824,5 +1897,86 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 10px;
   color: #78350f;
   line-height: 1.5;
+}
+
+/* ── Layer Analysis Panel ───────────────────────── */
+.layer-panel { padding-bottom: 12px; }
+
+.layer-clean {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+}
+.layer-clean-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.layer-clean-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #166534;
+  line-height: 1.3;
+}
+.layer-clean-sub {
+  font-size: 10px;
+  color: #4ade80;
+  margin-top: 2px;
+  line-height: 1.4;
+  color: #15803d;
+}
+
+.layer-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.layer-chip {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.layer-chip-high   { background: #fee2e2; color: #991b1b; }
+.layer-chip-medium { background: #fef3c7; color: #92400e; }
+
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.layer-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border-left: 3px solid transparent;
+}
+.layer-item-high   { border-left-color: #ef4444; background: #fef2f2; }
+.layer-item-medium { border-left-color: #f59e0b; background: #fffbeb; }
+
+.layer-item-icon { font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+.layer-item-body { flex: 1; min-width: 0; }
+.layer-item-msg {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.layer-item-src {
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  margin-top: 1px;
 }
 </style>

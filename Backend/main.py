@@ -561,7 +561,7 @@ async def upload(
                 pass
             raise HTTPException(status_code=400, detail="No supported source files found")
 
-        functions, unused_imports = analyze_files(all_files)
+        functions, unused_imports, layer_violations = analyze_files(all_files)
 
         # Update session's file list
         session_info["files"] = [f["path"] for f in all_files]
@@ -572,15 +572,16 @@ async def upload(
             SESSION_CACHE[session_id] = {
                 "functions": functions,
                 "tier1": tier1,
-                # store raw file info (without content) for fallback file graph
                 "all_files": [{"path": f["path"], "language": f["language"]} for f in all_files],
                 "unused_imports": unused_imports,
+                "layer_violations": layer_violations,
             }
-            
+
             # Also update global cache for fallback
             PARSED_CACHE["functions"] = functions
             PARSED_CACHE["tier1"] = tier1
             PARSED_CACHE["unused_imports"] = unused_imports
+            PARSED_CACHE["layer_violations"] = layer_violations
             
         except Exception:
             logger.exception(f"Failed to cache parsed functions for session {session_id}")
@@ -977,3 +978,64 @@ def api_dead_code(request: Request):
     except Exception as e:
         logger.error(f"Dead code analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error running dead code analysis: {str(e)}")
+
+
+@app.get("/layer-violations")
+def api_layer_violations(request: Request):
+    """Detect architectural layer violations in a multi-file project.
+
+    Only meaningful for folder / ZIP uploads (single files are skipped).
+    Returns per-module violation counts and a full violation list so the
+    frontend can colour module nodes in the tier-1 graph.
+
+    Rule: each layer may only call the layer DIRECTLY below it.
+      Controller → Service → Repository → Model / DB
+      Any layer  → Utility  (cross-cutting concern, always allowed)
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        cache = SESSION_CACHE.get(session_id, {})
+        lv = cache.get("layer_violations", {})
+        functions = cache.get("functions", [])
+
+        # Build file → module_id map so we can group by tier-1 module
+        file_module_map: dict = {}
+        for fn in functions:
+            fp = fn.get("file")
+            mod = fn.get("module") or ""
+            if fp and mod:
+                file_module_map[fp] = mod
+
+        raw_violations = lv.get("all_violations", [])
+        by_module: dict = {}
+
+        for v in raw_violations:
+            src = v.get("source_file", "")
+            mod_id = file_module_map.get(src) or str(Path(src).parent).replace("\\", "/")
+            if mod_id not in by_module:
+                by_module[mod_id] = {"count": 0, "severity": "medium", "items": []}
+            by_module[mod_id]["count"] += 1
+            by_module[mod_id]["items"].append(v)
+            if v.get("severity") == "high":
+                by_module[mod_id]["severity"] = "high"
+
+        # Compact version for the frontend (no raw items, just count + severity)
+        by_module_compact = {
+            mod: {"count": data["count"], "severity": data["severity"]}
+            for mod, data in by_module.items()
+        }
+
+        return {
+            "by_module": by_module_compact,
+            "violations": raw_violations,
+            "summary": lv.get("summary", {"total": 0, "high": 0, "medium": 0}),
+            "is_folder": len(cache.get("all_files", [])) > 1,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Layer violation analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error running layer violation analysis: {str(e)}")
