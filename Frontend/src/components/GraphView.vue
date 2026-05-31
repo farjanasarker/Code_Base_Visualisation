@@ -186,34 +186,34 @@
           <span class="git-total">{{ gitHistory.total_commits }} commits</span>
         </div>
 
-        <!-- Metric trend headers -->
+        <!-- Column headers -->
         <div class="git-trend-header">
           <span class="gth-commit">Commit</span>
-          <span class="gth-loc">Est. LOC</span>
-          <span class="gth-delta">Δ Lines</span>
+          <span class="gth-loc">LOC</span>
+          <span class="gth-fns">Fns</span>
+          <span class="gth-delta">Δ</span>
         </div>
 
         <div class="git-list">
           <div
-            v-for="(c, idx) in gitCommitsWithLoc"
+            v-for="c in gitCommitsWithLoc"
             :key="c.hash"
             class="git-item"
             :title="`${c.message}\nAuthor: ${c.author}\nFiles changed: ${c.files_changed}`"
           >
-            <span class="git-hash">{{ c.hash }}</span>
-            <div class="git-info">
-              <div class="git-msg">{{ c.message }}</div>
-              <div class="git-stat">
+            <div class="git-left">
+              <span class="git-hash">{{ c.hash }}</span>
+              <div class="git-info">
+                <div class="git-msg">{{ c.message }}</div>
                 <span class="git-date">{{ c.date }}</span>
               </div>
             </div>
-            <!-- Metric columns -->
+            <!-- Metrics columns -->
             <div class="git-metrics-col">
               <span class="git-loc-val">{{ c.estimatedLoc.toLocaleString() }}</span>
-              <span
-                class="git-delta-val"
-                :class="c.netDelta > 0 ? 'delta-pos' : c.netDelta < 0 ? 'delta-neg' : 'delta-zero'"
-              >
+              <span class="git-fns-val">{{ c.estimatedFns }}</span>
+              <span class="git-delta-val"
+                :class="c.netDelta > 0 ? 'delta-pos' : c.netDelta < 0 ? 'delta-neg' : 'delta-zero'">
                 {{ c.netDelta > 0 ? '+' : '' }}{{ c.netDelta }}
               </span>
             </div>
@@ -221,7 +221,32 @@
         </div>
 
         <div class="git-note">
-          Est. LOC calculated backwards from current SLOC ({{ metricsData?.sloc?.toLocaleString() || '—' }}) using commit insertions/deletions.
+          LOC and function counts estimated backwards from the current upload state.
+        </div>
+      </div>
+
+      <!-- ── Git History: "How to Enable" hint ────────────────── -->
+      <div v-else-if="layerViolations !== null || deadCodeData !== null" class="sidebar-section git-hint-panel">
+        <div class="section-title">Git History</div>
+        <div class="git-hint-box">
+          <div class="git-hint-icon">🔒</div>
+          <div>
+            <div class="git-hint-title">Not detected in this upload</div>
+            <div class="git-hint-sub">To see per-version metrics, upload a ZIP that includes the <code>.git</code> folder.</div>
+          </div>
+        </div>
+        <div class="git-how-steps-wrap">
+          <div class="git-how-label">How to create the ZIP on Windows</div>
+          <ol class="git-how-steps">
+            <li>Open your project folder in <strong>File Explorer</strong></li>
+            <li>Select <strong>all files including hidden ones</strong> (View → Hidden items ✓)</li>
+            <li>Right-click → <strong>Send to → Compressed (zipped) folder</strong></li>
+            <li>Upload the ZIP — it will contain <code>.git</code></li>
+          </ol>
+          <div class="git-how-alt">
+            <strong>Git Bash / Terminal:</strong><br>
+            <code>cd your-project && zip -r ../project.zip .</code>
+          </div>
         </div>
       </div>
 
@@ -453,18 +478,23 @@ const edgeTypes = {
 
 const nodeCount = computed(() => nodes.value.length);
 
-// Enrich git commits with estimated LOC at each point in history.
-// Commits arrive newest-first; we walk backwards from current SLOC.
+// Enrich git commits with estimated LOC + function count at each point in history.
+// Commits arrive newest-first; we walk backwards from current state.
 const gitCommitsWithLoc = computed(() => {
   if (!gitHistory.value?.commits?.length) return [];
   const currentLoc = metricsData.value?.sloc ?? 0;
+  const currentFns = metricsData.value?.total_functions ?? 0;
   const commits = gitHistory.value.commits.slice(0, 15);
   let loc = currentLoc;
+  let fns = currentFns;
   return commits.map((c) => {
-    const netDelta = (c.insertions || 0) - (c.deletions || 0);
+    const netDelta  = (c.insertions  || 0) - (c.deletions   || 0);
+    const fnDelta   = (c.fn_added    || 0) - (c.fn_removed  || 0);
     const estimatedLoc = Math.max(0, loc);
-    loc = Math.max(0, loc - netDelta);   // step back before this commit
-    return { ...c, estimatedLoc, netDelta };
+    const estimatedFns = Math.max(0, fns);
+    loc = Math.max(0, loc - netDelta);
+    fns = Math.max(0, fns - fnDelta);
+    return { ...c, estimatedLoc, netDelta, estimatedFns, fnDelta };
   });
 });
 
@@ -2230,7 +2260,7 @@ const collapseOthers = (nodeType, keepId) => {
 .git-trend-header {
   display: flex;
   align-items: center;
-  padding: 3px 8px;
+  padding: 3px 8px 3px 6px;
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -2239,27 +2269,81 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 2px;
 }
 .gth-commit { flex: 1; }
-.gth-loc  { width: 52px; text-align: right; }
-.gth-delta { width: 46px; text-align: right; margin-left: 4px; }
+.gth-loc   { width: 44px; text-align: right; }
+.gth-fns   { width: 32px; text-align: right; }
+.gth-delta { width: 38px; text-align: right; margin-left: 2px; }
+
+.git-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+  transition: background 100ms;
+}
+.git-item:hover { background: #f1f5f9; }
+
+.git-left {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.git-hash {
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.git-info { flex: 1; min-width: 0; }
+.git-msg {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-date { font-size: 9px; color: #94a3b8; }
 
 .git-metrics-col {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
-  margin-left: 4px;
 }
 .git-loc-val {
   font-size: 10px;
   font-weight: 700;
   color: #334155;
   font-family: monospace;
+  width: 44px;
+  text-align: right;
+}
+.git-fns-val {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6366f1;
+  font-family: monospace;
+  width: 32px;
+  text-align: right;
 }
 .git-delta-val {
   font-size: 10px;
   font-weight: 700;
   font-family: monospace;
+  width: 38px;
+  text-align: right;
 }
 .delta-pos  { color: #16a34a; }
 .delta-neg  { color: #dc2626; }
@@ -2271,5 +2355,72 @@ const collapseOthers = (nodeType, keepId) => {
   color: #94a3b8;
   line-height: 1.5;
   font-style: italic;
+}
+
+/* ── Git "How to Enable" hint panel ─────────────── */
+.git-hint-panel { padding-bottom: 12px; }
+
+.git-hint-box {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 10px;
+}
+.git-hint-icon { font-size: 20px; flex-shrink: 0; }
+.git-hint-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 3px;
+}
+.git-hint-sub {
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.git-hint-sub code, .git-how-alt code {
+  background: #e2e8f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 10px;
+  color: #334155;
+}
+
+.git-how-steps-wrap {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.git-how-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #92400e;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.git-how-steps {
+  margin: 0 0 8px 0;
+  padding-left: 16px;
+}
+.git-how-steps li {
+  font-size: 11px;
+  color: #78350f;
+  line-height: 1.7;
+}
+.git-how-steps strong { color: #451a03; }
+.git-how-alt {
+  font-size: 10px;
+  color: #78350f;
+  line-height: 1.6;
+  background: rgba(0,0,0,0.04);
+  padding: 5px 8px;
+  border-radius: 6px;
 }
 </style>

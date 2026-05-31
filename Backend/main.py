@@ -87,6 +87,27 @@ def _get_git_history(repo_path: str) -> Optional[Dict]:
         )
         branch = br.stdout.strip() or "HEAD"
 
+        # Per-commit function-definition deltas (added / removed functions)
+        fn_re_add = re.compile(r'^\+[^+].*\b(?:def |function |func |fn |class )\s+\w')
+        fn_re_del = re.compile(r'^\-[^-].*\b(?:def |function |func |fn |class )\s+\w')
+
+        for commit in commits[:15]:   # limit to 15 to avoid slow startup
+            try:
+                diff_r = subprocess.run(
+                    ["git", "show", "--unified=0", "--no-color", commit["hash"],
+                     "--", "*.py", "*.js", "*.ts", "*.jsx", "*.tsx",
+                     "*.java", "*.go", "*.rs", "*.cs"],
+                    cwd=repo_path, capture_output=True, text=True, timeout=8,
+                )
+                if diff_r.returncode == 0:
+                    lines = diff_r.stdout.split("\n")
+                    commit["fn_added"]   = sum(1 for l in lines if fn_re_add.match(l))
+                    commit["fn_removed"] = sum(1 for l in lines if fn_re_del.match(l))
+                else:
+                    commit["fn_added"] = commit["fn_removed"] = 0
+            except Exception:
+                commit["fn_added"] = commit["fn_removed"] = 0
+
         return {"total_commits": total, "current_branch": branch, "commits": commits}
     except Exception as exc:
         logger.warning(f"Git history extraction failed: {exc}")
