@@ -1,4 +1,6 @@
 import os
+import re
+import subprocess
 import tempfile
 import zipfile
 import uuid
@@ -11,10 +13,84 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data
-from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph
+from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ── Git helpers ──────────────────────────────────────────────────────────────
+
+def _find_git_root(base_path: Path) -> Optional[Path]:
+    """Return the git repository root inside base_path, or None."""
+    if (base_path / ".git").is_dir():
+        return base_path
+    try:
+        for child in base_path.iterdir():
+            if child.is_dir() and (child / ".git").is_dir():
+                return child
+    except Exception:
+        pass
+    return None
+
+
+def _get_git_history(repo_path: str) -> Optional[Dict]:
+    """Parse git commit history + per-commit stats from a local repo."""
+    try:
+        # One-shot log with numstat: COMMIT header lines + numstat lines
+        result = subprocess.run(
+            ["git", "log",
+             "--pretty=format:COMMIT|%h|%s|%an|%ad",
+             "--date=short", "--numstat", "-30"],
+            cwd=repo_path, capture_output=True, text=True, timeout=20,
+        )
+        if result.returncode != 0:
+            return None
+
+        commits = []
+        current: Optional[Dict] = None
+        for raw in result.stdout.split("\n"):
+            line = raw.rstrip()
+            if line.startswith("COMMIT|"):
+                parts = line.split("|", 4)
+                current = {
+                    "hash":         parts[1] if len(parts) > 1 else "",
+                    "message":      parts[2] if len(parts) > 2 else "",
+                    "author":       parts[3] if len(parts) > 3 else "",
+                    "date":         parts[4] if len(parts) > 4 else "",
+                    "insertions":   0,
+                    "deletions":    0,
+                    "files_changed": 0,
+                }
+                commits.append(current)
+            elif current and "\t" in line:
+                cols = line.split("\t")
+                if len(cols) >= 2:
+                    try:
+                        current["insertions"]    += int(cols[0]) if cols[0].isdigit() else 0
+                        current["deletions"]     += int(cols[1]) if cols[1].isdigit() else 0
+                        current["files_changed"] += 1
+                    except (ValueError, IndexError):
+                        pass
+
+        # Total commit count
+        cnt = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=repo_path, capture_output=True, text=True, timeout=5,
+        )
+        total = int(cnt.stdout.strip()) if cnt.returncode == 0 and cnt.stdout.strip().isdigit() else len(commits)
+
+        # Current branch
+        br = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=repo_path, capture_output=True, text=True, timeout=5,
+        )
+        branch = br.stdout.strip() or "HEAD"
+
+        return {"total_commits": total, "current_branch": branch, "commits": commits}
+    except Exception as exc:
+        logger.warning(f"Git history extraction failed: {exc}")
+        return None
 
 app = FastAPI()
 
@@ -505,6 +581,8 @@ async def upload(
         session_upload_dir = Path(session_info["upload_dir"])
         session_upload_dir.mkdir(parents=True, exist_ok=True)
         
+        git_history: Optional[Dict] = None   # captured inside tmpdir before it closes
+
         with tempfile.TemporaryDirectory() as tmpdir:
             if file is not None:
                 file_name = file.filename or "upload.txt"
@@ -518,6 +596,12 @@ async def upload(
                     extract_path = Path(tmpdir) / "extracted"
                     extract_path.mkdir(parents=True, exist_ok=True)
                     handle_zip(str(zip_path), str(extract_path))
+
+                    # Git detection — must happen before tmpdir closes
+                    git_root = _find_git_root(extract_path)
+                    if git_root:
+                        git_history = _get_git_history(str(git_root))
+
                     all_files = walk_folder(str(extract_path))
                 else:
                     single_path = Path(tmpdir) / file_name
@@ -563,6 +647,13 @@ async def upload(
 
         functions, unused_imports, layer_violations = analyze_files(all_files)
 
+        # Compute aggregate metrics (needs file content — do it before all_files is gc'd)
+        try:
+            metrics = compute_aggregate_metrics(functions, all_files)
+        except Exception:
+            logger.exception("Failed to compute aggregate metrics")
+            metrics = {}
+
         # Update session's file list
         session_info["files"] = [f["path"] for f in all_files]
 
@@ -575,6 +666,8 @@ async def upload(
                 "all_files": [{"path": f["path"], "language": f["language"]} for f in all_files],
                 "unused_imports": unused_imports,
                 "layer_violations": layer_violations,
+                "metrics": metrics,
+                "git_history": git_history,
             }
 
             # Also update global cache for fallback
@@ -582,6 +675,7 @@ async def upload(
             PARSED_CACHE["tier1"] = tier1
             PARSED_CACHE["unused_imports"] = unused_imports
             PARSED_CACHE["layer_violations"] = layer_violations
+            PARSED_CACHE["metrics"] = metrics
             
         except Exception:
             logger.exception(f"Failed to cache parsed functions for session {session_id}")
@@ -1039,3 +1133,39 @@ def api_layer_violations(request: Request):
     except Exception as e:
         logger.error(f"Layer violation analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error running layer violation analysis: {str(e)}")
+
+
+@app.get("/metrics")
+def api_metrics(request: Request):
+    """Return Integrated Metrics Dashboard data for the current session."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        metrics = SESSION_CACHE.get(session_id, {}).get("metrics") or PARSED_CACHE.get("metrics") or {}
+        return metrics if metrics else {"error": "Metrics not available — upload a project first."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Metrics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/git-history")
+def api_git_history(request: Request):
+    """Return git commit history for the uploaded repository (ZIP with .git only)."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        git_history = SESSION_CACHE.get(session_id, {}).get("git_history")
+        if not git_history:
+            return {"available": False, "message": "No git repository detected in the upload."}
+        return {"available": True, **git_history}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Git history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

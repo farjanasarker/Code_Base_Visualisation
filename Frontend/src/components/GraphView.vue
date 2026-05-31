@@ -140,6 +140,73 @@
         </ol>
       </div>
 
+      <!-- ── Integrated Metrics Dashboard ──────────────────── -->
+      <div v-if="metricsData && metricsData.total_functions != null" class="sidebar-section metrics-panel">
+        <div class="section-title">Code Metrics</div>
+        <div class="metrics-grid">
+          <div class="mrow"><span class="mlabel">Lines of Code</span><span class="mval">{{ metricsData.loc?.toLocaleString() }}</span></div>
+          <div class="mrow"><span class="mlabel">Significant Lines</span><span class="mval">{{ metricsData.sloc?.toLocaleString() }}</span></div>
+          <div class="mrow mrow-sep"></div>
+          <div class="mrow"><span class="mlabel">Files</span><span class="mval">{{ metricsData.total_files }}</span></div>
+          <div class="mrow"><span class="mlabel">Functions</span><span class="mval">{{ metricsData.total_functions }}</span></div>
+          <div class="mrow"><span class="mlabel">Edges / Calls</span><span class="mval">{{ metricsData.total_calls }}</span></div>
+          <div class="mrow mrow-sep"></div>
+          <div class="mrow"><span class="mlabel">Avg Cyclomatic CC</span><span class="mval" :class="metricsData.avg_cyclomatic > 10 ? 'mv-warn' : metricsData.avg_cyclomatic > 5 ? 'mv-caution' : 'mv-ok'">{{ metricsData.avg_cyclomatic }}</span></div>
+          <div class="mrow"><span class="mlabel">Max Cyclomatic CC</span><span class="mval" :class="metricsData.max_cyclomatic > 20 ? 'mv-warn' : metricsData.max_cyclomatic > 10 ? 'mv-caution' : 'mv-ok'">{{ metricsData.max_cyclomatic }}</span></div>
+          <div class="mrow"><span class="mlabel">Decision Points</span><span class="mval">{{ metricsData.decision_points }}</span></div>
+          <div class="mrow"><span class="mlabel">Cognitive Complexity</span><span class="mval">{{ metricsData.cognitive_complexity }}</span></div>
+          <div class="mrow mrow-sep"></div>
+          <div class="mrow"><span class="mlabel">Avg Parameters</span><span class="mval">{{ metricsData.avg_parameters }}</span></div>
+          <div class="mrow"><span class="mlabel">Max Parameters</span><span class="mval" :class="metricsData.max_parameters > 7 ? 'mv-warn' : ''">{{ metricsData.max_parameters }}</span></div>
+          <div class="mrow mrow-sep"></div>
+          <div class="mrow"><span class="mlabel">Halstead Volume</span><span class="mval">{{ metricsData.halstead_volume?.toLocaleString() }}</span></div>
+          <div class="mrow"><span class="mlabel">Halstead Difficulty</span><span class="mval">{{ metricsData.halstead_difficulty }}</span></div>
+          <div class="mrow mrow-sep"></div>
+          <div class="mrow"><span class="mlabel">Maintainability Index</span>
+            <span class="mval mi-val" :class="metricsData.maintainability_index >= 65 ? 'mv-ok' : metricsData.maintainability_index >= 40 ? 'mv-caution' : 'mv-warn'">
+              {{ metricsData.maintainability_index }} <span class="mi-label">{{ metricsData.maintainability_label }}</span>
+            </span>
+          </div>
+          <div class="mrow mrow-sep"></div>
+          <div class="mrow"><span class="mlabel">Call Chain Depth</span><span class="mval">{{ metricsData.max_call_chain_depth }}</span></div>
+          <div class="mrow"><span class="mlabel">Circular Deps</span><span class="mval" :class="metricsData.circular_deps > 0 ? 'mv-warn' : 'mv-ok'">{{ metricsData.circular_deps }}</span></div>
+          <div class="mrow"><span class="mlabel">Orphan Nodes</span><span class="mval" :class="metricsData.orphan_nodes > 0 ? 'mv-caution' : 'mv-ok'">{{ metricsData.orphan_nodes }}</span></div>
+        </div>
+        <div v-if="metricsData.circular_dep_details?.length" class="circ-details">
+          <div class="dead-section-label">Circular Chains</div>
+          <div v-for="c in metricsData.circular_dep_details" :key="c" class="circ-chain">{{ c }}</div>
+        </div>
+      </div>
+
+      <!-- ── Git History Panel ───────────────────────────────── -->
+      <div v-if="gitHistory" class="sidebar-section git-panel">
+        <div class="section-title">Git History</div>
+        <div class="git-meta">
+          <span class="git-branch">🌿 {{ gitHistory.current_branch }}</span>
+          <span class="git-total">{{ gitHistory.total_commits }} commits</span>
+        </div>
+        <div class="git-list">
+          <div
+            v-for="c in gitHistory.commits.slice(0, 12)"
+            :key="c.hash"
+            class="git-item"
+            :title="c.message"
+          >
+            <span class="git-hash">{{ c.hash }}</span>
+            <div class="git-info">
+              <div class="git-msg">{{ c.message }}</div>
+              <div class="git-stat">
+                <span class="git-date">{{ c.date }}</span>
+                <span v-if="c.insertions || c.deletions" class="git-diff">
+                  <span class="git-ins">+{{ c.insertions }}</span>
+                  <span class="git-del">-{{ c.deletions }}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Dependency Risk Panel -->
       <div v-if="riskData" class="sidebar-section risk-panel">
         <div class="section-title">Dependency Risk</div>
@@ -356,6 +423,8 @@ const currentLabel = ref('');
 const riskData = ref(null);         // { functions: [...], summary: {...}, total: N }
 const deadCodeData = ref(null);     // { unreachable_functions: [...], unused_imports: [...], summary: {...} }
 const layerViolations = ref(null);  // { by_module: {id: {count, severity}}, summary: {...} }
+const metricsData = ref(null);      // Integrated Metrics Dashboard
+const gitHistory = ref(null);       // { total_commits, current_branch, commits: [...] }
 const { fitView } = useVueFlow();
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
@@ -837,6 +906,32 @@ const resetGraphState = () => {
   nodeLevelMap.value.clear();
 };
 
+// Fetch all analysis sidebar panels (risk, dead code, metrics, git, layers).
+// Called from both single-file and multi-file upload paths.
+const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
+  try {
+    const isFolder = !isSingleFile || sourceName.toLowerCase().endsWith('.zip');
+    const requests = [
+      sessionManager.apiCall('/risk-score',  { method: 'GET' }),
+      sessionManager.apiCall('/dead-code',   { method: 'GET' }),
+      sessionManager.apiCall('/metrics',     { method: 'GET' }),
+      sessionManager.apiCall('/git-history', { method: 'GET' }),
+    ];
+    if (isFolder) {
+      requests.push(sessionManager.apiCall('/layer-violations', { method: 'GET' }));
+    }
+    const results = await Promise.all(requests);
+    riskData.value     = await results[0].json();
+    deadCodeData.value = await results[1].json();
+    metricsData.value  = await results[2].json();
+    const gh           = await results[3].json();
+    gitHistory.value   = gh?.available ? gh : null;
+    if (isFolder && results[4]) {
+      layerViolations.value = await results[4].json();
+    }
+  } catch (_) { /* non-critical — panels stay hidden */ }
+};
+
 const uploadWithFormData = async (formData, sourceName) => {
   resetGraphState();
 
@@ -887,6 +982,7 @@ const uploadWithFormData = async (formData, sourceName) => {
           uploadError.value = 'No function graph found for this file.';
         }
         window.__render_strategy = render;
+        await fetchAnalysisPanels(isSingleFile, sourceName);   // ← panels for single file
         return;
       } catch (err) {
         console.warn('Failed to fetch tier3 for single file, falling back to module view', err);
@@ -974,23 +1070,8 @@ const uploadWithFormData = async (formData, sourceName) => {
     selectedRoot.value = '';
     functionLayoutMode.value = false;
 
-    // fetch risk scores, dead code, and layer violations in background
-    try {
-      const isFolder = !isSingleFile || sourceName.toLowerCase().endsWith('.zip');
-      const requests = [
-        sessionManager.apiCall('/risk-score', { method: 'GET' }),
-        sessionManager.apiCall('/dead-code',  { method: 'GET' }),
-      ];
-      if (isFolder) {
-        requests.push(sessionManager.apiCall('/layer-violations', { method: 'GET' }));
-      }
-      const results = await Promise.all(requests);
-      riskData.value     = await results[0].json();
-      deadCodeData.value = await results[1].json();
-      if (isFolder && results[2]) {
-        layerViolations.value = await results[2].json();
-      }
-    } catch (_) { /* non-critical */ }
+    // fetch all analysis panels in background (non-critical)
+    await fetchAnalysisPanels(isSingleFile, sourceName);
   } catch (err) {
     console.error("Error uploading file:", err);
     uploadError.value =
@@ -1979,4 +2060,137 @@ const collapseOthers = (nodeType, keepId) => {
   font-family: monospace;
   margin-top: 1px;
 }
+
+/* ── Integrated Metrics Dashboard ───────────────── */
+.metrics-panel { padding-bottom: 10px; }
+
+.metrics-grid {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 6px 0;
+  overflow: hidden;
+}
+.mrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px;
+  gap: 8px;
+}
+.mrow:hover { background: rgba(255,255,255,0.04); }
+.mrow-sep {
+  height: 1px;
+  background: rgba(255,255,255,0.07);
+  padding: 0;
+  margin: 2px 0;
+}
+.mlabel {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mval {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', 'Fira Mono', monospace;
+  text-align: right;
+  white-space: nowrap;
+}
+.mv-ok      { color: #4ade80; }
+.mv-caution { color: #fbbf24; }
+.mv-warn    { color: #f87171; }
+
+.mi-val { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.mi-label { font-size: 9px; font-weight: 500; color: #64748b; font-family: inherit; }
+
+.circ-details {
+  margin-top: 8px;
+  background: #1e1e2e;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.circ-chain {
+  font-size: 10px;
+  color: #f87171;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 0;
+}
+
+/* ── Git History Panel ───────────────────────────── */
+.git-panel { padding-bottom: 10px; }
+
+.git-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.git-branch {
+  font-size: 11px;
+  font-weight: 700;
+  color: #4ade80;
+  background: #052e16;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #166534;
+}
+.git-total {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.git-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.git-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+  transition: background 100ms;
+}
+.git-item:hover { background: #f1f5f9; }
+
+.git-hash {
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.git-info { flex: 1; min-width: 0; }
+.git-msg {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-stat {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+.git-date { font-size: 9px; color: #94a3b8; }
+.git-diff { display: flex; gap: 4px; font-size: 10px; font-weight: 700; font-family: monospace; }
+.git-ins  { color: #16a34a; }
+.git-del  { color: #dc2626; }
 </style>
