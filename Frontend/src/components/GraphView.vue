@@ -180,30 +180,48 @@
 
       <!-- ── Git History Panel ───────────────────────────────── -->
       <div v-if="gitHistory" class="sidebar-section git-panel">
-        <div class="section-title">Git History</div>
+        <div class="section-title">Git History — Metrics Trend</div>
         <div class="git-meta">
           <span class="git-branch">🌿 {{ gitHistory.current_branch }}</span>
           <span class="git-total">{{ gitHistory.total_commits }} commits</span>
         </div>
+
+        <!-- Metric trend headers -->
+        <div class="git-trend-header">
+          <span class="gth-commit">Commit</span>
+          <span class="gth-loc">Est. LOC</span>
+          <span class="gth-delta">Δ Lines</span>
+        </div>
+
         <div class="git-list">
           <div
-            v-for="c in gitHistory.commits.slice(0, 12)"
+            v-for="(c, idx) in gitCommitsWithLoc"
             :key="c.hash"
             class="git-item"
-            :title="c.message"
+            :title="`${c.message}\nAuthor: ${c.author}\nFiles changed: ${c.files_changed}`"
           >
             <span class="git-hash">{{ c.hash }}</span>
             <div class="git-info">
               <div class="git-msg">{{ c.message }}</div>
               <div class="git-stat">
                 <span class="git-date">{{ c.date }}</span>
-                <span v-if="c.insertions || c.deletions" class="git-diff">
-                  <span class="git-ins">+{{ c.insertions }}</span>
-                  <span class="git-del">-{{ c.deletions }}</span>
-                </span>
               </div>
             </div>
+            <!-- Metric columns -->
+            <div class="git-metrics-col">
+              <span class="git-loc-val">{{ c.estimatedLoc.toLocaleString() }}</span>
+              <span
+                class="git-delta-val"
+                :class="c.netDelta > 0 ? 'delta-pos' : c.netDelta < 0 ? 'delta-neg' : 'delta-zero'"
+              >
+                {{ c.netDelta > 0 ? '+' : '' }}{{ c.netDelta }}
+              </span>
+            </div>
           </div>
+        </div>
+
+        <div class="git-note">
+          Est. LOC calculated backwards from current SLOC ({{ metricsData?.sloc?.toLocaleString() || '—' }}) using commit insertions/deletions.
         </div>
       </div>
 
@@ -434,6 +452,21 @@ const edgeTypes = {
 };
 
 const nodeCount = computed(() => nodes.value.length);
+
+// Enrich git commits with estimated LOC at each point in history.
+// Commits arrive newest-first; we walk backwards from current SLOC.
+const gitCommitsWithLoc = computed(() => {
+  if (!gitHistory.value?.commits?.length) return [];
+  const currentLoc = metricsData.value?.sloc ?? 0;
+  const commits = gitHistory.value.commits.slice(0, 15);
+  let loc = currentLoc;
+  return commits.map((c) => {
+    const netDelta = (c.insertions || 0) - (c.deletions || 0);
+    const estimatedLoc = Math.max(0, loc);
+    loc = Math.max(0, loc - netDelta);   // step back before this commit
+    return { ...c, estimatedLoc, netDelta };
+  });
+});
 
 const TREE_DEPTH_GAP = 200;         // vertical gap between parent and children rows
 const TREE_SIBLING_GAP = 320;       // horizontal gap between sibling nodes
@@ -2193,4 +2226,50 @@ const collapseOthers = (nodeType, keepId) => {
 .git-diff { display: flex; gap: 4px; font-size: 10px; font-weight: 700; font-family: monospace; }
 .git-ins  { color: #16a34a; }
 .git-del  { color: #dc2626; }
+
+.git-trend-header {
+  display: flex;
+  align-items: center;
+  padding: 3px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 2px;
+}
+.gth-commit { flex: 1; }
+.gth-loc  { width: 52px; text-align: right; }
+.gth-delta { width: 46px; text-align: right; margin-left: 4px; }
+
+.git-metrics-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.git-loc-val {
+  font-size: 10px;
+  font-weight: 700;
+  color: #334155;
+  font-family: monospace;
+}
+.git-delta-val {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: monospace;
+}
+.delta-pos  { color: #16a34a; }
+.delta-neg  { color: #dc2626; }
+.delta-zero { color: #94a3b8; }
+
+.git-note {
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  font-style: italic;
+}
 </style>

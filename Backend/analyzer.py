@@ -155,39 +155,57 @@ def _is_private_name(name: str, language: str) -> bool:
 # Only meaningful for multi-file uploads (folder / ZIP containing a folder).
 
 _LAYER_KEYWORDS: Dict[str, frozenset] = {
+    # ── Router: URL mapping only — calls controllers & applies middlewares ──
+    "router": frozenset({
+        "route", "routes", "router", "routers", "routing", "routings",
+    }),
+    # ── Controller: HTTP request/response handling ───────────────────────────
     "controller": frozenset({
-        "controller", "controllers", "route", "routes", "router", "routers",
-        "handler", "handlers", "api", "view", "views", "presenter", "presenters",
-        "endpoint", "endpoints", "resource", "resources", "rest", "graphql",
-        "resolver", "resolvers", "action", "actions", "command", "commands",
+        "controller", "controllers",
+        "handler", "handlers",
+        "api",
+        "view", "views",
+        "presenter", "presenters",
+        "endpoint", "endpoints",
+        "resource", "resources",
+        "rest",
+        "graphql", "resolver", "resolvers",
+        "action", "actions",
+        "command", "commands",
         "request", "requests", "response", "responses",
     }),
+    # ── Service: business / application logic ───────────────────────────────
     "service": frozenset({
         "service", "services", "usecase", "usecases", "use_case", "use_cases",
         "business", "interactor", "interactors", "application",
         "manager", "managers", "facade", "facades", "processor", "processors",
         "workflow", "workflows", "orchestrator", "orchestrators",
     }),
+    # ── Repository: data-access layer ───────────────────────────────────────
     "repository": frozenset({
         "repository", "repositories", "repo", "repos", "dao", "daos",
         "store", "stores", "storage", "gateway", "gateways", "finder", "finders",
     }),
+    # ── Model: domain objects / schemas ─────────────────────────────────────
     "model": frozenset({
         "model", "models", "entity", "entities", "schema", "schemas",
         "dto", "dtos", "struct", "structs", "domain",
         "aggregate", "aggregates", "valueobject", "value_object",
     }),
+    # ── Database: raw DB access, migrations, ORM config ─────────────────────
     "database": frozenset({
         "db", "database", "databases", "migration", "migrations",
         "seed", "seeds", "connection", "connections", "orm",
         "datasource", "data_source", "infrastructure", "infra",
         "persistence", "adapter", "adapters", "query", "queries",
     }),
+    # ── Middleware: cross-cutting (auth, logging, validation, guards) ────────
     "middleware": frozenset({
         "middleware", "middlewares", "interceptor", "interceptors",
         "guard", "guards", "filter", "filters", "hook", "hooks",
         "plugin", "plugins", "decorator", "decorators",
     }),
+    # ── Utility: shared helpers, config, constants ───────────────────────────
     "utility": frozenset({
         "util", "utils", "utility", "utilities", "helper", "helpers",
         "shared", "common", "lib", "libs", "constant", "constants",
@@ -200,13 +218,14 @@ _LAYER_KEYWORDS: Dict[str, frozenset] = {
 
 # Lower number = higher in the architecture stack (closest to user)
 _LAYER_ORDER: Dict[str, int] = {
-    "controller": 0,
-    "middleware": 1,
-    "service":    2,
-    "repository": 3,
-    "model":      4,
-    "database":   4,
-    "utility":    -1,   # cross-cutting: allowed from any layer
+    "router":     0,   # routes/  — URL mapping, topmost layer
+    "controller": 1,   # controllers/
+    "middleware": 2,   # middlewares/ — applied between router and service
+    "service":    3,   # services/
+    "repository": 4,   # repositories/
+    "model":      5,   # models/
+    "database":   5,   # db/
+    "utility":    -1,  # cross-cutting: allowed from any layer
     "unknown":    -2,
 }
 
@@ -255,15 +274,43 @@ def _detect_import_layer(import_ref: str) -> str:
     return "unknown"
 
 
+# Explicit allowed downward transitions — the only source of truth for what is OK.
+# We use an explicit dict (not numeric gaps) so that valid long jumps like
+# Controller → Service are never flagged just because a numeric gap > 1.
+_ALLOWED_TRANSITIONS: Dict[str, frozenset] = {
+    # Router maps URLs → calls Controllers and applies Middlewares
+    "router":     frozenset({"controller", "middleware", "utility"}),
+    # Controller handles HTTP → calls Services
+    "controller": frozenset({"service", "utility"}),
+    # Middleware (auth, logging, guards) → calls Services
+    "middleware": frozenset({"service", "utility"}),
+    # Service (business logic) → calls Repositories or Models
+    "service":    frozenset({"repository", "model", "utility", "service"}),
+    # Repository (data access) → Model definitions or raw DB
+    "repository": frozenset({"model", "database", "utility"}),
+    "model":      frozenset({"utility"}),
+    "database":   frozenset({"utility"}),
+    "utility":    frozenset({"utility"}),
+}
+
+
 def _check_layer_violation(src_layer: str, tgt_layer: str) -> Optional[Dict]:
-    """Return a violation dict or None if the src→tgt import is acceptable."""
-    if src_layer in ("unknown", "utility") or tgt_layer in ("unknown", "utility"):
-        return None   # cross-cutting or indeterminate → skip
+    """Return a violation dict or None if the src→tgt import is acceptable.
+
+    Uses an explicit allowed-transition table instead of numeric gaps so that
+    Controller → Service (which is correct) is never flagged as a skip.
+    """
+    if src_layer in ("unknown", "utility") or tgt_layer in ("unknown", "utility", "router"):
+        return None   # cross-cutting, indeterminate, or nobody imports router → skip
+
+    # Explicitly allowed: no violation
+    if tgt_layer in _ALLOWED_TRANSITIONS.get(src_layer, frozenset()):
+        return None
 
     src_ord = _LAYER_ORDER[src_layer]
     tgt_ord = _LAYER_ORDER[tgt_layer]
 
-    # Reverse dependency: lower layer imports from a higher layer
+    # Going UP the stack — reverse dependency
     if tgt_ord < src_ord:
         return {
             "type": "reverse_dependency",
@@ -274,26 +321,26 @@ def _check_layer_violation(src_layer: str, tgt_layer: str) -> Optional[Dict]:
             ),
         }
 
-    # Layer skip: more than one step down (e.g. Controller → Repository)
-    if tgt_ord - src_ord > 1:
+    # Same-level cross dependency (e.g. Repository → Repository)
+    if tgt_ord == src_ord:
         return {
-            "type": "layer_skip",
-            "severity": "high",
+            "type": "cross_layer",
+            "severity": "medium",
             "message": (
-                f"{src_layer.title()} skips to {tgt_layer.title()} "
-                f"— intermediate layer(s) bypassed"
+                f"{src_layer.title()} imports another {tgt_layer.title()} directly "
+                f"— same-layer coupling"
             ),
         }
 
-    # Cross-repo: Repository importing another Repository
-    if src_layer == tgt_layer == "repository":
-        return {
-            "type": "cross_repo",
-            "severity": "medium",
-            "message": "Repository imports another Repository directly (cross-repo dependency)",
-        }
-
-    return None   # acceptable
+    # Going DOWN but not to an allowed layer — skipping layers
+    return {
+        "type": "layer_skip",
+        "severity": "high",
+        "message": (
+            f"{src_layer.title()} skips directly to {tgt_layer.title()} "
+            f"— intermediate layer(s) bypassed"
+        ),
+    }
 
 
 def _compute_layer_violations(
