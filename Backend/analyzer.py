@@ -130,6 +130,36 @@ def _is_likely_runtime_invoked(name: str) -> bool:
     return False
 
 
+def _compute_nesting_depth(body: str) -> int:
+    """Compute max brace-nesting depth inside a function body string.
+
+    Subtracts 1 for the method's own opening brace so the result represents
+    the deepest *inner* nesting level (depth 0 = no inner nesting).
+    """
+    depth = max_depth = 0
+    for ch in body:
+        if ch == "{":
+            depth += 1
+            if depth > max_depth:
+                max_depth = depth
+        elif ch == "}":
+            depth -= 1
+    return max(0, max_depth - 1)
+
+
+# Numeric literal values that are universally understood and NOT magic numbers
+_COMMON_LITERALS: frozenset = frozenset({"0", "1", "2", "3", "-1", "10", "100", "1000"})
+
+
+def _count_magic_literals(body: str) -> int:
+    """Count numeric literals in *body* that are likely 'magic' (unexplained constants).
+
+    Excludes 0, 1, 2, 3, -1, 10, 100, 1000 which are nearly universally understood.
+    """
+    found = re.findall(r'(?<!\w)(\d+\.?\d*)(?!\w)', body)
+    return sum(1 for f in found if f not in _COMMON_LITERALS)
+
+
 def _is_private_name(name: str, language: str) -> bool:
     """Heuristic: is this function considered 'private' in its language?
     Private → higher confidence it's not a public API entry point.
@@ -571,6 +601,8 @@ class ParsedFunction:
     risk_level: str = "none"      # none | low | medium | high
     is_dead: bool = False          # True → potentially unreachable
     dead_confidence: str = "none"  # none | medium | high
+    max_nesting_depth: int = 0     # max block-nesting depth inside the function
+    literal_count: int = 0         # count of non-trivial numeric literals (magic numbers)
 
 
 class UniversalParser:
@@ -699,6 +731,8 @@ class UniversalParser:
                 complexity=complexity,
                 calls=sorted(set(calls)),
                 fan_out=len(set(calls)),
+                max_nesting_depth=_compute_nesting_depth(method_body),
+                literal_count=_count_magic_literals(method_body),
             ))
 
         return functions
@@ -780,6 +814,8 @@ class UniversalParser:
                     complexity=complexity,
                     calls=sorted(set(calls)),
                     fan_out=len(set(calls)),
+                    max_nesting_depth=_compute_nesting_depth(body),
+                    literal_count=_count_magic_literals(body),
                 ))
 
         # class methods (best-effort)
@@ -839,6 +875,8 @@ class UniversalParser:
                     complexity=complexity,
                     calls=sorted(set(calls)),
                     fan_out=len(set(calls)),
+                    max_nesting_depth=_compute_nesting_depth(method_body),
+                    literal_count=_count_magic_literals(method_body),
                 ))
 
         return functions
@@ -921,6 +959,8 @@ class UniversalParser:
                 complexity=complexity,
                 calls=sorted(set(calls)),
                 fan_out=len(set(calls)),
+                max_nesting_depth=_compute_nesting_depth(body),
+                literal_count=_count_magic_literals(body),
             ))
 
         return functions
@@ -1014,6 +1054,8 @@ class UniversalParser:
                 complexity=complexity,
                 calls=calls,
                 fan_out=len(calls),
+                max_nesting_depth=_compute_nesting_depth(body),
+                literal_count=_count_magic_literals(body),
             ))
 
         return functions
@@ -1054,6 +1096,8 @@ class UniversalParser:
                     line_end=line_end,
                     complexity=self._estimate_python_complexity(node),
                     calls=self._extract_python_calls(node),
+                    max_nesting_depth=self._estimate_python_nesting(node),
+                    literal_count=self._estimate_python_literals(node),
                 ))
 
             def visit_AsyncFunctionDef(self, node):
@@ -1065,6 +1109,29 @@ class UniversalParser:
                     if isinstance(child, (ast.If, ast.For, ast.While, ast.ExceptHandler, ast.With, ast.AsyncWith, ast.Try, ast.BoolOp, ast.Match)):
                         complexity += 1
                 return complexity
+
+            def _estimate_python_nesting(self, node):
+                _NESTING_NODES = (ast.If, ast.For, ast.While, ast.With,
+                                  ast.Try, ast.AsyncWith, ast.AsyncFor)
+                max_d = [0]
+                def _walk(n, d):
+                    if isinstance(n, _NESTING_NODES):
+                        d += 1
+                        if d > max_d[0]:
+                            max_d[0] = d
+                    for child in ast.iter_child_nodes(n):
+                        _walk(child, d)
+                _walk(node, 0)
+                return max_d[0]
+
+            def _estimate_python_literals(self, node):
+                _COMMON = {0, 1, 2, 3, -1, 10, 100, 1000}
+                count = 0
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Constant) and isinstance(child.value, (int, float)):
+                        if child.value not in _COMMON:
+                            count += 1
+                return count
 
             def _extract_python_calls(self, node):
                 calls = set()
@@ -1642,6 +1709,28 @@ def detect_unused_imports(content: str, language: str, imports: List[str]) -> Li
     return unused
 
 
+def _fn_param_count(fn: "ParsedFunction", content_map: Dict[str, str]) -> int:
+    """Extract parameter count for a function from its signature line."""
+    content = content_map.get(fn.file, "")
+    ls = fn.line_start
+    if not content or ls <= 0:
+        return 0
+    lines = content.split("\n")
+    if ls > len(lines):
+        return 0
+    sig = lines[ls - 1]
+    ps, pe = sig.find("("), sig.rfind(")")
+    if ps == -1 or pe <= ps:
+        return 0
+    pstr = sig[ps + 1:pe].strip()
+    if not pstr:
+        return 0
+    pl = [p.strip() for p in pstr.split(",") if p.strip()]
+    if fn.language == "python" and pl and pl[0] in ("self", "cls"):
+        pl = pl[1:]
+    return len(pl)
+
+
 def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], Dict]:
     """Parse all supported files, apply file strategies, chunk god files and store edges via `add_edge`.
 
@@ -1657,10 +1746,12 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
     file_import_map = {}
 
     file_unused_import_map: Dict[str, List[str]] = {}
+    file_content_map: Dict[str, str] = {}   # needed for param_count extraction
     for file_info in files:
         file_path = file_info.get("path", "<in-memory>")
         lang = file_info.get("language", "")
         content = file_info.get("content", "")
+        file_content_map[file_path] = content
         imports = _extract_file_imports(content, lang)
         file_import_map[file_path] = imports
         if imports:
@@ -1756,6 +1847,9 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
             "risk_level": fn.risk_level,
             "is_dead": fn.is_dead,
             "dead_confidence": fn.dead_confidence,
+            "param_count":       _fn_param_count(fn, file_content_map),
+            "max_nesting_depth": fn.max_nesting_depth,
+            "literal_count":     fn.literal_count,
             "imports": file_import_map.get(fn.file, []),
         }
         for fn in all_functions

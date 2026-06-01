@@ -250,6 +250,94 @@
         </div>
       </div>
 
+      <!-- ── Code Smell Analysis Panel ──────────────────────────── -->
+      <div v-if="smellData && smellData.summary?.total > 0" class="sidebar-section smell-panel">
+        <div class="section-title">Code Smell Analysis</div>
+
+        <!-- Severity summary -->
+        <div class="smell-summary">
+          <span v-if="smellData.summary.critical" class="smell-chip smell-critical">💀 {{ smellData.summary.critical }} Critical</span>
+          <span v-if="smellData.summary.high"     class="smell-chip smell-high">🔴 {{ smellData.summary.high }} High</span>
+          <span v-if="smellData.summary.medium"   class="smell-chip smell-medium">🟡 {{ smellData.summary.medium }} Med</span>
+          <span v-if="smellData.summary.low"      class="smell-chip smell-low">🟢 {{ smellData.summary.low }} Low</span>
+        </div>
+
+        <!-- Root cause smells (top by root_cause_score) -->
+        <div class="dead-section-label">Root Cause Smells</div>
+        <div class="smell-list">
+          <div
+            v-for="rc in smellData.graph_summary?.top_root_causes?.slice(0, 5)"
+            :key="rc.target + rc.type"
+            class="smell-item"
+            :class="`smell-sev-${rc.severity}`"
+            :title="`Score: ${rc.root_cause_score} | Resolves ${rc.downstream_resolves} downstream smells`"
+          >
+            <span class="smell-item-icon">{{ rc.severity === 'critical' ? '💀' : rc.severity === 'high' ? '🔴' : '🟡' }}</span>
+            <div class="smell-item-body">
+              <div class="smell-item-type">{{ rc.type.replace(/_/g, ' ') }}</div>
+              <div class="smell-item-target">{{ rc.target?.split('/').pop() || rc.target }}</div>
+            </div>
+            <div class="smell-item-score">
+              <span class="smell-score-val">{{ rc.root_cause_score }}</span>
+              <span class="smell-score-label">score</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Refactor Plan button -->
+        <button
+          class="smell-llm-btn"
+          :class="{ 'smell-llm-btn-loading': llmLoading }"
+          :disabled="llmLoading"
+          @click="fetchLLMPlan"
+        >
+          <span v-if="llmLoading">⏳ Analysing architecture…</span>
+          <span v-else-if="llmPlan">🔄 Refresh AI Refactor Plan</span>
+          <span v-else>✨ Generate AI Refactor Plan</span>
+        </button>
+
+        <!-- LLM Reasoning Output -->
+        <div v-if="llmPlan" class="llm-plan-box">
+          <div class="llm-plan-source">
+            {{ llmPlan._source === 'llm' ? '🤖 Groq / llama-3.1-8b-instant' : '📊 Static Analysis Fallback' }}
+          </div>
+          <div v-if="llmPlan.executive_summary" class="llm-exec-summary">
+            {{ llmPlan.executive_summary }}
+          </div>
+          <div v-if="llmPlan.primary_root_cause" class="llm-root-cause">
+            <strong>Root cause:</strong> {{ llmPlan.primary_root_cause }}
+          </div>
+
+          <!-- Refactor steps -->
+          <div v-if="llmPlan.refactor_plan?.length" class="llm-steps">
+            <div class="dead-section-label" style="margin-top:6px">Refactor Plan</div>
+            <div
+              v-for="step in llmPlan.refactor_plan"
+              :key="step.priority"
+              class="llm-step"
+              :class="`llm-step-${step.risk || 'medium'}`"
+            >
+              <div class="llm-step-head">
+                <span class="llm-step-num">#{{ step.priority }}</span>
+                <span class="llm-step-pattern">{{ step.pattern }}</span>
+                <span class="llm-step-effort" :class="`effort-${step.estimated_effort}`">{{ step.estimated_effort }}</span>
+              </div>
+              <div class="llm-step-target">→ {{ step.target }}</div>
+              <div class="llm-step-what">{{ step.what_to_do }}</div>
+              <div v-if="step.why_this_first" class="llm-step-why">💡 {{ step.why_this_first }}</div>
+              <div v-if="step.resolves_smells?.length" class="llm-step-resolves">
+                Resolves: {{ step.resolves_smells.join(', ') }}
+              </div>
+            </div>
+          </div>
+
+          <div v-if="llmPlan.long_term_recommendation" class="llm-longterm">
+            <strong>Long-term:</strong> {{ llmPlan.long_term_recommendation }}
+          </div>
+          <div v-if="llmPlan._error" class="llm-error">⚠ {{ llmPlan._error }}</div>
+        </div>
+      </div>
+
       <!-- Dependency Risk Panel -->
       <div v-if="riskData" class="sidebar-section risk-panel">
         <div class="section-title">Dependency Risk</div>
@@ -468,6 +556,9 @@ const deadCodeData = ref(null);     // { unreachable_functions: [...], unused_im
 const layerViolations = ref(null);  // { by_module: {id: {count, severity}}, summary: {...} }
 const metricsData = ref(null);      // Integrated Metrics Dashboard
 const gitHistory = ref(null);       // { total_commits, current_branch, commits: [...] }
+const smellData = ref(null);        // { smells, summary, graph_summary, plan, fn_smell_map }
+const llmPlan = ref(null);          // LLM architectural reasoning result
+const llmLoading = ref(false);      // LLM request in progress
 const { fitView } = useVueFlow();
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
@@ -477,6 +568,9 @@ const edgeTypes = {
 };
 
 const nodeCount = computed(() => nodes.value.length);
+
+// Map function name → worst smell severity for node coloring
+const smellSeverityMap = computed(() => smellData.value?.fn_smell_map || {});
 
 // Enrich git commits with estimated LOC + function count at each point in history.
 // Commits arrive newest-first; we walk backwards from current state.
@@ -656,7 +750,7 @@ const createNode = (id, position, opts = {}) => {
   const {
     label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false,
     language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none',
-    violationCount = 0, violationSeverity = 'none'
+    violationCount = 0, violationSeverity = 'none', smellSeverity = 'none'
   } = opts;
   return {
     id,
@@ -674,6 +768,7 @@ const createNode = (id, position, opts = {}) => {
       deadConfidence,
       violationCount,
       violationSeverity,
+      smellSeverity,
     },
     position,
     sourcePosition: Position.Bottom,
@@ -971,14 +1066,29 @@ const resetGraphState = () => {
 
 // Fetch all analysis sidebar panels (risk, dead code, metrics, git, layers).
 // Called from both single-file and multi-file upload paths.
+const fetchLLMPlan = async () => {
+  llmLoading.value = true;
+  llmPlan.value = null;
+  try {
+    const res  = await sessionManager.apiCall('/llm-refactor-reason', { method: 'POST' });
+    const data = await res.json();
+    llmPlan.value = data.llm_plan;
+  } catch (e) {
+    llmPlan.value = { _error: e.message || 'LLM request failed', _source: 'error' };
+  } finally {
+    llmLoading.value = false;
+  }
+};
+
 const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
   try {
     const isFolder = !isSingleFile || sourceName.toLowerCase().endsWith('.zip');
     const requests = [
-      sessionManager.apiCall('/risk-score',  { method: 'GET' }),
-      sessionManager.apiCall('/dead-code',   { method: 'GET' }),
-      sessionManager.apiCall('/metrics',     { method: 'GET' }),
-      sessionManager.apiCall('/git-history', { method: 'GET' }),
+      sessionManager.apiCall('/risk-score',    { method: 'GET' }),
+      sessionManager.apiCall('/dead-code',     { method: 'GET' }),
+      sessionManager.apiCall('/metrics',       { method: 'GET' }),
+      sessionManager.apiCall('/git-history',   { method: 'GET' }),
+      sessionManager.apiCall('/smell-analysis',{ method: 'GET' }),
     ];
     if (isFolder) {
       requests.push(sessionManager.apiCall('/layer-violations', { method: 'GET' }));
@@ -989,8 +1099,9 @@ const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
     metricsData.value  = await results[2].json();
     const gh           = await results[3].json();
     gitHistory.value   = gh?.available ? gh : null;
-    if (isFolder && results[4]) {
-      layerViolations.value = await results[4].json();
+    smellData.value    = await results[4].json();
+    if (isFolder && results[5]) {
+      layerViolations.value = await results[5].json();
     }
   } catch (_) { /* non-critical — panels stay hidden */ }
 };
@@ -1223,6 +1334,7 @@ const renderFunctionView = async (fileId, functionGraph) => {
       fanIn: fn.fan_in || 0,
       isDead: fn.is_dead || false,
       deadConfidence: fn.dead_confidence || 'none',
+      smellSeverity: smellSeverityMap.value[fn.label || fn.id] || 'none',
     });
   });
 
@@ -1864,6 +1976,180 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 12px;
   font-weight: 600;
   font-family: monospace;
+}
+
+/* ── Code Smell Panel ───────────────────────────────── */
+.smell-panel { padding-bottom: 10px; }
+
+.smell-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.smell-chip {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.smell-critical { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
+.smell-high     { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.smell-medium   { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.smell-low      { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+
+.smell-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+
+.smell-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  cursor: default;
+}
+.smell-sev-critical { border-left-color: #7c3aed; background: #faf5ff; }
+.smell-sev-high     { border-left-color: #ef4444; background: #fef2f2; }
+.smell-sev-medium   { border-left-color: #f59e0b; background: #fffbeb; }
+
+.smell-item-icon  { font-size: 13px; flex-shrink: 0; }
+.smell-item-body  { flex: 1; min-width: 0; }
+.smell-item-type  {
+  font-size: 11px; font-weight: 700; color: #1e293b;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-transform: capitalize;
+}
+.smell-item-target {
+  font-size: 10px; color: #64748b; font-family: monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.smell-item-score  { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+.smell-score-val   { font-size: 13px; font-weight: 800; color: #334155; font-family: monospace; }
+.smell-score-label { font-size: 9px; color: #94a3b8; }
+
+/* LLM button */
+.smell-llm-btn {
+  width: 100%;
+  padding: 8px 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: opacity 140ms, transform 140ms;
+  margin-bottom: 8px;
+}
+.smell-llm-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.smell-llm-btn:disabled { opacity: 0.65; cursor: wait; }
+.smell-llm-btn-loading { background: #94a3b8; }
+
+/* LLM plan box */
+.llm-plan-box {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.llm-plan-source {
+  font-size: 9px;
+  color: #6366f1;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.llm-exec-summary {
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.5;
+  border-left: 3px solid #6366f1;
+  padding-left: 8px;
+}
+.llm-root-cause {
+  font-size: 10px;
+  color: #f87171;
+  padding: 4px 8px;
+  background: rgba(239,68,68,0.1);
+  border-radius: 6px;
+}
+.llm-root-cause strong { color: #fca5a5; }
+
+/* Refactor steps */
+.llm-steps { display: flex; flex-direction: column; gap: 5px; }
+.llm-step {
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #1e293b;
+  border-left: 3px solid #475569;
+}
+.llm-step-high   { border-left-color: #ef4444; }
+.llm-step-medium { border-left-color: #f59e0b; }
+.llm-step-low    { border-left-color: #22c55e; }
+
+.llm-step-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.llm-step-num {
+  font-size: 10px;
+  font-weight: 800;
+  color: #94a3b8;
+  background: #334155;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.llm-step-pattern {
+  font-size: 11px;
+  font-weight: 700;
+  color: #e2e8f0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.llm-step-effort {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.effort-high   { background: #fef2f2; color: #991b1b; }
+.effort-medium { background: #fef3c7; color: #92400e; }
+.effort-low    { background: #f0fdf4; color: #166534; }
+
+.llm-step-target  { font-size: 10px; color: #7dd3fc; font-family: monospace; margin-bottom: 2px; }
+.llm-step-what    { font-size: 10px; color: #94a3b8; line-height: 1.4; }
+.llm-step-why     { font-size: 10px; color: #4ade80; line-height: 1.4; margin-top: 2px; font-style: italic; }
+.llm-step-resolves {
+  font-size: 9px; color: #64748b; margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.llm-longterm {
+  font-size: 10px;
+  color: #fbbf24;
+  line-height: 1.5;
+  padding: 5px 8px;
+  background: rgba(251,191,36,0.08);
+  border-radius: 6px;
+}
+.llm-longterm strong { color: #fde68a; }
+.llm-error {
+  font-size: 10px;
+  color: #f87171;
+  padding: 4px 8px;
+  background: rgba(239,68,68,0.1);
+  border-radius: 6px;
 }
 
 /* ── Dependency Risk Panel ─────────────────────────── */

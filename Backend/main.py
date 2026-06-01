@@ -14,6 +14,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data
 from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
+from smell_detector import SmellDetector
+from smell_graph import build_smell_graph
+import llm_engine
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1189,4 +1192,124 @@ def api_git_history(request: Request):
         raise
     except Exception as e:
         logger.error(f"Git history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Code Smell Analysis ──────────────────────────────────────────────────────
+
+@app.get("/smell-analysis")
+def api_smell_analysis(request: Request):
+    """
+    Run static-analysis code smell detection + build smell dependency graph.
+
+    Pipeline (no LLM here — pure static analysis):
+      1. SmellDetector.detect_all()     — metric-based smell instances
+      2. build_smell_graph()            — dependency graph + BFS root-cause scoring
+      3. graph.minimal_fix_plan()       — greedy set-cover for max-gain ordering
+
+    Call /llm-refactor-reason after this for LLM architectural reasoning.
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        cache     = SESSION_CACHE.get(session_id, {})
+        functions = cache.get("functions", [])
+        metrics   = cache.get("metrics",   {})
+
+        if not functions:
+            return {"smells": [], "summary": {}, "graph_summary": {}, "plan": [],
+                    "message": "No functions found — upload a project first."}
+
+        # ── Static analysis: detect smells ───────────────────────────────────
+        detector = SmellDetector()
+        cycles   = [
+            c.split(" → ")
+            for c in metrics.get("circular_dep_details", [])
+            if c
+        ]
+        smells = detector.detect_all(functions, metrics, cycles)
+
+        # ── Build smell dependency graph + score root causes ─────────────────
+        graph = build_smell_graph(smells)
+
+        # ── Greedy set-cover plan ────────────────────────────────────────────
+        plan = graph.minimal_fix_plan(max_steps=10)
+
+        # ── Build severity summary ────────────────────────────────────────────
+        summary: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": len(smells)}
+        fn_smell_map: Dict[str, str] = {}   # function_name → worst severity
+        for s in smells:
+            summary[s.severity] = summary.get(s.severity, 0) + 1
+            existing = fn_smell_map.get(s.target_name)
+            if not existing or ["critical","high","medium","low"].index(s.severity) \
+               < ["critical","high","medium","low"].index(existing):
+                fn_smell_map[s.target_name] = s.severity
+
+        graph_summary = graph.to_llm_summary()
+
+        # ── Cache for /llm-refactor-reason ───────────────────────────────────
+        cache["_smells"]        = [s.to_dict() for s in smells]
+        cache["_smell_plan"]    = plan
+        cache["_smell_summary"] = graph_summary
+        cache["_fn_smell_map"]  = fn_smell_map
+
+        return {
+            "smells":       [s.to_dict() for s in smells],
+            "summary":      summary,
+            "graph_summary": graph_summary,
+            "plan":          plan,
+            "fn_smell_map":  fn_smell_map,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Smell analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/llm-refactor-reason")
+async def api_llm_refactor(request: Request):
+    """
+    Get LLM architectural reasoning for the smell analysis.
+    Requires /smell-analysis to have been called first.
+
+    The LLM receives ONLY structured smell data (not raw code).
+    It reasons about: root cause, architectural patterns, refactor ordering, risk.
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        cache         = SESSION_CACHE.get(session_id, {})
+        graph_summary = cache.get("_smell_summary")
+        plan          = cache.get("_smell_plan", [])
+        metrics       = cache.get("metrics", {})
+
+        if not graph_summary:
+            raise HTTPException(
+                status_code=400,
+                detail="Run GET /smell-analysis first to generate smell data.",
+            )
+
+        project_context = {
+            "total_files":            metrics.get("total_files", 0),
+            "total_functions":        metrics.get("total_functions", 0),
+            "avg_cyclomatic":         metrics.get("avg_cyclomatic", 0),
+            "max_call_chain_depth":   metrics.get("max_call_chain_depth", 0),
+        }
+
+        llm_plan = llm_engine.get_refactor_plan(graph_summary, plan, project_context)
+
+        return {
+            "llm_plan":    llm_plan,
+            "static_plan": plan,
+            "source":      llm_plan.get("_source", "unknown"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"LLM refactor error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
