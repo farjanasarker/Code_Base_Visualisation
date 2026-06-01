@@ -31,7 +31,8 @@ const riskTitle = computed(() => {
       data.nodeType || 'function',
       { 'fn-root': data.isRoot },
       data.riskLevel && data.riskLevel !== 'none' ? `risk-${data.riskLevel}` : '',
-      { 'dead-code': data.isDead }
+      { 'dead-code': data.isDead },
+      data.smellSeverity && data.smellSeverity !== 'none' ? `smell-node-${data.smellSeverity}` : '',
     ]"
     :title="riskTitle"
   >
@@ -178,6 +179,12 @@ const riskTitle = computed(() => {
 .risk-dot-medium { background: #f59e0b; }
 .risk-dot-low    { background: #22c55e; }
 .risk-dot-none   { background: #94a3b8; }
+
+/* ── Smell severity glow (function nodes) ────────── */
+.fn-card.smell-node-critical { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.22), inset 0 0 8px rgba(124,58,237,0.08); }
+.fn-card.smell-node-high     { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.18); }
+.fn-card.smell-node-medium   { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.15); }
+.fn-card.smell-node-low      { border-color: #84cc16; box-shadow: 0 0 0 1px rgba(132,204,22,0.15); }
 
 /* ── Dead code styling ───────────────────────────── */
 .fn-card.dead-code {
