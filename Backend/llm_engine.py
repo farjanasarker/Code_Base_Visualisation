@@ -1,5 +1,5 @@
 """
-llm_engine.py — LLM Reasoning Engine (Groq / llama-3.1-8b-instant).
+llm_engine.py — LLM Reasoning Engine (Groq / Llama-3.3-70b).
 
 Role in the pipeline:
   Static analysis (smell_detector + smell_graph) detects WHAT is wrong.
@@ -26,13 +26,30 @@ import json
 import os
 import logging
 from typing import Dict, List, Optional
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+# ── Load .env if present (development convenience) ────────────────────────────
+def _load_dotenv() -> None:
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
+
+_load_dotenv()
+
+
 # ── Configuration ─────────────────────────────────────────────────────────────
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
-MODEL        = os.getenv("GROQ_MODEL",   "llama-3.1-8b-instant")
-MAX_TOKENS   = 2800
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 TEMPERATURE  = 0.20   # low temperature → deterministic, structured output
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
@@ -76,7 +93,7 @@ Required JSON schema:
       "risk_reason":      "<brief risk note>"
     }
   ],
-  "long_term_recommendation": "<architectural direction: e.g. migrate to hexagonal architecture>"
+  "long_term_recommendation": "<architectural direction>"
 }"""
 
 
@@ -97,10 +114,8 @@ def _build_prompt(
             f"  Max call chain depth: {project_context.get('max_call_chain_depth', '?')}\n"
         )
 
-    # Trim plan to top 6 steps to stay within token budget
     plan_block = json.dumps(preliminary_plan[:6], separators=(",", ":"))
 
-    # Trim summary to essentials
     summary_block = json.dumps({
         "total_smells":      smell_summary.get("total_smells"),
         "smell_type_counts": smell_summary.get("smell_type_counts"),
@@ -123,19 +138,23 @@ def get_refactor_plan(
     project_context:  Optional[Dict] = None,
 ) -> Dict:
     """
-    Call Groq LLM to reason about the refactor plan.
-    Returns parsed plan dict, or a fallback dict on any failure.
+    Call Groq (llama-3.3-70b-versatile) to reason about the refactor plan.
+    Returns parsed plan dict, or a static-analysis fallback on any failure.
     """
+    if not GROQ_API_KEY:
+        logger.error("GROQ_API_KEY not set — add it to Backend/.env")
+        return _fallback_plan(preliminary_plan, error="GROQ_API_KEY not configured")
+
     try:
-        from groq import Groq   # pip install groq
+        from groq import Groq
     except ImportError:
         logger.error("groq package not installed — run: pip install groq")
         return _fallback_plan(preliminary_plan, error="groq package not installed")
 
-    try:
-        client = Groq(api_key=GROQ_API_KEY)
-        user_msg = _build_prompt(smell_summary, preliminary_plan, project_context)
+    client   = Groq(api_key=GROQ_API_KEY)
+    user_msg = _build_prompt(smell_summary, preliminary_plan, project_context)
 
+    try:
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
@@ -143,21 +162,19 @@ def get_refactor_plan(
                 {"role": "user",   "content": user_msg},
             ],
             temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
             response_format={"type": "json_object"},
         )
-
-        raw = response.choices[0].message.content
+        raw    = response.choices[0].message.content
         parsed = json.loads(raw)
-        parsed["_source"] = "llm"
+        parsed["_source"] = f"groq:{MODEL}"
         return parsed
 
     except json.JSONDecodeError as exc:
-        logger.warning(f"LLM returned non-JSON: {exc}")
-        return _fallback_plan(preliminary_plan, error=f"LLM JSON parse error: {exc}")
+        logger.warning(f"[{MODEL}] non-JSON response: {exc}")
+        return _fallback_plan(preliminary_plan, error=f"JSON parse error: {exc}")
 
     except Exception as exc:
-        logger.error(f"LLM refactor call failed: {exc}")
+        logger.error(f"[{MODEL}] Groq call failed: {exc}")
         return _fallback_plan(preliminary_plan, error=str(exc))
 
 
@@ -166,7 +183,7 @@ def get_refactor_plan(
 def _fallback_plan(preliminary_plan: List[Dict], error: str = "") -> Dict:
     """
     Return a structured plan derived purely from the static analysis.
-    Used when the LLM is unavailable or returns invalid output.
+    Used when Groq is unavailable or returns invalid output.
     """
     top = preliminary_plan[:6]
     steps = [
@@ -186,8 +203,10 @@ def _fallback_plan(preliminary_plan: List[Dict], error: str = "") -> Dict:
     return {
         "executive_summary":        "Plan generated from static analysis (LLM unavailable).",
         "primary_root_cause":       (top[0].get("smell_type") if top else "unknown"),
-        "smell_root_causes":        {"primary": (top[0].get("smell_type") if top else "?"),
-                                     "secondary": (top[1].get("smell_type") if len(top) > 1 else "?")},
+        "smell_root_causes":        {
+            "primary":   top[0].get("smell_type") if top else "?",
+            "secondary": top[1].get("smell_type") if len(top) > 1 else "?",
+        },
         "refactor_plan":            steps,
         "long_term_recommendation": "Address root cause smells first; see smell dependency graph.",
         "_source":                  "static_analysis_fallback",

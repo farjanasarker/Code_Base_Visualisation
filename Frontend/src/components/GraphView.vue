@@ -2,7 +2,7 @@
   <div class="graph-container">
 
     <!-- ── Sidebar ─────────────────────────────────── -->
-    <aside class="sidebar">
+    <aside class="sidebar" :style="{ width: sidebarWidth + 'px', minWidth: sidebarWidth + 'px' }">
       <!-- Brand -->
       <div class="sidebar-brand">
         <span class="brand-icon">⬡</span>
@@ -477,6 +477,7 @@
         </template>
       </div>
     </aside>
+    <div class="sidebar-resize-handle" :class="{ resizing: isResizing }" @mousedown.prevent="startResize"></div>
 
     <!-- ── Graph canvas ─────────────────────────────── -->
     <div class="graph-section">
@@ -559,7 +560,24 @@ const gitHistory = ref(null);       // { total_commits, current_branch, commits:
 const smellData = ref(null);        // { smells, summary, graph_summary, plan, fn_smell_map }
 const llmPlan = ref(null);          // LLM architectural reasoning result
 const llmLoading = ref(false);      // LLM request in progress
+const sidebarWidth = ref(264);
+const isResizing = ref(false);
 const { fitView } = useVueFlow();
+
+function startResize() {
+  isResizing.value = true;
+  document.addEventListener('mousemove', onResize);
+  document.addEventListener('mouseup', stopResize);
+}
+function onResize(e) {
+  if (!isResizing.value) return;
+  sidebarWidth.value = Math.min(Math.max(e.clientX, 180), 520);
+}
+function stopResize() {
+  isResizing.value = false;
+  document.removeEventListener('mousemove', onResize);
+  document.removeEventListener('mouseup', stopResize);
+}
 const nodeTypes = {
   functionNode: markRaw(FunctionNode)
 };
@@ -1659,8 +1677,6 @@ const collapseOthers = (nodeType, keepId) => {
 
 /* ── Sidebar ───────────────────────────────────────── */
 .sidebar {
-  width: 264px;
-  min-width: 264px;
   background: #0f172a;
   color: #e2e8f0;
   display: flex;
@@ -1670,6 +1686,21 @@ const collapseOthers = (nodeType, keepId) => {
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: #334155 transparent;
+  flex-shrink: 0;
+}
+
+.sidebar-resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 150ms;
+  position: relative;
+  z-index: 10;
+}
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.resizing {
+  background: #6366f1;
 }
 
 /* Brand */
@@ -1844,9 +1875,8 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 12px;
   font-weight: 600;
   color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .status-msg {
   font-size: 12px;
@@ -2019,12 +2049,12 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-item-body  { flex: 1; min-width: 0; }
 .smell-item-type  {
   font-size: 11px; font-weight: 700; color: #1e293b;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   text-transform: capitalize;
+  overflow-wrap: break-word; word-break: break-word;
 }
 .smell-item-target {
   font-size: 10px; color: #64748b; font-family: monospace;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow-wrap: break-word; word-break: break-word;
 }
 .smell-item-score  { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
 .smell-score-val   { font-size: 13px; font-weight: 800; color: #334155; font-family: monospace; }
@@ -2112,9 +2142,8 @@ const collapseOthers = (nodeType, keepId) => {
   font-weight: 700;
   color: #e2e8f0;
   flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .llm-step-effort {
   font-size: 9px;
@@ -2132,7 +2161,7 @@ const collapseOthers = (nodeType, keepId) => {
 .llm-step-why     { font-size: 10px; color: #4ade80; line-height: 1.4; margin-top: 2px; font-style: italic; }
 .llm-step-resolves {
   font-size: 9px; color: #64748b; margin-top: 3px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow-wrap: break-word; word-break: break-word;
 }
 
 .llm-longterm {
@@ -2200,16 +2229,14 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 12px;
   font-weight: 700;
   color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .risk-item-warn {
   font-size: 10px;
   color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .risk-item-count {
@@ -2291,18 +2318,16 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 12px;
   font-weight: 700;
   color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   text-decoration: line-through;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .dead-item-file {
   font-size: 10px;
   color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-family: monospace;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* confidence badge */
@@ -2395,19 +2420,17 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 11px;
   font-weight: 600;
   color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   line-height: 1.3;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .layer-item-src {
   font-size: 10px;
   color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-family: monospace;
   margin-top: 1px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* ── Integrated Metrics Dashboard ───────────────── */
@@ -2464,9 +2487,8 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 10px;
   color: #f87171;
   font-family: monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
   padding: 1px 0;
 }
 
@@ -2528,9 +2550,8 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 11px;
   font-weight: 600;
   color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .git-stat {
   display: flex;
@@ -2595,9 +2616,8 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 11px;
   font-weight: 600;
   color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .git-date { font-size: 9px; color: #94a3b8; }
 
