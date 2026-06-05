@@ -392,3 +392,91 @@ def get_tier3(file_path: str, session_id: str):
     except Exception as e:
         logger.error(f"Error building tier3: {str(e)}")
         raise
+
+
+def get_chunk_functions(file_path: str, chunk_name: str, session_id: str):
+    """Return function-level graph for a specific chunk (virtual module) inside a god file."""
+    try:
+        normalized_file = file_path.replace("\\", "/")
+        windows_file    = file_path.replace("/", "\\")
+        with driver.session() as db_session:
+            result = db_session.run("""
+                MATCH (fn:Function {session_id: $session_id})-[:PART_OF]->(c:Chunk {name: $chunk_name, session_id: $session_id})
+                      -[:IN_FILE]->(fil:File {session_id: $session_id})
+                WHERE fil.path = $file OR fil.path = $normalized_file OR fil.path = $windows_file
+                OPTIONAL MATCH (fn)-[:CALLS]->(fn2:Function {session_id: $session_id})-[:PART_OF]->(c)
+                RETURN fn.name AS source, fn2.name AS target,
+                       fn.complexity AS complexity,
+                       fn.fan_in AS fan_in, fn.fan_out AS fan_out,
+                       fn.line_start AS line_start, fn.line_end AS line_end,
+                       fn.language AS language
+            """, file=file_path, normalized_file=normalized_file, windows_file=windows_file,
+                 chunk_name=chunk_name, session_id=session_id)
+
+            nodes = {}
+            edges = []
+            for r in result:
+                src = r["source"]
+                tgt = r.get("target")
+                if src and src not in nodes:
+                    nodes[src] = {
+                        "id": src, "label": src, "type": "function",
+                        "line_start": int(r.get("line_start") or 0),
+                        "line_end":   int(r.get("line_end")   or 0),
+                        "complexity": int(r.get("complexity") or 0),
+                        "fan_in":     int(r.get("fan_in")     or 0),
+                        "fan_out":    int(r.get("fan_out")    or 0),
+                        "language":   r.get("language"),
+                    }
+                if src and tgt:
+                    edges.append({"source": src, "target": tgt})
+
+            return {"nodes": list(nodes.values()), "edges": edges,
+                    "tier": 4, "file": file_path, "chunk": chunk_name, "chunked": False}
+    except Exception as e:
+        logger.error(f"Error building chunk function graph: {str(e)}")
+        raise
+
+
+def get_chunk_functions(file_path: str, chunk_name: str, session_id: str):
+    """Return function-level graph for a specific chunk inside a god file."""
+    normalized_file = file_path.replace("\\", "/")
+    windows_file = file_path.replace("/", "\\")
+    try:
+        with driver.session() as db_session:
+            result = db_session.run("""
+                MATCH (fil:File {session_id: $session_id})
+                WHERE fil.path = $file OR fil.path = $normalized_file OR fil.path = $windows_file
+                MATCH (chunk:Chunk {name: $chunk_name, session_id: $session_id})-[:IN_FILE]->(fil)
+                MATCH (fn:Function {session_id: $session_id})-[:PART_OF]->(chunk)
+                OPTIONAL MATCH (fn)-[:CALLS]->(fn2:Function {session_id: $session_id})-[:PART_OF]->(chunk)
+                RETURN fn.name AS source, fn2.name AS target,
+                       fn.complexity AS complexity, fn.fan_in AS fan_in, fn.fan_out AS fan_out,
+                       fn.line_start AS line_start, fn.line_end AS line_end,
+                       fn.language AS language
+            """, file=file_path, normalized_file=normalized_file, windows_file=windows_file,
+                 chunk_name=chunk_name, session_id=session_id)
+
+            nodes = {}
+            edges = []
+            for r in result:
+                src = r["source"]
+                tgt = r.get("target")
+                if src and src not in nodes:
+                    nodes[src] = {
+                        "id": src, "label": src, "type": "function",
+                        "line_start": int(r.get("line_start") or 0),
+                        "line_end": int(r.get("line_end") or 0),
+                        "complexity": int(r.get("complexity") or 0),
+                        "fan_in": int(r.get("fan_in") or 0),
+                        "fan_out": int(r.get("fan_out") or 0),
+                        "language": r.get("language"),
+                    }
+                if tgt and src and tgt != src:
+                    edges.append({"source": src, "target": tgt})
+
+            return {"nodes": list(nodes.values()), "edges": edges,
+                    "tier": 4, "file": file_path, "chunk": chunk_name, "chunked": False}
+    except Exception as e:
+        logger.error(f"Error building chunk functions: {str(e)}")
+        raise

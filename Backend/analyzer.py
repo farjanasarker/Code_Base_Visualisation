@@ -884,22 +884,30 @@ class UniversalParser:
     def _parse_go_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
 
-        # receiver এ * এবং complex types handle করো
+        # group(1) = receiver contents (optional), group(2) = function name
         fn_pattern = re.compile(
-            r"\bfunc\s+(?:\([^)]*\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            r"\bfunc\s+(?:\(([^)]+)\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(",
             re.MULTILINE,
         )
 
         functions: List[ParsedFunction] = []
         seen = set()
-        keywords = {"if", "for", "switch", "select", "return", "go", "defer", 
+        keywords = {"if", "for", "switch", "select", "return", "go", "defer",
                     "range", "make", "new", "len", "cap", "append", "copy",
                     "delete", "close", "panic", "recover", "print", "println"}
 
         for match in fn_pattern.finditer(content):
-            fn_name = match.group(1)
-            if fn_name in keywords:
+            receiver_raw = match.group(1)   # e.g. "m *CounterVec" | "r SomeType" | None
+            fn_name_raw  = match.group(2)   # e.g. "Reset"
+            if fn_name_raw in keywords:
                 continue
+
+            # Prefix method name with receiver type for uniqueness
+            if receiver_raw:
+                rec_type = re.search(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*$', receiver_raw.strip())
+                fn_name = f"{rec_type.group(1)}.{fn_name_raw}" if rec_type else fn_name_raw
+            else:
+                fn_name = fn_name_raw
 
             key = (fn_name, match.start())
             if key in seen:
@@ -941,7 +949,7 @@ class UniversalParser:
             calls = []
             for call_match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", body):
                 callee = call_match.group(1)
-                if callee not in keywords and callee != fn_name:
+                if callee not in keywords and callee != fn_name_raw:
                     calls.append(callee)
 
             complexity = 1
@@ -1183,6 +1191,16 @@ class UniversalParser:
                 if name_node is not None
                 else f"anonymous_{node.start_point[0]}"
             )
+
+            # For Go method_declarations, prefix with receiver type for uniqueness
+            if language == "go":
+                recv_node = node.child_by_field_name("receiver")
+                if recv_node:
+                    recv_text = content[recv_node.start_byte:recv_node.end_byte]
+                    rec_match = re.search(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\)', recv_text)
+                    if rec_match:
+                        fn_name = f"{rec_match.group(1)}.{fn_name}"
+
             key = (fn_name, node.start_point[0])
             if key in seen:
                 continue
@@ -2060,14 +2078,17 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
         vm = fn.get("virtual_module") or file_path
         virtual_modules.setdefault(vm, []).append(fn)
 
-    # God file: একই file এ একাধিক virtual_module (class-based chunking)
-    # কিন্তু class এর কারণে split হলে chunk করব না
+    # God file: same file has multiple virtual_modules → show chunk-level graph
     files_in_result = {fn.get("file") for fn in file_fns}
-    
-    if len(virtual_modules) > 1 and len(files_in_result) > 1:
+    # Only chunk when all fns are from one file (same god file) AND there are multiple chunk groups
+    non_default_vms = {vm for vm in virtual_modules if vm != file_path}
+
+    if len(non_default_vms) > 1 and len(files_in_result) == 1:
         # এটা god file chunk view — file_path আসলে একটা virtual_module id
         nodes = []
         for vm_name, fns in virtual_modules.items():
+            if vm_name == file_path:
+                continue  # skip the default (unchunked) bucket
             nodes.append({
                 "id": vm_name,
                 "type": "chunk",
@@ -2078,9 +2099,11 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
         chunk_calls = {}
         for fn in file_fns:
             src_vm = fn_to_vm.get(fn.get("name"))
+            if src_vm == file_path:
+                continue  # skip unchunked functions
             for called in fn.get("calls", []):
                 tgt_vm = fn_to_vm.get(called)
-                if tgt_vm and tgt_vm != src_vm:
+                if tgt_vm and tgt_vm != src_vm and tgt_vm != file_path:
                     key = (src_vm, tgt_vm)
                     chunk_calls[key] = chunk_calls.get(key, 0) + 1
         edges = [{"source": src, "target": tgt, "call_count": cnt} for (src, tgt), cnt in chunk_calls.items()]

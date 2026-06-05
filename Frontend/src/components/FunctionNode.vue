@@ -49,8 +49,14 @@ const riskTitle = computed(() => {
 
     <div class="fn-body">
       <div class="fn-name">{{ data.label }}</div>
-      <div class="fn-sub">{{ data.language || data.nodeType }}</div>
+      <div v-if="data.nodeType === 'chunk'" class="fn-sub chunk-sub">
+        {{ data.fnCount > 0 ? data.fnCount + ' functions' : (data.language || 'chunk') }}
+      </div>
+      <div v-else class="fn-sub">{{ data.language || data.nodeType }}</div>
     </div>
+
+    <!-- Chunk expand hint -->
+    <div v-if="data.nodeType === 'chunk'" class="chunk-expand-hint" title="Click to expand functions">▶</div>
 
     <!-- Risk counter badge: only on function nodes that have callers -->
     <div
@@ -154,6 +160,23 @@ const riskTitle = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
+}
+
+/* ── Chunk-specific ─────────────────────────────── */
+.chunk-sub {
+  color: #8b5cf6;
+  font-weight: 600;
+}
+.chunk-expand-hint {
+  font-size: 10px;
+  color: #8b5cf6;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 140ms, transform 140ms;
+}
+.fn-card.chunk:hover .chunk-expand-hint {
+  opacity: 1;
+  transform: translateX(2px);
 }
 
 /* ── Risk counter badge (top-right corner) ───────── */
