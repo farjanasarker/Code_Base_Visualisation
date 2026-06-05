@@ -461,7 +461,7 @@
 
           <div class="layer-list">
             <div
-              v-for="v in (layerViolations.violations || []).slice(0, 8)"
+              v-for="v in (layerViolations.violations || [])"
               :key="v.source_file + v.target_ref"
               class="layer-item"
               :class="v.severity === 'high' ? 'layer-item-high' : 'layer-item-medium'"
