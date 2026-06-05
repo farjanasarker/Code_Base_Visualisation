@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data
+from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions
 from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
 from smell_detector import SmellDetector
 from smell_graph import build_smell_graph
@@ -952,6 +952,32 @@ def api_tier3(request: Request, file_path: str):
             from analyzer import build_function_graph
             return build_function_graph(file_path, functions)
         raise HTTPException(status_code=500, detail="Error fetching tier3 graph and no cache available")
+
+
+@app.get("/graph/chunk")
+def api_chunk(request: Request, file_path: str, chunk_name: str):
+    """Return function-level graph for a specific chunk (virtual module) inside a god file."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        # Fast path: build from session cache
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        if functions:
+            from analyzer import build_function_graph
+            # build_function_graph treats chunk_name as file_path → finds fns by virtual_module
+            graph = build_function_graph(chunk_name, functions)
+            if graph.get("nodes"):
+                return {**graph, "file": file_path, "chunk": chunk_name, "tier": 4, "chunked": False}
+
+        # DB path
+        return get_chunk_functions(file_path, chunk_name, session_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(f"Failed to fetch chunk functions for {chunk_name}")
+        raise HTTPException(status_code=500, detail="Error fetching chunk function graph")
 
 
 @app.get("/risk-score")

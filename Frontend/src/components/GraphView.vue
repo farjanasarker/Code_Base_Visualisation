@@ -768,7 +768,8 @@ const createNode = (id, position, opts = {}) => {
   const {
     label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false,
     language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none',
-    violationCount = 0, violationSeverity = 'none', smellSeverity = 'none'
+    violationCount = 0, violationSeverity = 'none', smellSeverity = 'none',
+    parentFile = null, fnCount = 0,
   } = opts;
   return {
     id,
@@ -787,6 +788,8 @@ const createNode = (id, position, opts = {}) => {
       violationCount,
       violationSeverity,
       smellSeverity,
+      parentFile,
+      fnCount,
     },
     position,
     sourcePosition: Position.Bottom,
@@ -1353,6 +1356,8 @@ const renderFunctionView = async (fileId, functionGraph) => {
       isDead: fn.is_dead || false,
       deadConfidence: fn.dead_confidence || 'none',
       smellSeverity: smellSeverityMap.value[fn.label || fn.id] || 'none',
+      parentFile: fn.type === 'chunk' ? fileId : null,
+      fnCount: fn.fn_count || 0,
     });
   });
 
@@ -1488,11 +1493,21 @@ const onNodeClick = async ({ node }) => {
 
     await nextTick();
     fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
-  } else if (type === 'file' || type === 'chunk') {
-      // Drill into function call graph for this file
+  } else if (type === 'file') {
+      // Drill into chunk/function graph for this file
       const response = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(node.id)}`, {
         method: 'GET',
       });
+      const res = await response.json();
+      pushNav(node.data?.label || node.id);
+      await renderFunctionView(node.id, res);
+    } else if (type === 'chunk') {
+      // Drill into functions inside this chunk (god file sub-group)
+      const parentFile = node.data?.parentFile || node.id;
+      const response = await sessionManager.apiCall(
+        `/graph/chunk?file_path=${encodeURIComponent(parentFile)}&chunk_name=${encodeURIComponent(node.id)}`,
+        { method: 'GET' }
+      );
       const res = await response.json();
       pushNav(node.data?.label || node.id);
       await renderFunctionView(node.id, res);
