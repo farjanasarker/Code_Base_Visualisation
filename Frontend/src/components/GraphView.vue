@@ -254,7 +254,7 @@
       <div v-if="smellData && smellData.summary?.total > 0" class="sidebar-section smell-panel">
         <div class="section-title">Code Smell Analysis</div>
 
-        <!-- Severity summary -->
+        <!-- Severity summary chips -->
         <div class="smell-summary">
           <span v-if="smellData.summary.critical" class="smell-chip smell-critical">💀 {{ smellData.summary.critical }} Critical</span>
           <span v-if="smellData.summary.high"     class="smell-chip smell-high">🔴 {{ smellData.summary.high }} High</span>
@@ -262,27 +262,58 @@
           <span v-if="smellData.summary.low"      class="smell-chip smell-low">🟢 {{ smellData.summary.low }} Low</span>
         </div>
 
-        <!-- Root cause smells (top by root_cause_score) -->
-        <div class="dead-section-label">Root Cause Smells</div>
-        <div class="smell-list">
-          <div
-            v-for="rc in smellData.graph_summary?.top_root_causes?.slice(0, 5)"
-            :key="rc.target + rc.type"
-            class="smell-item"
-            :class="`smell-sev-${rc.severity}`"
-            :title="`Score: ${rc.root_cause_score} | Resolves ${rc.downstream_resolves} downstream smells`"
-          >
-            <span class="smell-item-icon">{{ rc.severity === 'critical' ? '💀' : rc.severity === 'high' ? '🔴' : '🟡' }}</span>
-            <div class="smell-item-body">
-              <div class="smell-item-type">{{ rc.type.replace(/_/g, ' ') }}</div>
-              <div class="smell-item-target">{{ rc.target?.split('/').pop() || rc.target }}</div>
-            </div>
-            <div class="smell-item-score">
-              <span class="smell-score-val">{{ rc.root_cause_score }}</span>
-              <span class="smell-score-label">score</span>
-            </div>
+        <!-- Level 1: Top smell types by count -->
+        <div class="dead-section-label">Top Root Smells</div>
+        <div class="smell-type-list">
+          <div v-for="(t, i) in smellTypeDistribution" :key="t.type" class="smell-type-row">
+            <span class="smell-type-rank">{{ i + 1 }}.</span>
+            <span class="smell-type-name">{{ t.type.replace(/_/g, ' ') }}</span>
+            <span class="smell-type-count">({{ t.count }})</span>
           </div>
         </div>
+
+        <!-- Level 2: Ranked file list -->
+        <template v-if="!selectedSmellFile">
+          <div class="dead-section-label" style="margin-top:10px">Ranked Files</div>
+          <div class="smell-file-list">
+            <div
+              v-for="(f, i) in smellFileRanking"
+              :key="f.file"
+              class="smell-file-row"
+              @click="selectedSmellFile = f.file"
+            >
+              <span class="smell-file-rank">{{ i + 1 }}.</span>
+              <div class="smell-file-body">
+                <div class="smell-file-name">{{ f.file.split(/[/\\]/).pop() }}</div>
+                <div class="smell-file-meta">Score: <strong>{{ f.score }}</strong> &nbsp;·&nbsp; Smells: <strong>{{ f.count }}</strong></div>
+              </div>
+              <span class="smell-file-arrow">›</span>
+            </div>
+          </div>
+        </template>
+
+        <!-- Level 3: File detail view -->
+        <template v-else>
+          <div class="smell-detail-header">
+            <button class="smell-back-btn" @click="selectedSmellFile = null">← Back</button>
+            <span class="smell-detail-filename">{{ selectedSmellFile.split(/[/\\]/).pop() }}</span>
+          </div>
+          <div class="smell-detail-list">
+            <div
+              v-for="s in selectedFileSmells"
+              :key="s.smell_id"
+              class="smell-detail-item"
+              :class="`smell-sev-${s.severity}`"
+            >
+              <span class="smell-detail-icon">{{ s.severity === 'critical' ? '💀' : s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🟢' }}</span>
+              <div class="smell-detail-body">
+                <div class="smell-item-type">{{ s.type.replace(/_/g, ' ') }}</div>
+                <div class="smell-item-target">{{ s.target_name }}</div>
+              </div>
+              <span class="smell-sev-badge" :class="`sev-badge-${s.severity}`">{{ s.severity }}</span>
+            </div>
+          </div>
+        </template>
 
         <!-- AI Refactor Plan button -->
         <button
@@ -560,6 +591,38 @@ const gitHistory = ref(null);       // { total_commits, current_branch, commits:
 const smellData = ref(null);        // { smells, summary, graph_summary, plan, fn_smell_map }
 const llmPlan = ref(null);          // LLM architectural reasoning result
 const llmLoading = ref(false);      // LLM request in progress
+const selectedSmellFile = ref(null);
+
+const SEV_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
+
+const smellTypeDistribution = computed(() => {
+  if (!smellData.value?.smells?.length) return [];
+  const counts = {};
+  for (const s of smellData.value.smells) {
+    counts[s.type] = (counts[s.type] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count);
+});
+
+const smellFileRanking = computed(() => {
+  if (!smellData.value?.smells?.length) return [];
+  const files = {};
+  for (const s of smellData.value.smells) {
+    const key = s.target_file || '(unknown)';
+    if (!files[key]) files[key] = { file: key, score: 0, count: 0, smells: [] };
+    files[key].score += SEV_WEIGHT[s.severity] || 1;
+    files[key].count += 1;
+    files[key].smells.push(s);
+  }
+  return Object.values(files).sort((a, b) => b.score - a.score);
+});
+
+const selectedFileSmells = computed(() => {
+  if (!selectedSmellFile.value) return [];
+  return smellFileRanking.value.find(f => f.file === selectedSmellFile.value)?.smells || [];
+});
 const sidebarWidth = ref(264);
 const isResizing = ref(false);
 const { fitView } = useVueFlow();
@@ -2044,36 +2107,80 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-medium   { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
 .smell-low      { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
 
-.smell-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
-
-.smell-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border-left: 3px solid #cbd5e1;
-  cursor: default;
+/* Level 1 – smell type distribution */
+.smell-type-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.smell-type-row  { display: flex; align-items: baseline; gap: 5px; padding: 2px 4px; }
+.smell-type-rank { font-size: 10px; color: #64748b; min-width: 14px; }
+.smell-type-name {
+  flex: 1; font-size: 11px; font-weight: 600; color: #cbd5e1;
+  text-transform: capitalize;
 }
-.smell-sev-critical { border-left-color: #7c3aed; background: #faf5ff; }
-.smell-sev-high     { border-left-color: #ef4444; background: #fef2f2; }
-.smell-sev-medium   { border-left-color: #f59e0b; background: #fffbeb; }
+.smell-type-count { font-size: 11px; font-weight: 700; color: #818cf8; }
 
-.smell-item-icon  { font-size: 13px; flex-shrink: 0; }
-.smell-item-body  { flex: 1; min-width: 0; }
+/* Level 2 – ranked file list */
+.smell-file-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.smell-file-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px; border-radius: 8px;
+  background: #1e293b; border: 1px solid #334155;
+  cursor: pointer; transition: background 120ms, border-color 120ms;
+}
+.smell-file-row:hover { background: #273549; border-color: #6366f1; }
+.smell-file-rank { font-size: 10px; color: #64748b; min-width: 14px; flex-shrink: 0; }
+.smell-file-body { flex: 1; min-width: 0; }
+.smell-file-name {
+  font-size: 11px; font-weight: 700; color: #e2e8f0;
+  font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.smell-file-meta { font-size: 10px; color: #94a3b8; margin-top: 1px; }
+.smell-file-meta strong { color: #a5b4fc; }
+.smell-file-arrow { font-size: 16px; color: #475569; flex-shrink: 0; }
+
+/* Level 3 – file detail */
+.smell-detail-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.smell-back-btn {
+  padding: 3px 8px; border-radius: 6px; border: 1px solid #334155;
+  background: #1e293b; font-size: 10px; font-weight: 600; color: #94a3b8;
+  cursor: pointer; flex-shrink: 0;
+}
+.smell-back-btn:hover { background: #273549; color: #e2e8f0; }
+.smell-detail-filename {
+  font-size: 12px; font-weight: 700; color: #e2e8f0;
+  font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.smell-detail-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.smell-detail-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 8px;
+  background: #1e293b; border-left: 3px solid #334155;
+}
+.smell-sev-critical { border-left-color: #a855f7; background: #1a1025; }
+.smell-sev-high     { border-left-color: #ef4444; background: #1c1010; }
+.smell-sev-medium   { border-left-color: #f59e0b; background: #1c1800; }
+.smell-sev-low      { border-left-color: #22c55e; background: #0f1c12; }
+.smell-detail-icon { font-size: 13px; flex-shrink: 0; }
+.smell-detail-body { flex: 1; min-width: 0; }
+.smell-sev-badge {
+  font-size: 9px; font-weight: 700; padding: 2px 5px;
+  border-radius: 6px; flex-shrink: 0; text-transform: uppercase;
+}
+.sev-badge-critical { background: #3b0764; color: #d8b4fe; }
+.sev-badge-high     { background: #450a0a; color: #fca5a5; }
+.sev-badge-medium   { background: #451a03; color: #fde68a; }
+.sev-badge-low      { background: #052e16; color: #86efac; }
+
+/* shared item text */
 .smell-item-type  {
-  font-size: 11px; font-weight: 700; color: #1e293b;
+  font-size: 11px; font-weight: 700; color: #e2e8f0;
   text-transform: capitalize;
   overflow-wrap: break-word; word-break: break-word;
 }
 .smell-item-target {
-  font-size: 10px; color: #64748b; font-family: monospace;
+  font-size: 10px; color: #94a3b8; font-family: monospace;
   overflow-wrap: break-word; word-break: break-word;
 }
-.smell-item-score  { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
-.smell-score-val   { font-size: 13px; font-weight: 800; color: #334155; font-family: monospace; }
-.smell-score-label { font-size: 9px; color: #94a3b8; }
 
 /* LLM button */
 .smell-llm-btn {
