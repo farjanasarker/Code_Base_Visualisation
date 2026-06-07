@@ -90,11 +90,15 @@ def _get_git_history(repo_path: str) -> Optional[Dict]:
         )
         branch = br.stdout.strip() or "HEAD"
 
+        # Churn = total lines touched per commit
+        for commit in commits:
+            commit["churn"] = commit["insertions"] + commit["deletions"]
+
         # Per-commit function-definition deltas (added / removed functions)
         fn_re_add = re.compile(r'^\+[^+].*\b(?:def |function |func |fn |class )\s+\w')
         fn_re_del = re.compile(r'^\-[^-].*\b(?:def |function |func |fn |class )\s+\w')
 
-        for commit in commits[:15]:   # limit to 15 to avoid slow startup
+        for commit in commits[:20]:   # limit to 20 to avoid slow startup
             try:
                 diff_r = subprocess.run(
                     ["git", "show", "--unified=0", "--no-color", commit["hash"],

@@ -186,32 +186,68 @@
           <span class="git-total">{{ gitHistory.total_commits }} commits</span>
         </div>
 
+        <!-- Quality snapshot (current snapshot metrics) -->
+        <div v-if="metricsData" class="git-quality-bar">
+          <div class="gq-item" title="Maintainability Index (0–100, higher = better)">
+            <span class="gq-label">MI</span>
+            <span class="gq-val" :class="metricsData.maintainability_index >= 65 ? 'gq-ok' : metricsData.maintainability_index >= 40 ? 'gq-caution' : 'gq-warn'">
+              {{ metricsData.maintainability_index }}
+            </span>
+            <span class="gq-sub">{{ metricsData.maintainability_label }}</span>
+          </div>
+          <div class="gq-divider"></div>
+          <div class="gq-item" title="Average Cyclomatic Complexity (lower = simpler)">
+            <span class="gq-label">Cyclo CC</span>
+            <span class="gq-val" :class="metricsData.avg_cyclomatic > 10 ? 'gq-warn' : metricsData.avg_cyclomatic > 5 ? 'gq-caution' : 'gq-ok'">
+              {{ metricsData.avg_cyclomatic }}
+            </span>
+          </div>
+          <div class="gq-divider"></div>
+          <div class="gq-item" title="Cognitive Complexity (lower = easier to read)">
+            <span class="gq-label">Cognitive</span>
+            <span class="gq-val" :class="metricsData.cognitive_complexity > 15 ? 'gq-warn' : metricsData.cognitive_complexity > 8 ? 'gq-caution' : 'gq-ok'">
+              {{ metricsData.cognitive_complexity }}
+            </span>
+          </div>
+        </div>
+
         <!-- Column headers -->
         <div class="git-trend-header">
           <span class="gth-commit">Commit</span>
           <span class="gth-loc">LOC</span>
           <span class="gth-fns">Fns</span>
-          <span class="gth-delta">Δ</span>
+          <span class="gth-mi" title="Estimated Maintainability Index (0–100)">MI</span>
+          <span class="gth-delta" title="Δ LOC = net lines added/removed (insertions − deletions)">Δ LOC</span>
         </div>
 
         <div class="git-list">
           <div
-            v-for="c in gitCommitsWithLoc"
+            v-for="c in gitCommitsPage"
             :key="c.hash"
             class="git-item"
-            :title="`${c.message}\nAuthor: ${c.author}\nFiles changed: ${c.files_changed}`"
+            :title="`${c.message}\nAuthor: ${c.author}\nFiles changed: ${c.files_changed}\nChurn (ins+del): ${c.churn}`"
           >
             <div class="git-left">
               <span class="git-hash">{{ c.hash }}</span>
               <div class="git-info">
                 <div class="git-msg">{{ c.message }}</div>
-                <span class="git-date">{{ c.date }}</span>
+                <div class="git-meta-row">
+                  <span class="git-date">{{ c.date }}</span>
+                  <span class="git-churn" :class="c.churn > 200 ? 'churn-high' : c.churn > 50 ? 'churn-med' : 'churn-low'"
+                    title="Code churn (insertions + deletions) — higher = more volatile">
+                    ⚡{{ c.churn }}
+                  </span>
+                  <span class="git-files" title="Files changed">📄{{ c.files_changed }}</span>
+                </div>
               </div>
             </div>
             <!-- Metrics columns -->
             <div class="git-metrics-col">
               <span class="git-loc-val">{{ c.estimatedLoc.toLocaleString() }}</span>
               <span class="git-fns-val">{{ c.estimatedFns }}</span>
+              <span class="git-mi-val" :class="c.estimatedMi >= 65 ? 'mi-ok' : c.estimatedMi >= 40 ? 'mi-caution' : 'mi-warn'">
+                {{ c.estimatedMi }}
+              </span>
               <span class="git-delta-val"
                 :class="c.netDelta > 0 ? 'delta-pos' : c.netDelta < 0 ? 'delta-neg' : 'delta-zero'">
                 {{ c.netDelta > 0 ? '+' : '' }}{{ c.netDelta }}
@@ -220,8 +256,22 @@
           </div>
         </div>
 
+        <!-- Pagination -->
+        <div class="git-pagination" v-if="gitCommitsWithLoc.length > 10">
+          <button v-if="gitPageSize < gitCommitsWithLoc.length"
+            class="git-page-btn"
+            @click="gitPageSize = Math.min(gitPageSize + 10, gitCommitsWithLoc.length)">
+            Show more ({{ gitCommitsWithLoc.length - gitPageSize }} remaining)
+          </button>
+          <button v-if="gitPageSize > 10"
+            class="git-page-btn git-page-less"
+            @click="gitPageSize = 10">
+            Show less
+          </button>
+        </div>
+
         <div class="git-note">
-          LOC and function counts estimated backwards from the current upload state.
+          LOC, Fns, MI estimated backwards from current snapshot. Churn = lines inserted + deleted per commit.
         </div>
       </div>
 
@@ -653,25 +703,39 @@ const nodeCount = computed(() => nodes.value.length);
 // Map function name → worst smell severity for node coloring
 const smellSeverityMap = computed(() => smellData.value?.fn_smell_map || {});
 
-// Enrich git commits with estimated LOC + function count at each point in history.
+// Enrich git commits with estimated LOC + function count + MI at each point in history.
 // Commits arrive newest-first; we walk backwards from current state.
 const gitCommitsWithLoc = computed(() => {
   if (!gitHistory.value?.commits?.length) return [];
   const currentLoc = metricsData.value?.sloc ?? 0;
   const currentFns = metricsData.value?.total_functions ?? 0;
-  const commits = gitHistory.value.commits.slice(0, 15);
+  const numFiles   = Math.max(1, metricsData.value?.total_files ?? 1);
+  const hv         = Math.max(1, metricsData.value?.halstead_volume ?? 1);
+  const avgCc      = metricsData.value?.avg_cyclomatic ?? 1;
+
+  const estimateMi = (loc) => {
+    const avgLocPerFile = Math.max(1, loc / numFiles);
+    const raw = 171 - 5.2 * Math.log(hv) - 0.23 * avgCc - 16.2 * Math.log(avgLocPerFile);
+    return Math.round(Math.max(0, Math.min(100, raw * 100 / 171)));
+  };
+
   let loc = currentLoc;
   let fns = currentFns;
-  return commits.map((c) => {
-    const netDelta  = (c.insertions  || 0) - (c.deletions   || 0);
-    const fnDelta   = (c.fn_added    || 0) - (c.fn_removed  || 0);
+  return gitHistory.value.commits.map((c) => {
+    const netDelta     = (c.insertions  || 0) - (c.deletions  || 0);
+    const fnDelta      = (c.fn_added    || 0) - (c.fn_removed || 0);
+    const churn        = (c.insertions  || 0) + (c.deletions  || 0);
     const estimatedLoc = Math.max(0, loc);
     const estimatedFns = Math.max(0, fns);
+    const estimatedMi  = estimateMi(estimatedLoc);
     loc = Math.max(0, loc - netDelta);
     fns = Math.max(0, fns - fnDelta);
-    return { ...c, estimatedLoc, netDelta, estimatedFns, fnDelta };
+    return { ...c, estimatedLoc, netDelta, estimatedFns, fnDelta, churn, estimatedMi };
   });
 });
+
+const gitPageSize = ref(10);
+const gitCommitsPage = computed(() => gitCommitsWithLoc.value.slice(0, gitPageSize.value));
 
 const TREE_DEPTH_GAP = 200;         // vertical gap between parent and children rows
 const TREE_SIBLING_GAP = 320;       // horizontal gap between sibling nodes
@@ -2638,6 +2702,26 @@ const collapseOthers = (nodeType, keepId) => {
   font-weight: 600;
 }
 
+/* Quality snapshot bar */
+.git-quality-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.gq-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
+.gq-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+.gq-val   { font-size: 13px; font-weight: 800; font-family: monospace; line-height: 1.2; }
+.gq-sub   { font-size: 8px; color: #94a3b8; text-align: center; }
+.gq-divider { width: 1px; height: 28px; background: #e2e8f0; flex-shrink: 0; }
+.gq-ok      { color: #16a34a; }
+.gq-caution { color: #d97706; }
+.gq-warn    { color: #dc2626; }
+
 .git-list {
   display: flex;
   flex-direction: column;
@@ -2700,7 +2784,8 @@ const collapseOthers = (nodeType, keepId) => {
 .gth-commit { flex: 1; }
 .gth-loc   { width: 44px; text-align: right; }
 .gth-fns   { width: 32px; text-align: right; }
-.gth-delta { width: 38px; text-align: right; margin-left: 2px; }
+.gth-mi    { width: 28px; text-align: right; cursor: help; }
+.gth-delta { width: 42px; text-align: right; margin-left: 2px; cursor: help; }
 
 .git-item {
   display: flex;
@@ -2743,11 +2828,31 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .git-date { font-size: 9px; color: #94a3b8; }
 
+/* meta row under commit message: date + churn + files */
+.git-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 1px;
+}
+.git-churn {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: monospace;
+  padding: 0px 3px;
+  border-radius: 3px;
+}
+.churn-high { color: #dc2626; background: #fee2e2; }
+.churn-med  { color: #d97706; background: #fef3c7; }
+.churn-low  { color: #64748b; background: #f1f5f9; }
+.git-files  { font-size: 9px; color: #94a3b8; }
+
 .git-metrics-col {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
 }
 .git-loc-val {
@@ -2766,20 +2871,53 @@ const collapseOthers = (nodeType, keepId) => {
   width: 32px;
   text-align: right;
 }
+.git-mi-val {
+  font-size: 10px;
+  font-weight: 800;
+  font-family: monospace;
+  width: 28px;
+  text-align: right;
+}
+.mi-ok      { color: #16a34a; }
+.mi-caution { color: #d97706; }
+.mi-warn    { color: #dc2626; }
 .git-delta-val {
   font-size: 10px;
   font-weight: 700;
   font-family: monospace;
-  width: 38px;
+  width: 42px;
   text-align: right;
 }
 .delta-pos  { color: #16a34a; }
 .delta-neg  { color: #dc2626; }
 .delta-zero { color: #94a3b8; }
 
+/* Pagination */
+.git-pagination {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.git-page-btn {
+  flex: 1;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #6366f1;
+  background: #eef2ff;
+  color: #4f46e5;
+  cursor: pointer;
+  transition: background 100ms;
+}
+.git-page-btn:hover { background: #e0e7ff; }
+.git-page-less { border-color: #94a3b8; background: #f8fafc; color: #64748b; }
+.git-page-less:hover { background: #f1f5f9; }
+
 .git-note {
   margin-top: 6px;
-  font-size: 9.5px;
+  font-size: 9px;
   color: #94a3b8;
   line-height: 1.5;
   font-style: italic;
