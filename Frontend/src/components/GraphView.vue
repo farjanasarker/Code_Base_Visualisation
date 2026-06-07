@@ -1210,6 +1210,14 @@ const resetGraphState = () => {
   edges.value = [];
   expandedNodes.value.clear();
   nodeLevelMap.value.clear();
+  // Clear all analysis panel results so previous upload data never bleeds into a new session
+  layerViolations.value = null;
+  llmPlan.value = null;
+  riskData.value = null;
+  deadCodeData.value = null;
+  metricsData.value = null;
+  gitHistory.value = null;
+  smellData.value = null;
 };
 
 // Fetch all analysis sidebar panels (risk, dead code, metrics, git, layers).
