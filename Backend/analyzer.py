@@ -1813,6 +1813,25 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
 
     # compute fan-in, risk scores, dead code
     all_functions = parser.compute_fan_in(all_functions)
+
+    # Supplementary cross-file text search for functions still at fan_in == 0.
+    # The parsed call graph misses callbacks passed as arguments, variable-stored
+    # functions, and dynamic dispatch patterns.  A regex scan across every other
+    # file's raw content catches the common case of `fn_name(` appearing somewhere.
+    if len(file_content_map) > 1:
+        norm_content_map: Dict[str, str] = {
+            k.replace("\\", "/"): v for k, v in file_content_map.items()
+        }
+        for fn in all_functions:
+            if fn.fan_in > 0:
+                continue
+            # Match direct calls `fn(` AND reference passing `, fn)` / `= fn`
+            pattern = re.compile(r'\b' + re.escape(fn.name) + r'\b')
+            for fp, content in norm_content_map.items():
+                if fp != fn.file and pattern.search(content):
+                    fn.fan_in = 1
+                    break
+
     all_functions = parser.compute_risk_scores(all_functions)
     all_functions = parser.compute_dead_code(all_functions)
 
