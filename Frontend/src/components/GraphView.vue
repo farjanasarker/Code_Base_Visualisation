@@ -13,7 +13,7 @@
       </div>
 
       <!-- Back navigation -->
-      <div v-if="navStack.length > 0" class="sidebar-section">
+      <div v-if="navStack.length > 0" class="sidebar-section sidebar-back-sticky">
         <button class="back-btn" @click="goBack">← Back</button>
         <div class="breadcrumb">
           <span v-for="(crumb, i) in navStack" :key="i" class="crumb">
@@ -1893,6 +1893,14 @@ const collapseOthers = (nodeType, keepId) => {
   letter-spacing: 0.08em;
   color: #475569;
   margin-bottom: 10px;
+}
+
+/* Sticky back navigation */
+.sidebar-back-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #0f172a;
 }
 
 /* Back button */
