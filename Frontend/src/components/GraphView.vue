@@ -570,8 +570,8 @@
         :edge-types="edgeTypes"
         :default-edge-options="defaultEdgeOptions"
         @node-click="onNodeClick"
-        @node-mouseenter="onNodeHover"
-        @node-mouseleave="onNodeUnhover"
+        @node-mouse-enter="onNodeHover"
+        @node-mouse-leave="onNodeUnhover"
         @nodes-initialized="() => fitView({ padding: 0.45, duration: 400, maxZoom: 0.95 })"
         fit-view-on-init
         class="vue-flow"
@@ -982,6 +982,7 @@ const toVueFlowEdges = (rawEdges, knownNodes, opts = {}) => {
       animated: false,
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
+      _origStroke: edgeColor,
       markerEnd: {
         type: MarkerType.ArrowClosed,
         width: 16,
@@ -1038,6 +1039,7 @@ const makeParentChildEdges = (parentNode, childNodes) => {
       animated: false,
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
+      _origStroke: edgeColor,
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: edgeColor },
       style: { stroke: edgeColor, strokeWidth: 2, strokeLinecap: 'round', strokeDasharray: '0' },
       type: 'smoothstep',
@@ -1711,43 +1713,50 @@ const onNodeClick = async ({ node }) => {
   }
 };
 
+const HOVER_COLOR_OUT = '#22d3ee';  // outgoing: this node → callee (cyan)
+const HOVER_COLOR_IN  = '#f97316';  // incoming: caller → this node (orange)
+
 const onNodeHover = ({ node }) => {
-  // Find directly connected node IDs
   const connectedIds = new Set([node.id]);
   edges.value.forEach((e) => {
     if (e.source === node.id) connectedIds.add(e.target);
     if (e.target === node.id) connectedIds.add(e.source);
   });
 
-  // Brighten related edges, dim unrelated
   edges.value = edges.value.map((e) => {
-    const isRelated = e.source === node.id || e.target === node.id;
-    const baseColor = e.style?.stroke || EDGE_COLORS.default;
+    const isOut = e.source === node.id;   // this node calls someone
+    const isIn  = e.target === node.id;   // someone calls this node
+    const isRelated = isOut || isIn;
+    const highlightColor = isOut ? HOVER_COLOR_OUT : HOVER_COLOR_IN;
     return {
       ...e,
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        width: isRelated ? 18 : 14,
-        height: isRelated ? 18 : 14,
-        color: isRelated ? baseColor : '#e2e8f0'
+        width: isRelated ? 22 : 12,
+        height: isRelated ? 22 : 12,
+        color: isRelated ? highlightColor : '#334155'
       },
       style: {
         ...(e.style || {}),
-        stroke: isRelated ? baseColor : '#e2e8f0',
-        strokeWidth: isRelated ? 3 : 1.5,
-        opacity: isRelated ? 1 : 0.25
+        stroke: isRelated ? highlightColor : '#334155',
+        strokeWidth: isRelated ? 5 : 1,
+        opacity: isRelated ? 1 : 0.08,
+        filter: isRelated ? `drop-shadow(0 0 4px ${highlightColor})` : 'none',
       },
       animated: isRelated,
     };
   });
 
-  // Highlight connected nodes, fade unconnected
   nodes.value = nodes.value.map((n) => ({
     ...n,
     style: {
       ...n.style,
-      opacity: connectedIds.has(n.id) ? 1 : 0.25,
-      filter: n.id === node.id ? 'drop-shadow(0 0 6px rgba(99,102,241,0.5))' : 'none'
+      opacity: connectedIds.has(n.id) ? 1 : 0.2,
+      filter: n.id === node.id
+        ? 'drop-shadow(0 0 8px rgba(99,102,241,0.8))'
+        : connectedIds.has(n.id)
+          ? 'drop-shadow(0 0 4px rgba(255,255,255,0.3))'
+          : 'none'
     }
   }));
 };
@@ -1764,8 +1773,10 @@ const onNodeUnhover = () => {
     },
     style: {
       ...(e.style || {}),
+      stroke: e._origStroke || e.style?.stroke || EDGE_COLORS.default,
       strokeWidth: 2,
-      opacity: 1
+      opacity: 1,
+      filter: 'none',
     },
     animated: false,
   }));
