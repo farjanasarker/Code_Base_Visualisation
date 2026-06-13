@@ -47,6 +47,7 @@ THRESHOLDS: Dict[str, Any] = {
     "data_clump_fn_count":       3,    # how many high-param functions to flag
     # --- architecture ---
     "shotgun_surgery_files":     8,    # distinct files that call a function
+    "shotgun_surgery_utility_fan_in": 30,  # fan_in above this → shared utility, not a smell
     "long_chain_depth":          7,    # max call chain depth
 }
 
@@ -415,12 +416,17 @@ class SmellDetector:
 
         fn_map = {fn["name"]: fn for fn in functions if fn.get("name") != "__file__"}
 
+        utility_fan_in = self.t["shotgun_surgery_utility_fan_in"]
         out = []
         for fn_name, callers in file_callers.items():
             if len(callers) < self.t["shotgun_surgery_files"]:
                 continue
             fn = fn_map.get(fn_name)
             if not fn:
+                continue
+            # High fan_in means this is a purposefully shared utility (e.g. get_logger,
+            # parse_config) — called widely by design, not a shotgun surgery victim.
+            if fn.get("fan_in", 0) > utility_fan_in:
                 continue
             sev = "critical" if len(callers) >= 20 else "high"
             out.append(Smell(
@@ -611,61 +617,15 @@ class SmellDetector:
         return out
 
     # ── Duplicate Code ───────────────────────────────────────────────────────
-    def _duplicate_code(self, functions: List[Dict]) -> List[Smell]:
-        """Detect metric-profile duplicates: functions with same size+complexity in same class."""
-        buckets: Dict[str, List[Dict]] = {}
-        for fn in functions:
-            if fn.get("name") == "__file__":
-                continue
-            vm = fn.get("virtual_module", "")
-            if vm:
-                buckets.setdefault(vm, []).append(fn)
+    def _duplicate_code(self, _functions: List[Dict]) -> List[Smell]:
+        """Duplicate detection is deferred to LLM analysis.
 
-        out = []
-        seen_pairs: Set[tuple] = set()
-        min_loc = self.t["duplicate_min_loc"]
-        loc_d   = self.t["duplicate_loc_delta"]
-        cc_d    = self.t["duplicate_cc_delta"]
-
-        for class_name, fns in buckets.items():
-            if len(fns) < 2:
-                continue
-            for i, a in enumerate(fns):
-                a_loc = max(0, (a.get("line_end") or 0) - (a.get("line_start") or 0))
-                a_cc  = a.get("complexity", 1)
-                if a_loc < min_loc:
-                    continue
-                for b in fns[i + 1:]:
-                    b_loc = max(0, (b.get("line_end") or 0) - (b.get("line_start") or 0))
-                    b_cc  = b.get("complexity", 1)
-                    if b_loc < min_loc:
-                        continue
-                    if (abs(a_loc - b_loc) <= loc_d and
-                            abs(a_cc - b_cc) <= cc_d and
-                            a.get("name") != b.get("name")):
-                        pair_key = tuple(sorted([a.get("name", ""), b.get("name", "")]))
-                        if pair_key in seen_pairs:
-                            continue
-                        seen_pairs.add(pair_key)
-                        out.append(Smell(
-                            type="duplicate_code",
-                            severity="medium",
-                            target_file=a.get("file", ""),
-                            target_name=f"{a['name']} <-> {b['name']}",
-                            language=a.get("language", ""),
-                            metrics={
-                                "function_a": a.get("name"),
-                                "function_b": b.get("name"),
-                                "loc_a": a_loc, "loc_b": b_loc,
-                                "cc_a":  a_cc,  "cc_b":  b_cc,
-                            },
-                            description=(
-                                f"'{a['name']}' and '{b['name']}' have similar size/complexity "
-                                f"({a_loc}/{b_loc} lines, CC {a_cc}/{b_cc}) — potential duplicated logic"
-                            ),
-                            refactor_suggestions=REFACTOR_CATALOG["duplicate_code"],
-                        ))
-        return out
+        Metric-similarity heuristics (same LOC + CC) produce too many false positives:
+        two unrelated validation or mapping functions can have identical size/complexity
+        without sharing any logic.  The LLM receives the full function list and can
+        detect semantic duplicates that pure metrics cannot distinguish.
+        """
+        return []
 
     # ── Data Clumps ──────────────────────────────────────────────────────────
     def _data_clumps(self, functions: List[Dict]) -> List[Smell]:
