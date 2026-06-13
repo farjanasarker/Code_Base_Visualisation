@@ -2347,9 +2347,12 @@ def compute_aggregate_metrics(all_functions: List[Dict], files: List[Dict]) -> D
     total_decision = sum(max(0, c - 1) for c in ccs)
 
     # ── Cognitive Complexity (approximation) ────────────────────────────────
-    # Cognitive CC penalises deeply nested structures more than cyclomatic.
-    # Approximation: avg_cc * 1.35 (no full AST nesting walk available here).
-    cognitive_cc = round(avg_cc * 1.35, 2)
+    # Full cognitive CC requires a complete AST nesting walk; this is an
+    # approximation that weights avg cyclomatic CC by a base factor and adds a
+    # nesting penalty derived from the per-function max_nesting_depth values we
+    # already have.  Reported in the UI as an approximation.
+    nesting_penalty = sum(fn.get("max_nesting_depth", 0) for fn in real)
+    cognitive_cc = round(avg_cc * 1.2 + (nesting_penalty / max(n_fns, 1)) * 0.5, 2)
 
     # ── Parameters ──────────────────────────────────────────────────────────
     param_counts: List[int] = []
@@ -2357,7 +2360,14 @@ def compute_aggregate_metrics(all_functions: List[Dict], files: List[Dict]) -> D
         content = content_map.get(fn.get("file", ""), "")
         ls = fn.get("line_start", 0)
         if content and 0 < ls <= content.count("\n") + 1:
-            sig = content.split("\n")[ls - 1]
+            fn_lines = content.split("\n")
+            # Join up to 10 lines from line_start so multi-line signatures are handled.
+            sig_lines: List[str] = []
+            for line in fn_lines[ls - 1: ls + 10]:
+                sig_lines.append(line)
+                if ")" in line:
+                    break
+            sig = " ".join(sig_lines)
             ps, pe = sig.find("("), sig.rfind(")")
             if ps != -1 and pe > ps:
                 pstr = sig[ps + 1:pe].strip()
@@ -2388,8 +2398,10 @@ def compute_aggregate_metrics(all_functions: List[Dict], files: List[Dict]) -> D
     hs = _halstead_metrics(files)
 
     # ── Maintainability Index ────────────────────────────────────────────────
-    avg_loc_per_file = total_sloc / max(n_files, 1)
-    mi = _maintainability_index(hs["volume"], avg_cc, avg_loc_per_file)
+    # Microsoft MI formula uses average LOC *per function*, not per file.
+    # Using per-file LOC artificially deflates MI for large codebases.
+    avg_loc_per_fn = total_sloc / max(n_fns, 1)
+    mi = _maintainability_index(hs["volume"], avg_cc, avg_loc_per_fn)
     mi_label = (
         "Highly Maintainable" if mi >= 85 else
         "Maintainable"        if mi >= 65 else
