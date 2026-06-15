@@ -58,6 +58,14 @@
           :disabled="uploading"
           class="file-input"
         />
+
+        <!-- Upload Progress -->
+        <div v-if="uploading && uploadStage" class="upload-progress-wrap">
+          <div class="upload-stage-text">{{ uploadStage }}</div>
+          <div class="upload-progress-track">
+            <div class="upload-progress-fill"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Status -->
@@ -75,6 +83,41 @@
         </div>
         <div v-if="uploadError" class="status-msg err">
           {{ uploadError }}
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div v-if="uploadSuccess" class="sidebar-section">
+        <div class="section-title">Search</div>
+        <div class="search-wrap">
+          <input
+            v-model="searchQuery"
+            @input="performSearch(searchQuery)"
+            @blur="setTimeout(() => { showSearchDropdown = false }, 200)"
+            @focus="showSearchDropdown = searchResults.length > 0"
+            placeholder="🔍 Functions, files..."
+            class="search-input"
+          />
+          <div v-if="showSearchDropdown" class="search-dropdown">
+            <div
+              v-for="r in searchResults"
+              :key="r.id + r.file"
+              @mousedown.prevent="focusSearchResult(r)"
+              class="search-result-item"
+            >
+              <span class="search-result-icon" :class="r.type">
+                {{ r.type === 'function' ? 'ƒ' : r.type === 'file' ? '◫' : '⬡' }}
+              </span>
+              <div class="search-result-body">
+                <div class="search-result-name">{{ r.label }}</div>
+                <div v-if="r.file" class="search-result-file">{{ r.file }}</div>
+              </div>
+              <span v-if="r.risk && r.risk !== 'none'" class="search-risk-badge" :class="'risk-' + r.risk">
+                {{ r.risk === 'high' ? 'H' : r.risk === 'medium' ? 'M' : 'L' }}
+              </span>
+              <span v-if="!r.inGraph" title="Not in current view" class="search-not-visible">◌</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -643,6 +686,11 @@ const llmPlan = ref(null);          // LLM architectural reasoning result
 const llmLoading = ref(false);      // LLM request in progress
 const selectedSmellFile = ref(null);
 
+const uploadStage = ref('');
+const searchQuery = ref('');
+const searchResults = ref([]);
+const showSearchDropdown = ref(false);
+
 const SEV_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
 
 const smellTypeDistribution = computed(() => {
@@ -675,7 +723,7 @@ const selectedFileSmells = computed(() => {
 });
 const sidebarWidth = ref(264);
 const isResizing = ref(false);
-const { fitView } = useVueFlow();
+const { fitView, findNode, setCenter } = useVueFlow();
 
 function startResize() {
   isResizing.value = true;
@@ -1206,6 +1254,10 @@ const resetGraphState = () => {
   uploadSuccess.value = false;
   uploading.value = true;
   uploadedFile.value = null;
+  uploadStage.value = '';
+  searchQuery.value = '';
+  searchResults.value = [];
+  showSearchDropdown.value = false;
   discoveredFunctions.value = [];
   selectedRoot.value = "";
   nodes.value = [];
@@ -1267,11 +1319,21 @@ const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
 const uploadWithFormData = async (formData, sourceName) => {
   resetGraphState();
 
+  const stages = ['Uploading file...', 'Parsing code...', 'Computing metrics...', 'Building graph...'];
+  let stageIdx = 0;
+  uploadStage.value = stages[0];
+  const stageTimer = setInterval(() => {
+    stageIdx = Math.min(stageIdx + 1, stages.length - 1);
+    uploadStage.value = stages[stageIdx];
+  }, 1800);
+
   try {
     const response = await sessionManager.apiCall('/upload', {
       method: 'POST',
       body: formData,
     });
+    clearInterval(stageTimer);
+    uploadStage.value = '';
     const data = await response.json();
 
     uploadedFile.value = sourceName;
@@ -1405,6 +1467,8 @@ const uploadWithFormData = async (formData, sourceName) => {
     // fetch all analysis panels in background (non-critical)
     await fetchAnalysisPanels(isSingleFile, sourceName);
   } catch (err) {
+    clearInterval(stageTimer);
+    uploadStage.value = '';
     console.error("Error uploading file:", err);
     uploadError.value =
       err.message || "Failed to upload file. Make sure backend is running.";
@@ -1788,6 +1852,88 @@ const onNodeUnhover = () => {
       filter: 'none'
     }
   }));
+};
+
+const performSearch = (query) => {
+  if (!query || !query.trim()) {
+    searchResults.value = [];
+    showSearchDropdown.value = false;
+    return;
+  }
+  const q = query.toLowerCase();
+  const results = [];
+  const seen = new Set();
+
+  // Search visible graph nodes first
+  for (const node of nodes.value) {
+    const label = (node.data?.label || node.data?.fullLabel || node.id || '').toLowerCase();
+    if (label.includes(q)) {
+      if (!seen.has(node.id)) {
+        seen.add(node.id);
+        results.push({
+          id: node.id,
+          label: node.data?.label || node.data?.fullLabel || node.id,
+          type: node.data?.nodeType || 'node',
+          inGraph: true,
+          file: node.data?.nodeType === 'function' ? (node.data?.fullLabel || '') : '',
+          risk: null,
+        });
+      }
+    }
+  }
+
+  // Search all known functions from riskData
+  if (riskData.value?.functions) {
+    for (const fn of riskData.value.functions) {
+      const name = (fn.name || '').toLowerCase();
+      const file = (fn.file || '').toLowerCase();
+      if (name.includes(q) || file.includes(q)) {
+        const key = fn.name + '|' + fn.file;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const inGraph = nodes.value.some(n => n.data?.label === fn.name || n.id === fn.name);
+          results.push({
+            id: fn.name,
+            label: fn.name,
+            type: 'function',
+            inGraph,
+            file: fn.file,
+            risk: fn.risk_level,
+          });
+        }
+      }
+    }
+  }
+
+  searchResults.value = results.slice(0, 10);
+  showSearchDropdown.value = results.length > 0;
+};
+
+const focusSearchResult = async (result) => {
+  showSearchDropdown.value = false;
+
+  const graphNode = nodes.value.find(
+    n => n.id === result.id || n.data?.label === result.label
+  );
+
+  if (graphNode) {
+    await nextTick();
+    setCenter(graphNode.position.x + 75, graphNode.position.y + 30, { duration: 400, zoom: 1.5 });
+
+    // Flash highlight for 2 seconds
+    nodes.value = nodes.value.map(n =>
+      n.id === graphNode.id
+        ? { ...n, style: { ...n.style, outline: '3px solid #818cf8', filter: 'drop-shadow(0 0 14px #818cf8)' } }
+        : n
+    );
+    setTimeout(() => {
+      nodes.value = nodes.value.map(n =>
+        n.id === graphNode.id
+          ? { ...n, style: { ...n.style, outline: '', filter: 'none' } }
+          : n
+      );
+    }, 2000);
+  }
 };
 
 // name:line_start format থেকে display name বের করো (expand response এ label নেই)
@@ -3015,5 +3161,125 @@ const collapseOthers = (nodeType, keepId) => {
   background: rgba(0,0,0,0.04);
   padding: 5px 8px;
   border-radius: 6px;
+}
+
+/* ── Upload Progress ──────────────────────────────── */
+.upload-progress-wrap {
+  margin-top: 10px;
+}
+.upload-stage-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #818cf8;
+  margin-bottom: 6px;
+}
+.upload-progress-track {
+  height: 3px;
+  background: #1e293b;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.upload-progress-fill {
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, #818cf8, #6366f1);
+  border-radius: 2px;
+  animation: progress-slide 1.4s ease-in-out infinite;
+}
+@keyframes progress-slide {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
+}
+
+/* ── Search ───────────────────────────────────────── */
+.search-wrap {
+  position: relative;
+}
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 150ms;
+}
+.search-input:focus {
+  border-color: #818cf8;
+}
+.search-input::placeholder {
+  color: #475569;
+}
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 120ms;
+  border-bottom: 1px solid #0f172a;
+}
+.search-result-item:last-child { border-bottom: none; }
+.search-result-item:hover { background: #253347; }
+.search-result-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  color: #64748b;
+}
+.search-result-icon.function { color: #10b981; }
+.search-result-icon.file     { color: #f59e0b; }
+.search-result-icon.module   { color: #3b82f6; }
+.search-result-body {
+  flex: 1;
+  min-width: 0;
+}
+.search-result-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-result-file {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-risk-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.search-risk-badge.risk-high   { background: #ef444433; color: #f87171; }
+.search-risk-badge.risk-medium { background: #f59e0b33; color: #fbbf24; }
+.search-risk-badge.risk-low    { background: #22c55e33; color: #4ade80; }
+.search-not-visible {
+  font-size: 11px;
+  color: #475569;
+  flex-shrink: 0;
 }
 </style>
