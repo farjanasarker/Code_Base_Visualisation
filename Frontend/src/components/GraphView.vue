@@ -558,48 +558,7 @@
           Dynamic calls, reflection, and external callers cannot be detected.
         </div>
       </div>
-
-      <!-- Layer Analysis Panel (folder / ZIP only) -->
-      <div v-if="layerViolations" class="sidebar-section layer-panel">
-        <div class="section-title">Layer Analysis</div>
-
-        <!-- Clean state -->
-        <div v-if="layerViolations.summary?.total === 0" class="layer-clean">
-          <span class="layer-clean-icon">✅</span>
-          <div>
-            <div class="layer-clean-title">No layer violations detected.</div>
-            <div class="layer-clean-sub">Perfect layered architecture — every module respects its boundaries.</div>
-          </div>
-        </div>
-
-        <!-- Violations found -->
-        <template v-else>
-          <div class="layer-summary">
-            <span v-if="layerViolations.summary?.high" class="layer-chip layer-chip-high">
-              🔴 {{ layerViolations.summary.high }} critical
-            </span>
-            <span v-if="layerViolations.summary?.medium" class="layer-chip layer-chip-medium">
-              🟡 {{ layerViolations.summary.medium }} warning
-            </span>
-          </div>
-
-          <div class="layer-list">
-            <div
-              v-for="v in (layerViolations.violations || [])"
-              :key="v.source_file + v.target_ref"
-              class="layer-item"
-              :class="v.severity === 'high' ? 'layer-item-high' : 'layer-item-medium'"
-              :title="v.message"
-            >
-              <span class="layer-item-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span>
-              <div class="layer-item-body">
-                <div class="layer-item-msg">{{ v.message }}</div>
-                <div class="layer-item-src">{{ v.source_file.split('/').pop() }} → {{ v.target_ref.split('/').pop() }}</div>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
+      
       <!-- ── Architecture Patterns Panel ──────────────────────── -->
       <div v-if="patternsData && patternsData.patterns_found > 0" class="sidebar-section patterns-panel">
         <div class="section-title">Architecture Patterns</div>
@@ -646,7 +605,47 @@
         <div class="section-title">Architecture Patterns</div>
         <div class="patterns-empty">No recognisable patterns detected in this codebase.</div>
       </div>
+      <!-- Layer Analysis Panel (folder / ZIP only) -->
+      <div v-if="layerViolations" class="sidebar-section layer-panel">
+        <div class="section-title">Layer Analysis</div>
 
+        <!-- Clean state -->
+        <div v-if="layerViolations.summary?.total === 0" class="layer-clean">
+          <span class="layer-clean-icon">✅</span>
+          <div>
+            <div class="layer-clean-title">No layer violations detected.</div>
+            <div class="layer-clean-sub">Perfect layered architecture — every module respects its boundaries.</div>
+          </div>
+        </div>
+
+        <!-- Violations found -->
+        <template v-else>
+          <div class="layer-summary">
+            <span v-if="layerViolations.summary?.high" class="layer-chip layer-chip-high">
+              🔴 {{ layerViolations.summary.high }} critical
+            </span>
+            <span v-if="layerViolations.summary?.medium" class="layer-chip layer-chip-medium">
+              🟡 {{ layerViolations.summary.medium }} warning
+            </span>
+          </div>
+
+          <div class="layer-list">
+            <div
+              v-for="v in (layerViolations.violations || [])"
+              :key="v.source_file + v.target_ref"
+              class="layer-item"
+              :class="v.severity === 'high' ? 'layer-item-high' : 'layer-item-medium'"
+              :title="v.message"
+            >
+              <span class="layer-item-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span>
+              <div class="layer-item-body">
+                <div class="layer-item-msg">{{ v.message }}</div>
+                <div class="layer-item-src">{{ v.source_file.split('/').pop() }} → {{ v.target_ref.split('/').pop() }}</div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
     </aside>
     <div class="sidebar-resize-handle" :class="{ resizing: isResizing }" @mousedown.prevent="startResize"></div>
 
