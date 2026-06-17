@@ -600,6 +600,53 @@
           </div>
         </template>
       </div>
+      <!-- ── Architecture Patterns Panel ──────────────────────── -->
+      <div v-if="patternsData && patternsData.patterns_found > 0" class="sidebar-section patterns-panel">
+        <div class="section-title">Architecture Patterns</div>
+        <div class="patterns-summary-chip">
+          {{ patternsData.patterns_found }} pattern{{ patternsData.patterns_found !== 1 ? 's' : '' }} detected
+        </div>
+        <div class="patterns-list">
+          <div v-for="p in patternsData.patterns" :key="p.pattern" class="pattern-card">
+            <div class="pattern-card-head">
+              <span class="pattern-name">{{ p.pattern }}</span>
+              <span
+                class="pattern-conf-badge"
+                :class="p.confidence >= 0.8 ? 'pconf-high' : p.confidence >= 0.65 ? 'pconf-med' : 'pconf-low'"
+              >
+                {{ Math.round(p.confidence * 100) }}%
+              </span>
+            </div>
+            <div v-if="p.evidence?.length" class="pattern-evidence">
+              <div v-for="e in p.evidence" :key="e" class="pattern-evidence-item">· {{ e }}</div>
+            </div>
+            <div v-if="p.components && Object.keys(p.components).filter(k => p.components[k]?.length).length" class="pattern-components">
+              <div class="pattern-components-label">Components</div>
+              <template v-for="(files, layer) in p.components" :key="layer">
+                <div v-if="files?.length" class="pattern-layer-row">
+                  <span class="ptree-prefix">├──</span>
+                  <span class="pattern-layer-name">{{ layer }}:</span>
+                  <span class="pattern-layer-files" :title="files.join(', ')">
+                    {{ files.map(f => f.split(/[\\/]/).pop()).slice(0, 3).join(', ') }}{{ files.length > 3 ? ` +${files.length - 3}` : '' }}
+                  </span>
+                </div>
+              </template>
+            </div>
+            <div v-if="p.violations?.length" class="pattern-violations">
+              <div class="pattern-violations-label">⚠ Violations ({{ p.violations.length }})</div>
+              <div v-for="v in p.violations.slice(0, 3)" :key="v" class="pattern-violation-item">{{ v }}</div>
+              <div v-if="p.violations.length > 3" class="pattern-violation-more">
+                +{{ p.violations.length - 3 }} more
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="patternsData && patternsData.patterns_found === 0" class="sidebar-section patterns-panel">
+        <div class="section-title">Architecture Patterns</div>
+        <div class="patterns-empty">No recognisable patterns detected in this codebase.</div>
+      </div>
+
     </aside>
     <div class="sidebar-resize-handle" :class="{ resizing: isResizing }" @mousedown.prevent="startResize"></div>
 
@@ -685,6 +732,7 @@ const smellData = ref(null);        // { smells, summary, graph_summary, plan, f
 const llmPlan = ref(null);          // LLM architectural reasoning result
 const llmLoading = ref(false);      // LLM request in progress
 const selectedSmellFile = ref(null);
+const patternsData = ref(null);
 
 const uploadStage = ref('');
 const searchQuery = ref('');
@@ -1272,6 +1320,7 @@ const resetGraphState = () => {
   metricsData.value = null;
   gitHistory.value = null;
   smellData.value = null;
+  patternsData.value = null;
 };
 
 // Fetch all analysis sidebar panels (risk, dead code, metrics, git, layers).
@@ -1293,12 +1342,14 @@ const fetchLLMPlan = async () => {
 const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
   try {
     const isFolder = !isSingleFile || sourceName.toLowerCase().endsWith('.zip');
+    const sid = sessionManager.getSessionId();
     const requests = [
-      sessionManager.apiCall('/risk-score',    { method: 'GET' }),
-      sessionManager.apiCall('/dead-code',     { method: 'GET' }),
-      sessionManager.apiCall('/metrics',       { method: 'GET' }),
-      sessionManager.apiCall('/git-history',   { method: 'GET' }),
-      sessionManager.apiCall('/smell-analysis',{ method: 'GET' }),
+      sessionManager.apiCall('/risk-score',                          { method: 'GET' }),
+      sessionManager.apiCall('/dead-code',                           { method: 'GET' }),
+      sessionManager.apiCall('/metrics',                             { method: 'GET' }),
+      sessionManager.apiCall('/git-history',                         { method: 'GET' }),
+      sessionManager.apiCall('/smell-analysis',                      { method: 'GET' }),
+      sessionManager.apiCall(`/api/patterns/${sid}`,                 { method: 'GET' }),
     ];
     if (isFolder) {
       requests.push(sessionManager.apiCall('/layer-violations', { method: 'GET' }));
@@ -1310,8 +1361,9 @@ const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
     const gh           = await results[3].json();
     gitHistory.value   = gh?.available ? gh : null;
     smellData.value    = await results[4].json();
-    if (isFolder && results[5]) {
-      layerViolations.value = await results[5].json();
+    patternsData.value = await results[5].json();
+    if (isFolder && results[6]) {
+      layerViolations.value = await results[6].json();
     }
   } catch (_) { /* non-critical — panels stay hidden */ }
 };
@@ -3281,5 +3333,129 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 11px;
   color: #475569;
   flex-shrink: 0;
+}
+
+/* ── Architecture Patterns Panel ───────────────────── */
+.patterns-summary-chip {
+  display: inline-block;
+  background: #1e3a5f;
+  color: #93c5fd;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+.patterns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pattern-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 11px;
+}
+.pattern-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.pattern-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+.pattern-conf-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.pconf-high { background: #14532d; color: #4ade80; }
+.pconf-med  { background: #422006; color: #fbbf24; }
+.pconf-low  { background: #1e1b4b; color: #a5b4fc; }
+.pattern-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 5px;
+}
+.pattern-evidence-item {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+.pattern-components {
+  margin-top: 7px;
+  border-top: 1px solid #334155;
+  padding-top: 6px;
+  margin-bottom: 2px;
+}
+.pattern-components-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 5px;
+}
+.pattern-layer-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 1.6;
+}
+.ptree-prefix {
+  font-size: 10px;
+  color: #475569;
+  flex-shrink: 0;
+  font-family: monospace;
+}
+.pattern-layer-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: #7dd3fc;
+  flex-shrink: 0;
+}
+.pattern-layer-files {
+  font-size: 10px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pattern-violations {
+  margin-top: 6px;
+  border-top: 1px solid #334155;
+  padding-top: 6px;
+}
+.pattern-violations-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #f87171;
+  margin-bottom: 4px;
+}
+.pattern-violation-item {
+  font-size: 9px;
+  color: #fca5a5;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pattern-violation-more {
+  font-size: 9px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.patterns-empty {
+  font-size: 11px;
+  color: #64748b;
+  padding: 6px 0;
 }
 </style>

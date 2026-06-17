@@ -17,6 +17,7 @@ from analyzer import analyze_files, build_module_graph, decide_render_strategy, 
 from smell_detector import SmellDetector
 from smell_graph import build_smell_graph
 import llm_engine
+from pattern_detector import ArchitecturePatternDetector
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1342,4 +1343,61 @@ async def api_llm_refactor(request: Request):
         raise
     except Exception as e:
         logger.error(f"LLM refactor error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/patterns/{session_id}")
+async def api_detect_patterns(session_id: str):
+    """
+    Detect architecture patterns in a previously uploaded project.
+    Rule-based, no LLM. Returns patterns with confidence >= 0.55.
+    """
+    try:
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        cache = SESSION_CACHE.get(session_id)
+        if not cache:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session '{session_id}' not found. Upload a project first.",
+            )
+
+        # Build flat file list from all_files
+        raw_functions: list = cache.get("functions", [])
+        files: list[str] = [f["path"] for f in cache.get("all_files", [])]
+
+        # Derive call_edges from functions[].calls
+        fn_name_to_file: dict[str, str] = {
+            fn["name"]: fn.get("file", "") for fn in raw_functions
+        }
+        call_edges: list[dict] = []
+        for fn in raw_functions:
+            for callee_name in fn.get("calls", []):
+                call_edges.append({
+                    "caller_file":     fn.get("file", ""),
+                    "caller_function": fn.get("name", ""),
+                    "callee_function": callee_name,
+                    "callee_file":     fn_name_to_file.get(callee_name, ""),
+                })
+
+        session_data = {
+            "files":      files,
+            "functions":  raw_functions,
+            "call_edges": call_edges,
+        }
+
+        detector = ArchitecturePatternDetector(session_data)
+        patterns = detector.detect_all()
+
+        return {
+            "session_id":     session_id,
+            "patterns_found": len(patterns),
+            "patterns":       patterns,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Pattern detection error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
