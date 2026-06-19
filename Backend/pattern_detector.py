@@ -57,10 +57,15 @@ class ArchitecturePatternDetector:
     # ── 1. MVC / MVP ──────────────────────────────────────────────────────────
 
     def detect_mvc_mvp(self) -> Optional[PatternResult]:
-        models      = self._files_matching("model")
-        views       = self._files_matching("view", "template", "page")
+        models      = self._files_matching("model", "schema", "entity")
+        views       = self._files_matching("view", "template", "page", "pages")
         controllers = self._files_matching("controller")
         presenters  = self._files_matching("presenter")
+
+        # No dedicated model/ folder is common in service+repository backends —
+        # service/repository files jointly play the Model role there.
+        if not models:
+            models = self._files_matching("service", "repository", "repo")
 
         is_mvp   = bool(presenters) and not bool(controllers)
         middle   = presenters if is_mvp else controllers
@@ -70,7 +75,7 @@ class ArchitecturePatternDetector:
             return None
 
         evidence = [
-            f"{len(models)} model file(s) found",
+            f"{len(models)} model/service file(s) found",
             f"{len(views)} view file(s) found",
             f"{len(middle)} {'presenter' if is_mvp else 'controller'} file(s) found",
         ]
@@ -247,17 +252,24 @@ class ArchitecturePatternDetector:
             return None
 
         db_keywords = {"find", "save", "update", "delete", "query",
-                       "execute", "fetch", "insert", "get", "create"}
-        repo_set = {r.lower().replace("\\", "/") for r in repos}
+                       "execute", "fetch", "insert", "get", "create",
+                       "findall", "findbyid", "findbyemail"}
+
+        # Match by basename, not full path — caller/callee paths in the call
+        # graph and file list aren't always normalized the same way.
+        def basename(path: str) -> str:
+            return path.lower().replace("\\", "/").split("/")[-1]
+
+        repo_basenames = {basename(r) for r in repos}
 
         repo_has_crud = any(
             any(kw in fn.get("name", "").lower() for kw in db_keywords)
             for fn in self.functions
-            if fn.get("file", "").lower().replace("\\", "/") in repo_set
+            if basename(fn.get("file", "")) in repo_basenames
         )
 
         service_calls_repo = any(
-            edge.get("callee_file", "").lower().replace("\\", "/") in repo_set
+            basename(edge.get("callee_file", "")) in repo_basenames
             for edge in self.call_edges
             if "service" in edge.get("caller_file", "").lower()
         )
@@ -314,29 +326,44 @@ class ArchitecturePatternDetector:
     def detect_observer(self) -> Optional[PatternResult]:
         emitter_kws    = {"notify", "emit", "dispatch", "publish", "trigger", "fire"}
         subscriber_kws = {"subscribe", "unsubscribe", "listen",
-                          "register", "addlistener", "addobserver"}
+                          "register", "addlistener", "addobserver",
+                          "usecontext", "usereducer", "addeventlistener"}
 
         emitters    = self._fns_matching(*emitter_kws)
         subscribers = self._fns_matching(*subscriber_kws)
 
-        if not emitters or len(subscribers) < 2:
+        # React Context / pub-sub files are an Observer variant: state lives
+        # in a Subject (createContext/EventEmitter) and consumers subscribe
+        # to changes without explicit notify()/subscribe() function names.
+        context_files = self._files_matching("context", "eventemitter", "pubsub", "event_bus", "eventbus")
+
+        has_emitters    = bool(emitters) or bool(context_files)
+        has_subscribers = bool(subscribers) or bool(context_files)
+
+        if not (has_emitters and has_subscribers):
             return None
 
         score = self._confidence(
-            int(bool(emitters)) + int(len(subscribers) >= 2) + int(len(subscribers) >= 4),
+            int(has_emitters) + int(has_subscribers) +
+            int(len(subscribers) >= 2 or bool(context_files)),
             3,
         )
+
+        evidence = []
+        if emitters:
+            evidence.append(f"{len(emitters)} emitter function(s) (notify/emit/dispatch)")
+        if subscribers:
+            evidence.append(f"{len(subscribers)} subscriber function(s) (subscribe/listen/register)")
+        if context_files:
+            evidence.append(f"{len(context_files)} context/event file(s) (React Context Observer pattern)")
 
         return PatternResult(
             pattern="Observer",
             confidence=score,
-            evidence=[
-                f"{len(emitters)} emitter function(s) (notify/emit/dispatch)",
-                f"{len(subscribers)} subscriber function(s) (subscribe/listen/register)",
-            ],
+            evidence=evidence,
             components={
-                "emitters":    list({fn.get("file", "") for fn in emitters}),
-                "subscribers": list({fn.get("file", "") for fn in subscribers}),
+                "emitters":    list({fn.get("file", "") for fn in emitters} | set(context_files)),
+                "subscribers": list({fn.get("file", "") for fn in subscribers} | set(context_files)),
             },
             violations=[],
         )
