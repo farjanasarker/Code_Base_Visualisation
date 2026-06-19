@@ -1030,6 +1030,86 @@ def api_risk_score(request: Request):
         raise HTTPException(status_code=500, detail=f"Error computing risk scores: {str(e)}")
 
 
+@app.get("/impact-analysis/{function_name}")
+def api_impact_analysis(function_name: str, request: Request):
+    """
+    Reverse call graph: which functions/modules would be affected if
+    `function_name` changes. Walks the caller chain transitively (BFS)
+    over functions[].calls, the same data risk-score's fan_in is built from.
+    """
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        real_fns = [fn for fn in functions if fn.get("name") != "__file__"]
+
+        if not any(fn.get("name") == function_name for fn in real_fns):
+            raise HTTPException(status_code=404, detail=f"Function '{function_name}' not found")
+
+        # callee name -> list of caller function dicts
+        callers_of: Dict[str, list] = {}
+        for fn in real_fns:
+            for callee in fn.get("calls", []):
+                callers_of.setdefault(callee, []).append(fn)
+
+        # BFS outward from function_name through the reverse-call edges
+        visited = {function_name}
+        depth_map: Dict[str, int] = {}
+        queue = []
+        for fn in callers_of.get(function_name, []):
+            name = fn.get("name")
+            if name not in visited:
+                visited.add(name)
+                depth_map[name] = 1
+                queue.append(fn)
+
+        affected = list(queue)
+        i = 0
+        while i < len(queue):
+            fn = queue[i]
+            i += 1
+            depth = depth_map.get(fn.get("name"), 1)
+            for caller in callers_of.get(fn.get("name"), []):
+                cname = caller.get("name")
+                if cname not in visited:
+                    visited.add(cname)
+                    depth_map[cname] = depth + 1
+                    queue.append(caller)
+                    affected.append(caller)
+
+        affected.sort(key=lambda f: depth_map.get(f.get("name"), 1))
+        direct_names = {fn.get("name") for fn in callers_of.get(function_name, [])}
+
+        affected_files   = sorted({fn.get("file", "")   for fn in affected if fn.get("file")})
+        affected_modules = sorted({fn.get("module", "") for fn in affected if fn.get("module")})
+
+        result = [
+            {
+                "name":   fn.get("name"),
+                "file":   fn.get("file"),
+                "module": fn.get("module"),
+                "depth":  depth_map.get(fn.get("name"), 1),
+                "direct": fn.get("name") in direct_names,
+            }
+            for fn in affected[:100]
+        ]
+
+        return {
+            "function":          function_name,
+            "total_affected":    len(affected),
+            "affected_functions": result,
+            "affected_files":    affected_files,
+            "affected_modules":  affected_modules,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Impact analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error computing impact analysis: {str(e)}")
+
+
 @app.get("/dead-code")
 def api_dead_code(request: Request):
     """Detect potentially unreachable functions and unused imports per file.

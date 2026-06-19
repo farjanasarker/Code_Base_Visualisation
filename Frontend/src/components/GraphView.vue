@@ -690,6 +690,39 @@
           <span>.py</span><span>.js</span><span>.ts</span><span>.java</span><span>.go</span><span>.zip</span>
         </div>
       </div>
+
+      <!-- ── Change-Impact Overlay (reverse call graph on hover) ──────── -->
+      <div v-if="hoveredImpact.visible" class="impact-overlay">
+        <div class="impact-head">🔗 Impact: <span class="impact-fn-target">{{ hoveredImpact.fnName }}</span></div>
+        <div v-if="hoveredImpact.loading" class="impact-loading">Tracing call graph…</div>
+        <template v-else-if="hoveredImpact.data">
+          <div class="impact-summary">
+            Changing this affects
+            <strong>{{ hoveredImpact.data.total_affected }}</strong> function(s)
+            across <strong>{{ hoveredImpact.data.affected_files?.length || 0 }}</strong> file(s)
+            <span v-if="hoveredImpact.data.affected_modules?.length">
+              / <strong>{{ hoveredImpact.data.affected_modules.length }}</strong> module(s)
+            </span>
+          </div>
+          <div v-if="hoveredImpact.data.affected_functions?.length" class="impact-fn-list">
+            <div
+              v-for="fn in hoveredImpact.data.affected_functions.slice(0, 8)"
+              :key="fn.name + fn.file"
+              class="impact-fn-row"
+            >
+              <span class="impact-fn-arrow" :title="fn.direct ? 'Direct caller' : `${fn.depth} call(s) away`">
+                {{ fn.direct ? '→' : '⇢' }}
+              </span>
+              <span class="impact-fn-name">{{ fn.name }}</span>
+              <span class="impact-fn-file">{{ fn.file?.split(/[\\/]/).pop() }}</span>
+            </div>
+            <div v-if="hoveredImpact.data.affected_functions.length > 8" class="impact-fn-more">
+              +{{ hoveredImpact.data.total_affected - 8 }} more
+            </div>
+          </div>
+          <div v-else class="impact-none">No other functions depend on this.</div>
+        </template>
+      </div>
     </div>
 
   </div>
@@ -1320,6 +1353,8 @@ const resetGraphState = () => {
   gitHistory.value = null;
   smellData.value = null;
   patternsData.value = null;
+  impactCache.clear();
+  hoveredImpact.value = { visible: false, loading: false, fnName: '', data: null };
 };
 
 // Fetch all analysis sidebar panels (risk, dead code, metrics, git, layers).
@@ -1831,7 +1866,39 @@ const onNodeClick = async ({ node }) => {
 const HOVER_COLOR_OUT = '#22d3ee';  // outgoing: this node → callee (cyan)
 const HOVER_COLOR_IN  = '#f97316';  // incoming: caller → this node (orange)
 
+// ── Change-Impact Panel (reverse call graph) ──────────────────────────
+const impactCache = new Map();   // function name -> resolved impact payload
+const hoveredImpact = ref({ visible: false, loading: false, fnName: '', data: null });
+
+const fetchImpact = async (fnName) => {
+  if (impactCache.has(fnName)) return impactCache.get(fnName);
+  try {
+    const res  = await sessionManager.apiCall(`/impact-analysis/${encodeURIComponent(fnName)}`, { method: 'GET' });
+    const data = await res.json();
+    impactCache.set(fnName, data);
+    return data;
+  } catch (_) {
+    return null;
+  }
+};
+
+const showImpactForNode = (node) => {
+  if (node.data?.nodeType !== 'function' || !(node.data?.fanIn > 0)) {
+    hoveredImpact.value = { visible: false, loading: false, fnName: '', data: null };
+    return;
+  }
+  const fnName = node.data.fullLabel || node.id;
+  hoveredImpact.value = { visible: true, loading: true, fnName, data: null };
+  fetchImpact(fnName).then((data) => {
+    // guard against fast hover swaps landing out of order
+    if (hoveredImpact.value.fnName === fnName) {
+      hoveredImpact.value = { visible: true, loading: false, fnName, data };
+    }
+  });
+};
+
 const onNodeHover = ({ node }) => {
+  showImpactForNode(node);
   const connectedIds = new Set([node.id]);
   edges.value.forEach((e) => {
     if (e.source === node.id) connectedIds.add(e.target);
@@ -1877,6 +1944,7 @@ const onNodeHover = ({ node }) => {
 };
 
 const onNodeUnhover = () => {
+  hoveredImpact.value = { visible: false, loading: false, fnName: '', data: null };
   // restore original edge colors and node opacity
   edges.value = edges.value.map((e) => ({
     ...e,
@@ -2329,6 +2397,83 @@ const collapseOthers = (nodeType, keepId) => {
 .vue-flow {
   width: 100%;
   height: 100%;
+}
+
+/* ── Change-Impact Overlay ─────────────────────────── */
+.impact-overlay {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  width: 280px;
+  max-width: calc(100% - 32px);
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+.impact-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 7px;
+}
+.impact-fn-target { color: #f97316; }
+.impact-loading {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+}
+.impact-summary {
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin-bottom: 7px;
+}
+.impact-summary strong { color: #e2e8f0; }
+.impact-fn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid #334155;
+  padding-top: 7px;
+}
+.impact-fn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.impact-fn-arrow {
+  color: #f97316;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.impact-fn-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  flex-shrink: 0;
+}
+.impact-fn-file {
+  font-size: 10px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.impact-fn-more {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.impact-none {
+  font-size: 11px;
+  color: #64748b;
+  border-top: 1px solid #334155;
+  padding-top: 7px;
 }
 
 /* ── Empty state ───────────────────────────────────── */
