@@ -48,5 +48,10 @@
     "index": 9,
     "title": "8.5 Sequence \u2014 Session Lifecycle (UC13)",
     "code": "sequenceDiagram\n    actor U as User\n    participant FE as App (main.js)\n    participant SM as sessionManager.js\n    participant API as FastAPI (main.py)\n    participant DB as db.py / Neo4j\n\n    FE->>SM: init()\n    SM->>SM: check sessionStorage for existing session_id\n    alt no existing session\n        SM->>API: POST /start-session\n        API-->>SM: new session_id\n        SM->>SM: persist in sessionStorage\n    end\n\n    loop every API call\n        FE->>API: request + X-Session-ID header\n        API->>API: scope query by session_id\n    end\n\n    Note over API: Background task every 30 min\n    API->>API: scan sessions, expire if idle > 3h\n    API->>DB: delete expired session nodes\n    API->>API: delete expired upload dirs\n\n    U->>FE: Close tab\n    FE->>API: DELETE /end-session (via sendBeacon)\n    API->>DB: delete session nodes\n    API->>API: delete disk uploads, clear cache"
+  },
+  {
+    "index": 10,
+    "title": "9.1 Session Lifecycle State Diagram",
+    "code": "stateDiagram-v2\n    [*] --> Created : POST /start-session\n\n    Created --> Active : Upload received\\n(POST /upload)\n\n    Active --> Idle : No API request\\nfor a period\n    Idle --> Active : New request\\n(X-Session-ID header)\n\n    Idle --> Expired : Idle > 3 hours\\n(background cleanup task, every 30 min)\n\n    Active --> Ended : DELETE /end-session\\n(sendBeacon on tab close)\n    Idle --> Ended : DELETE /end-session\n\n    Expired --> Cleaned : Delete Neo4j nodes,\\ndisk uploads, in-memory cache\n    Ended --> Cleaned : Delete Neo4j nodes,\\ndisk uploads, in-memory cache\n\n    Cleaned --> [*]\n\n    note right of Active\n        Tier-1/2/3 graphs, patterns,\n        smells, metrics all scoped\n        to this session_id\n    end note\n\n    note right of Expired\n        Auto-expiry guards against\n        resource leakage from\n        abandoned sessions\n    end note"
   }
 ]
