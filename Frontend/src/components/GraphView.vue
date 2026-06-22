@@ -355,56 +355,168 @@
           <span v-if="smellData.summary.low"      class="smell-chip smell-low">🟢 {{ smellData.summary.low }} Low</span>
         </div>
 
-        <!-- Level 1: Top smell types by count -->
-        <div class="dead-section-label">Top Root Smells</div>
-        <div class="smell-type-list">
-          <div v-for="(t, i) in smellTypeDistribution" :key="t.type" class="smell-type-row">
-            <span class="smell-type-rank">{{ i + 1 }}.</span>
-            <span class="smell-type-name">{{ t.type.replace(/_/g, ' ') }}</span>
-            <span class="smell-type-count">({{ t.count }})</span>
+        <!-- Feature 1: Technical debt estimate -->
+        <div v-if="smellData.total_debt_score != null" class="debt-stats">
+          <div class="debt-stat">
+            <span class="debt-stat-value">{{ smellData.total_debt_score }}</span>
+            <span class="debt-stat-label">Debt Score</span>
+          </div>
+          <div class="debt-stat">
+            <span class="debt-stat-value">{{ smellData.estimated_dev_days }}</span>
+            <span class="debt-stat-label">Est. Dev Days</span>
           </div>
         </div>
 
-        <!-- Level 2: Ranked file list -->
-        <template v-if="!selectedSmellFile">
-          <div class="dead-section-label" style="margin-top:10px">Ranked Files</div>
-          <div class="smell-file-list">
-            <div
-              v-for="(f, i) in smellFileRanking"
-              :key="f.file"
-              class="smell-file-row"
-              @click="selectedSmellFile = f.file"
-            >
-              <span class="smell-file-rank">{{ i + 1 }}.</span>
-              <div class="smell-file-body">
-                <div class="smell-file-name">{{ f.file.split(/[/\\]/).pop() }}</div>
-                <div class="smell-file-meta">Score: <strong>{{ f.score }}</strong> &nbsp;·&nbsp; Smells: <strong>{{ f.count }}</strong></div>
+        <!-- View mode tabs -->
+        <div class="smell-tabs">
+          <button class="smell-tab" :class="{ active: smellViewMode === 'files' }" @click="smellViewMode = 'files'">Files</button>
+          <button class="smell-tab" :class="{ active: smellViewMode === 'plan' }" @click="smellViewMode = 'plan'">ROI Plan</button>
+          <button class="smell-tab" :class="{ active: smellViewMode === 'layers' }" @click="smellViewMode = 'layers'">By Layer</button>
+          <button class="smell-tab" :class="{ active: smellViewMode === 'tree' }" @click="smellViewMode = 'tree'">Fix Tree</button>
+        </div>
+
+        <!-- ── Files tab (existing type distribution + ranked files + detail) ── -->
+        <template v-if="smellViewMode === 'files'">
+          <div class="dead-section-label">Top Root Smells</div>
+          <div class="smell-type-list">
+            <div v-for="(t, i) in smellTypeDistribution" :key="t.type" class="smell-type-row">
+              <span class="smell-type-rank">{{ i + 1 }}.</span>
+              <span class="smell-type-name">{{ t.type.replace(/_/g, ' ') }}</span>
+              <span class="smell-type-count">({{ t.count }})</span>
+            </div>
+          </div>
+
+          <template v-if="!selectedSmellFile">
+            <div class="dead-section-label" style="margin-top:10px">Ranked Files</div>
+            <div class="smell-file-list">
+              <div
+                v-for="(f, i) in smellFileRanking"
+                :key="f.file"
+                class="smell-file-row"
+                @click="selectedSmellFile = f.file"
+              >
+                <span class="smell-file-rank">{{ i + 1 }}.</span>
+                <div class="smell-file-body">
+                  <div class="smell-file-name">{{ f.file.split(/[/\\]/).pop() }}</div>
+                  <div class="smell-file-meta">Score: <strong>{{ f.score }}</strong> &nbsp;·&nbsp; Smells: <strong>{{ f.count }}</strong></div>
+                </div>
+                <span class="smell-file-arrow">›</span>
               </div>
-              <span class="smell-file-arrow">›</span>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="smell-detail-header">
+              <button class="smell-back-btn" @click="selectedSmellFile = null">← Back</button>
+              <span class="smell-detail-filename">{{ selectedSmellFile.split(/[/\\]/).pop() }}</span>
+            </div>
+            <div class="smell-detail-list">
+              <div
+                v-for="s in selectedFileSmells"
+                :key="s.smell_id"
+                class="smell-detail-item"
+                :class="`smell-sev-${s.severity}`"
+              >
+                <span class="smell-detail-icon">{{ s.severity === 'critical' ? '💀' : s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🟢' }}</span>
+                <div class="smell-detail-body">
+                  <div class="smell-item-type">{{ s.type.replace(/_/g, ' ') }}</div>
+                  <div class="smell-item-target">{{ s.target_name }}</div>
+                </div>
+                <span class="smell-sev-badge" :class="`sev-badge-${s.severity}`">{{ s.severity }}</span>
+              </div>
+            </div>
+          </template>
+        </template>
+
+        <!-- ── Feature 1 & 2: ROI-ranked refactor plan + before/after preview ── -->
+        <template v-else-if="smellViewMode === 'plan'">
+          <div class="dead-section-label">Refactor Plan (ranked by ROI = resolves / effort)</div>
+          <div class="roi-plan-list">
+            <div
+              v-for="item in smellRoiPlan"
+              :key="item.smell_id"
+              class="roi-plan-item"
+              :class="`smell-sev-${item.severity}`"
+            >
+              <div class="roi-plan-head">
+                <span class="roi-plan-step">#{{ item.step }}</span>
+                <span class="smell-item-type" style="flex:1">{{ item.type.replace(/_/g, ' ') }}</span>
+                <span class="smell-sev-badge" :class="`sev-badge-${item.severity}`">{{ item.severity }}</span>
+              </div>
+              <div class="smell-item-target">{{ item.target_name }}</div>
+              <div class="roi-plan-meta">
+                <span>Effort: <strong>{{ item.effort }}</strong></span>
+                <span>Resolves: <strong>{{ item.resolves_count }}</strong></span>
+                <span>ROI: <strong>{{ item.roi_score }}</strong></span>
+              </div>
+              <div v-if="item.description" class="roi-plan-desc">{{ item.description }}</div>
+              <div v-if="item.refactor_suggestions?.length" class="roi-plan-suggestions">
+                {{ item.refactor_suggestions.join(' · ') }}
+              </div>
+              <button
+                v-if="item.code_preview"
+                class="roi-preview-toggle"
+                @click="togglePreview(item.smell_id)"
+              >
+                {{ expandedPreviews[item.smell_id] ? '▾ Hide before/after' : '▸ View before/after' }}
+              </button>
+              <div v-if="item.code_preview && expandedPreviews[item.smell_id]" class="code-preview-box">
+                <div class="code-preview-col">
+                  <div class="code-preview-label">Before</div>
+                  <pre class="code-preview-pre">{{ item.code_preview.before }}</pre>
+                </div>
+                <div class="code-preview-col">
+                  <div class="code-preview-label">After</div>
+                  <pre class="code-preview-pre">{{ item.code_preview.after }}</pre>
+                </div>
+                <div v-if="item.code_preview.explanation" class="code-preview-explanation">
+                  💡 {{ item.code_preview.explanation }}
+                </div>
+              </div>
+            </div>
+            <div v-if="!smellRoiPlan.length" class="smell-empty-note">No plan items available.</div>
+          </div>
+        </template>
+
+        <!-- ── Feature 3: Smells grouped by architecture layer ── -->
+        <template v-else-if="smellViewMode === 'layers'">
+          <div class="layer-accordion">
+            <div v-for="[layerName, layerSmells] in smellLayerEntries" :key="layerName" class="layer-group">
+              <div class="layer-header" @click="toggleLayer(layerName)">
+                <span class="tree-toggle">{{ expandedLayers[layerName] ? '▾' : '▸' }}</span>
+                <span class="layer-name">{{ layerName }}</span>
+                <span class="layer-count">{{ layerSmells.length }}</span>
+              </div>
+              <div v-if="expandedLayers[layerName]" class="smell-detail-list" style="margin-top:4px">
+                <div
+                  v-for="s in layerSmells"
+                  :key="s.smell_id"
+                  class="smell-detail-item"
+                  :class="`smell-sev-${s.severity}`"
+                >
+                  <span class="smell-detail-icon">{{ s.severity === 'critical' ? '💀' : s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🟢' }}</span>
+                  <div class="smell-detail-body">
+                    <div class="smell-item-type">{{ s.type.replace(/_/g, ' ') }}</div>
+                    <div class="smell-item-target">{{ s.target_name }}</div>
+                  </div>
+                  <span class="smell-sev-badge" :class="`sev-badge-${s.severity}`">{{ s.severity }}</span>
+                </div>
+                <div v-if="!layerSmells.length" class="smell-empty-note">No smells at this layer.</div>
+              </div>
             </div>
           </div>
         </template>
 
-        <!-- Level 3: File detail view -->
-        <template v-else>
-          <div class="smell-detail-header">
-            <button class="smell-back-btn" @click="selectedSmellFile = null">← Back</button>
-            <span class="smell-detail-filename">{{ selectedSmellFile.split(/[/\\]/).pop() }}</span>
-          </div>
-          <div class="smell-detail-list">
-            <div
-              v-for="s in selectedFileSmells"
-              :key="s.smell_id"
-              class="smell-detail-item"
-              :class="`smell-sev-${s.severity}`"
-            >
-              <span class="smell-detail-icon">{{ s.severity === 'critical' ? '💀' : s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🟢' }}</span>
-              <div class="smell-detail-body">
-                <div class="smell-item-type">{{ s.type.replace(/_/g, ' ') }}</div>
-                <div class="smell-item-target">{{ s.target_name }}</div>
-              </div>
-              <span class="smell-sev-badge" :class="`sev-badge-${s.severity}`">{{ s.severity }}</span>
-            </div>
+        <!-- ── Feature 4: Dependency-aware fix tree ── -->
+        <template v-else-if="smellViewMode === 'tree'">
+          <div class="dead-section-label">Upstream → Downstream Causation</div>
+          <div class="fix-tree-container">
+            <FixTreeNode
+              v-for="(root, i) in smellData.fix_tree"
+              :key="`${root.smell_id}-${i}`"
+              :node="root"
+            />
+            <div v-if="!smellData.fix_tree?.length" class="smell-empty-note">No causation chains detected.</div>
           </div>
         </template>
 
@@ -738,6 +850,7 @@ import "@vue-flow/minimap/dist/style.css";
 import "@vue-flow/controls/dist/style.css";
 import FunctionNode from "./FunctionNode.vue";
 import BottomBackEdge from "./BottomBackEdge.vue";
+import FixTreeNode from "./FixTreeNode.vue";
 
 // Inject session manager
 const sessionManager = inject('sessionManager');
@@ -760,11 +873,15 @@ const deadCodeData = ref(null);     // { unreachable_functions: [...], unused_im
 const layerViolations = ref(null);  // { by_module: {id: {count, severity}}, summary: {...} }
 const metricsData = ref(null);      // Integrated Metrics Dashboard
 const gitHistory = ref(null);       // { total_commits, current_branch, commits: [...] }
-const smellData = ref(null);        // { smells, summary, graph_summary, plan, fn_smell_map }
+const smellData = ref(null);        // { smells, summary, graph_summary, plan, fn_smell_map,
+                                     //   smells_by_layer, fix_tree, total_debt_score, estimated_dev_days }
 const llmPlan = ref(null);          // LLM architectural reasoning result
 const llmLoading = ref(false);      // LLM request in progress
 const selectedSmellFile = ref(null);
 const patternsData = ref(null);
+const smellViewMode = ref('files'); // 'files' | 'plan' | 'layers' | 'tree'
+const expandedLayers = ref({});     // { [layerName]: bool }
+const expandedPreviews = ref({});   // { [smell_id]: bool } — code_preview toggle in ROI plan
 
 const uploadStage = ref('');
 const searchQuery = ref('');
@@ -801,6 +918,22 @@ const selectedFileSmells = computed(() => {
   if (!selectedSmellFile.value) return [];
   return smellFileRanking.value.find(f => f.file === selectedSmellFile.value)?.smells || [];
 });
+
+// Feature 3 — smells grouped by architecture layer, as [name, smells[]] pairs
+const smellLayerEntries = computed(() => {
+  const byLayer = smellData.value?.smells_by_layer;
+  if (!byLayer) return [];
+  return Object.entries(byLayer);
+});
+function toggleLayer(name) {
+  expandedLayers.value = { ...expandedLayers.value, [name]: !expandedLayers.value[name] };
+}
+
+// Feature 1 — static ROI-ranked refactor plan (resolves_count / effort), already sorted by backend
+const smellRoiPlan = computed(() => smellData.value?.plan || []);
+function togglePreview(smellId) {
+  expandedPreviews.value = { ...expandedPreviews.value, [smellId]: !expandedPreviews.value[smellId] };
+}
 const sidebarWidth = ref(264);
 const isResizing = ref(false);
 const { fitView, findNode, setCenter } = useVueFlow();
@@ -1352,6 +1485,9 @@ const resetGraphState = () => {
   metricsData.value = null;
   gitHistory.value = null;
   smellData.value = null;
+  smellViewMode.value = 'files';
+  expandedLayers.value = {};
+  expandedPreviews.value = {};
   patternsData.value = null;
   impactCache.clear();
   hoveredImpact.value = { visible: false, loading: false, fnName: '', data: null };
@@ -2735,6 +2871,118 @@ const collapseOthers = (nodeType, keepId) => {
   background: rgba(239,68,68,0.1);
   border-radius: 6px;
 }
+
+/* ── Feature 1: Debt score stats ─────────────────────── */
+.debt-stats { display: flex; gap: 8px; margin-bottom: 10px; }
+.debt-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  border-radius: 8px;
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+.debt-stat-value { font-size: 15px; font-weight: 800; color: #f59e0b; }
+.debt-stat-label { font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 1px; }
+
+/* ── Smell panel view-mode tabs ──────────────────────── */
+.smell-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+.smell-tab {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #94a3b8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.smell-tab:hover { background: #273549; color: #e2e8f0; }
+.smell-tab.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+.smell-empty-note { font-size: 10px; color: #64748b; padding: 6px 0; text-align: center; }
+
+/* ── Feature 1 & 2: ROI-ranked plan + code preview ───── */
+.roi-plan-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.roi-plan-item {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #1e293b;
+  border-left: 3px solid #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.roi-plan-head { display: flex; align-items: center; gap: 6px; }
+.roi-plan-step {
+  font-size: 10px; font-weight: 800; color: #94a3b8;
+  background: #334155; padding: 1px 5px; border-radius: 4px; flex-shrink: 0;
+}
+.roi-plan-meta {
+  display: flex; gap: 10px; font-size: 10px; color: #94a3b8;
+}
+.roi-plan-meta strong { color: #a5b4fc; }
+.roi-plan-desc { font-size: 10px; color: #cbd5e1; line-height: 1.4; }
+.roi-plan-suggestions { font-size: 10px; color: #4ade80; font-style: italic; }
+.roi-preview-toggle {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid #6366f1;
+  background: transparent;
+  color: #a5b4fc;
+  cursor: pointer;
+}
+.roi-preview-toggle:hover { background: rgba(99,102,241,0.15); }
+
+.code-preview-box {
+  margin-top: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #0f172a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.code-preview-col { display: flex; flex-direction: column; gap: 2px; }
+.code-preview-label {
+  font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase;
+}
+.code-preview-pre {
+  margin: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: #131c2e;
+  font-size: 10px;
+  font-family: monospace;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.code-preview-explanation {
+  font-size: 10px; color: #fbbf24; line-height: 1.4; font-style: italic;
+}
+
+/* ── Feature 3: Layer accordion ──────────────────────── */
+.layer-accordion { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.layer-group { border-radius: 8px; background: #1e293b; border: 1px solid #334155; padding: 6px 8px; }
+.layer-header { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.layer-name { flex: 1; font-size: 11px; font-weight: 700; color: #e2e8f0; }
+.layer-count {
+  font-size: 10px; font-weight: 700; color: #818cf8;
+  background: rgba(99,102,241,0.15); padding: 1px 7px; border-radius: 10px;
+}
+
+/* ── Feature 4: Fix tree container ───────────────────── */
+.fix-tree-container { margin-bottom: 10px; }
 
 /* ── Dependency Risk Panel ─────────────────────────── */
 .risk-panel { padding-bottom: 12px; }

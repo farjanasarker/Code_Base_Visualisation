@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions
 from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
-from smell_detector import SmellDetector
+from smell_detector import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS
 from smell_graph import build_smell_graph
 import llm_engine
 from pattern_detector import ArchitecturePatternDetector
@@ -1308,17 +1308,73 @@ def api_git_history(request: Request):
 
 # ── Code Smell Analysis ──────────────────────────────────────────────────────
 
+LAYER_DISPLAY_NAMES = {
+    "function":     "Function Level",
+    "module":       "Module / Class Level",
+    "architecture": "Architecture Level",
+}
+
+
+def _group_smells_by_layer(smells: list) -> Dict[str, list]:
+    """Feature 3: bucket smells by their SMELL_CAUSATION architecture layer."""
+    grouped: Dict[str, list] = {name: [] for name in LAYER_DISPLAY_NAMES.values()}
+    for s in smells:
+        layer = SMELL_CAUSATION.get(s.type, {}).get("layer", "function")
+        display = LAYER_DISPLAY_NAMES.get(layer, "Function Level")
+        grouped[display].append(s.to_dict())
+    return grouped
+
+
+def _build_fix_tree(smells: list) -> list:
+    """
+    Feature 4: build upstream -> downstream smell trees (max depth 3).
+
+    A smell type is a "root" if no other detected smell type lists it as
+    downstream in SMELL_CAUSATION. A smell instance may appear under multiple
+    root trees if it has multiple upstream parent types — that's expected.
+    """
+    by_type: Dict[str, list] = {}
+    for s in smells:
+        by_type.setdefault(s.type, []).append(s)
+
+    detected_types = set(by_type.keys())
+    downstream_types: set = set()
+    for t in detected_types:
+        for ds_type in SMELL_CAUSATION.get(t, {}).get("downstream", []):
+            if ds_type in detected_types:
+                downstream_types.add(ds_type)
+    root_types = detected_types - downstream_types
+
+    def build_node(smell, depth: int) -> Dict:
+        node = {
+            "smell_id":    smell.smell_id,
+            "type":        smell.type,
+            "target_name": smell.target_name,
+            "severity":    smell.severity,
+            "children":    [],
+        }
+        if depth >= 3:
+            return node
+        for ds_type in SMELL_CAUSATION.get(smell.type, {}).get("downstream", []):
+            for child in by_type.get(ds_type, []):
+                node["children"].append(build_node(child, depth + 1))
+        return node
+
+    return [build_node(s, 1) for s in smells if s.type in root_types]
+
+
 @app.get("/smell-analysis")
-def api_smell_analysis(request: Request):
+async def api_smell_analysis(request: Request):
     """
     Run static-analysis code smell detection + build smell dependency graph.
 
-    Pipeline (no LLM here — pure static analysis):
+    Pipeline (no LLM for detection — pure static analysis):
       1. SmellDetector.detect_all()     — metric-based smell instances
       2. build_smell_graph()            — dependency graph + BFS root-cause scoring
-      3. graph.minimal_fix_plan()       — greedy set-cover for max-gain ordering
+      3. graph.minimal_fix_plan()       — greedy set-cover, ranked by ROI (resolves/effort)
+      4. LLM before/after code preview  — top-3 plan items only, fetched concurrently
 
-    Call /llm-refactor-reason after this for LLM architectural reasoning.
+    Call /llm-refactor-reason after this for full LLM architectural reasoning.
     """
     try:
         session_id = request.headers.get("X-Session-ID")
@@ -1331,6 +1387,8 @@ def api_smell_analysis(request: Request):
 
         if not functions:
             return {"smells": [], "summary": {}, "graph_summary": {}, "plan": [],
+                    "fn_smell_map": {}, "smells_by_layer": {}, "fix_tree": [],
+                    "total_debt_score": 0, "estimated_dev_days": 0.0,
                     "message": "No functions found — upload a project first."}
 
         # ── Static analysis: detect smells ───────────────────────────────────
@@ -1345,7 +1403,7 @@ def api_smell_analysis(request: Request):
         # ── Build smell dependency graph + score root causes ─────────────────
         graph = build_smell_graph(smells)
 
-        # ── Greedy set-cover plan ────────────────────────────────────────────
+        # ── Greedy set-cover plan, ranked by ROI (Feature 1) ──────────────────
         plan = graph.minimal_fix_plan(max_steps=10)
 
         # ── Build severity summary ────────────────────────────────────────────
@@ -1360,6 +1418,42 @@ def api_smell_analysis(request: Request):
 
         graph_summary = graph.to_llm_summary()
 
+        # ── Feature 1: total debt score + estimated dev days ──────────────────
+        total_debt_score = sum(
+            SEVERITY_WEIGHTS.get(s.severity, 1) * SMELL_CAUSATION.get(s.type, {}).get("effort", 2)
+            for s in smells
+        )
+        estimated_dev_days = round(total_debt_score / 24, 1)
+
+        # ── Feature 3: group smells by architecture layer ─────────────────────
+        smells_by_layer = _group_smells_by_layer(smells)
+
+        # ── Feature 4: dependency-aware fix tree ───────────────────────────────
+        fix_tree = _build_fix_tree(smells)
+
+        # ── Feature 2: before/after code preview for top-3 ROI plan items ─────
+        smell_by_id = {s.smell_id: s for s in smells}
+        top3 = plan[:3]
+        schedulable = []   # (plan_item, coroutine)
+        for item in top3:
+            s = smell_by_id.get(item["smell_id"])
+            if s and s.refactor_suggestions:
+                schedulable.append((item, asyncio.to_thread(
+                    llm_engine.get_code_preview,
+                    s.type, s.target_name, s.metrics,
+                    s.refactor_suggestions[0], s.language,
+                )))
+            else:
+                item["code_preview"] = None
+        if schedulable:
+            previews = await asyncio.gather(
+                *(coro for _, coro in schedulable), return_exceptions=True,
+            )
+            for (item, _), preview in zip(schedulable, previews):
+                item["code_preview"] = preview if isinstance(preview, dict) else None
+        for item in plan[3:]:
+            item["code_preview"] = None
+
         # ── Cache for /llm-refactor-reason ───────────────────────────────────
         cache["_smells"]        = [s.to_dict() for s in smells]
         cache["_smell_plan"]    = plan
@@ -1367,11 +1461,15 @@ def api_smell_analysis(request: Request):
         cache["_fn_smell_map"]  = fn_smell_map
 
         return {
-            "smells":       [s.to_dict() for s in smells],
-            "summary":      summary,
-            "graph_summary": graph_summary,
-            "plan":          plan,
-            "fn_smell_map":  fn_smell_map,
+            "smells":             [s.to_dict() for s in smells],
+            "summary":            summary,
+            "graph_summary":      graph_summary,
+            "plan":               plan,
+            "fn_smell_map":       fn_smell_map,
+            "smells_by_layer":    smells_by_layer,
+            "fix_tree":           fix_tree,
+            "total_debt_score":   round(total_debt_score, 2),
+            "estimated_dev_days": estimated_dev_days,
         }
     except HTTPException:
         raise

@@ -169,32 +169,38 @@ class SmellDependencyGraph:
                 if sid in self.nodes
             })
 
-            effort_val = SMELL_CAUSATION.get(best.smell.type, {}).get("effort", 2)
-            effort_label = (
-                "high"   if effort_val >= 4 else
-                "medium" if effort_val >= 2 else
-                "low"
-            )
+            effort_val     = SMELL_CAUSATION.get(best.smell.type, {}).get("effort", 2)
+            effort         = max(1, min(5, round(effort_val)))
+            resolves_count = len(cascade)
+            roi_score      = resolves_count / effort
 
             plan.append({
-                "step":               step,
-                "smell_id":           best.smell.smell_id,
-                "smell_type":         best.smell.type,
-                "severity":           best.smell.severity,
-                "target_name":        best.smell.target_name,
-                "target_file":        best.smell.target_file,
-                "description":        best.smell.description,
-                "refactor_hints":     best.smell.refactor_suggestions[:3],
-                "root_cause_score":   round(best.root_cause_score, 2),
-                "gain_ratio":         round(best.gain_ratio, 2),
-                "effort":             effort_label,
-                "cascades_count":     len(cascade),
-                "cascades_types":     cascade_types,
-                "upstream_note":      SMELL_CAUSATION.get(best.smell.type, {}).get("note", ""),
+                "smell_id":             best.smell.smell_id,
+                "type":                 best.smell.type,
+                "severity":             best.smell.severity,
+                "target_name":          best.smell.target_name,
+                "target_file":          best.smell.target_file,
+                "description":          best.smell.description,
+                "refactor_suggestions": best.smell.refactor_suggestions,
+                "resolves_count":       resolves_count,
+                "effort":               effort,
+                "roi_score":            round(roi_score, 3),
+                "root_cause_score":     round(best.root_cause_score, 2),
+                "gain_ratio":           round(best.gain_ratio, 2),
+                "cascades_types":       cascade_types,
+                "upstream_note":        SMELL_CAUSATION.get(best.smell.type, {}).get("note", ""),
             })
 
             resolved.add(best.smell.smell_id)
             resolved.update(cascade)
+
+        # Re-rank by ROI (resolves_count / effort); ties broken by severity weight.
+        plan.sort(
+            key=lambda item: (item["roi_score"], SEVERITY_WEIGHTS.get(item["severity"], 1)),
+            reverse=True,
+        )
+        for i, item in enumerate(plan, start=1):
+            item["step"] = i
 
         return plan
 
