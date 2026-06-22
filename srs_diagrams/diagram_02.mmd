@@ -1,0 +1,12 @@
+flowchart LR
+    User["Developer / Architect<br/>(External Entity)"]
+    System(("CodeFlow<br/>System"))
+    Neo[("Neo4j Graph DB")]
+    Groq["Groq LLM API"]
+
+    User -- "Source code (file/zip/folder)" --> System
+    System -- "Graphs, metrics, reports,<br/>diagrams, recommendations" --> User
+    System -- "Store / query code graph" --> Neo
+    Neo -- "Graph data" --> System
+    System -- "Smell summary prompt" --> Groq
+    Groq -- "Refactor plan (text)" --> System

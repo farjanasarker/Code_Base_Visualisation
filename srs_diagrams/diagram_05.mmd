@@ -1,0 +1,21 @@
+sequenceDiagram
+    actor U as User
+    participant FE as GraphView.vue
+    participant SM as sessionManager.js
+    participant API as FastAPI (main.py)
+    participant AN as analyzer.py
+    participant DB as db.py / Neo4j
+
+    U->>FE: Select file / ZIP / folder
+    FE->>SM: getSessionId()
+    SM->>API: POST /start-session (if none)
+    API-->>SM: session_id
+    FE->>API: POST /upload (X-Session-ID, file data)
+    API->>API: validate size, type, zip-slip
+    API->>AN: parse_files(files)
+    AN->>AN: Tree-sitter AST parse,<br/>build call graph, compute metrics
+    AN-->>API: tier1_graph, metrics
+    API->>DB: store_graph(session_id, nodes, edges)
+    DB->>Neo4j: CREATE nodes/relationships
+    API-->>FE: 200 OK { tier1_graph, render_strategy, metrics }
+    FE->>FE: Render Tier-1 graph (Vue Flow + Dagre)
