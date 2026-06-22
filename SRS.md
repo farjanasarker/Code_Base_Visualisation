@@ -18,9 +18,10 @@
 6. [Data Flow Diagrams](#6-data-flow-diagrams)
 7. [Data Model (ER Diagram)](#7-data-model-er-diagram)
 8. [Sequence Diagrams](#8-sequence-diagrams)
-9. [External Interface Requirements](#9-external-interface-requirements)
-10. [Non-Functional Requirements](#10-non-functional-requirements)
-11. [Other Constraints & Assumptions](#11-other-constraints--assumptions)
+9. [State Diagram](#9-state-diagram)
+10. [External Interface Requirements](#10-external-interface-requirements)
+11. [Non-Functional Requirements](#11-non-functional-requirements)
+12. [Other Constraints & Assumptions](#12-other-constraints--assumptions)
 
 ---
 
@@ -64,7 +65,7 @@ Out of scope: code editing/modification, real-time collaborative editing, CI/CD 
 - Project planning docs: `CONTEXT.md`, `.instructions.md`, `PHASES.md`
 
 ### 1.5 Overview
-Section 2 describes the product context and actors. Section 3 shows system architecture. Section 4 gives the use-case model. Section 5 lists detailed functional requirements per feature. Sections 6–8 provide DFDs, the ER/graph data model, and sequence diagrams. Sections 9–11 cover interfaces, non-functional requirements, and constraints.
+Section 2 describes the product context and actors. Section 3 shows system architecture. Section 4 gives the use-case model. Section 5 lists detailed functional requirements per feature. Sections 6–9 provide DFDs, the ER/graph data model, sequence diagrams, and the session state diagram. Sections 10–12 cover interfaces, non-functional requirements, and constraints.
 
 ---
 
@@ -626,12 +627,62 @@ sequenceDiagram
 
 ---
 
-## 9. External Interface Requirements
+## 9. State Diagram
 
-### 9.1 User Interfaces
+### 9.1 Session Lifecycle State Diagram
+
+The diagram below models the lifecycle states of a single user **session** — the central stateful entity in CodeFlow (see FR-13 and UC13) — from creation to cleanup.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created : POST /start-session
+
+    Created --> Active : Upload received\n(POST /upload)
+
+    Active --> Idle : No API request\nfor a period
+    Idle --> Active : New request\n(X-Session-ID header)
+
+    Idle --> Expired : Idle > 3 hours\n(background cleanup task, every 30 min)
+
+    Active --> Ended : DELETE /end-session\n(sendBeacon on tab close)
+    Idle --> Ended : DELETE /end-session
+
+    Expired --> Cleaned : Delete Neo4j nodes,\ndisk uploads, in-memory cache
+    Ended --> Cleaned : Delete Neo4j nodes,\ndisk uploads, in-memory cache
+
+    Cleaned --> [*]
+
+    note right of Active
+        Tier-1/2/3 graphs, patterns,
+        smells, metrics all scoped
+        to this session_id
+    end note
+
+    note right of Expired
+        Auto-expiry guards against
+        resource leakage from
+        abandoned sessions
+    end note
+```
+
+**State descriptions:**
+| State | Meaning |
+|---|---|
+| **Created** | Session UUID issued via `POST /start-session`; no project data yet |
+| **Active** | At least one upload processed; session holds a live code graph in Neo4j/cache |
+| **Idle** | Session exists but has received no requests recently |
+| **Expired** | Idle session that crossed the 3-hour inactivity threshold; picked up by the 30-minute background cleanup task |
+| **Ended** | User explicitly closed the tab/session (`DELETE /end-session` via `sendBeacon`) |
+| **Cleaned** | Terminal housekeeping state — Neo4j nodes, disk uploads, and in-memory cache for the session are deleted |
+
+---
+
+## 10. External Interface Requirements
+
+### 10.1 User Interfaces
 - Single-page application (Vue 3) with a resizable left sidebar (upload, status, search, legend, metrics, git history, smell analysis, risk, dead code, patterns, layer analysis panels) and a main canvas (Vue Flow graph with MiniMap and Controls).
 
-### 9.2 Software Interfaces (REST API)
+### 10.2 Software Interfaces (REST API)
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/health` | Health check + active session count |
@@ -656,14 +707,14 @@ sequenceDiagram
 | POST | `/llm-refactor-reason` | LLM-based architectural reasoning |
 | GET | `/api/patterns/{session_id}` | Architecture pattern detection |
 
-### 9.3 Communication Interfaces
+### 10.3 Communication Interfaces
 - Frontend ↔ Backend: HTTPS/JSON REST, `X-Session-ID` custom header for session scoping.
 - Backend ↔ Neo4j: Bolt protocol (Neo4j driver) to Neo4j Aura cloud instance.
 - Backend ↔ Groq: HTTPS REST call to Groq Chat Completions API.
 
 ---
 
-## 10. Non-Functional Requirements
+## 11. Non-Functional Requirements
 
 | Category | Requirement |
 |---|---|
@@ -677,7 +728,7 @@ sequenceDiagram
 
 ---
 
-## 11. Other Constraints & Assumptions
+## 12. Other Constraints & Assumptions
 
 - Dynamic/reflective function calls (e.g., calls via string lookup, `eval`, decorators that wrap call sites) are **not** tracked by the static AST-based analyzer — this is a known limitation acknowledged in the Dead Code and Risk Score panels.
 - Layer Violation Analysis and Git History features require a **folder/ZIP upload**; they do not apply to single-file uploads.
