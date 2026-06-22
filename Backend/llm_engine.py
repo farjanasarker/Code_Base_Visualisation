@@ -180,6 +180,15 @@ def get_refactor_plan(
 
 # ── Fallback (when LLM unavailable) ──────────────────────────────────────────
 
+def _effort_label(effort_val) -> str:
+    """Map a numeric effort (1-5) to a high|medium|low label for LLM-shaped output."""
+    try:
+        v = float(effort_val)
+    except (TypeError, ValueError):
+        return "medium"
+    return "high" if v >= 4 else "medium" if v >= 2 else "low"
+
+
 def _fallback_plan(preliminary_plan: List[Dict], error: str = "") -> Dict:
     """
     Return a structured plan derived purely from the static analysis.
@@ -189,12 +198,12 @@ def _fallback_plan(preliminary_plan: List[Dict], error: str = "") -> Dict:
     steps = [
         {
             "priority":         i + 1,
-            "pattern":          (step.get("refactor_hints") or ["Refactor"])[0],
+            "pattern":          (step.get("refactor_suggestions") or ["Refactor"])[0],
             "target":           step.get("target_name", ""),
             "what_to_do":       step.get("description", ""),
             "why_this_first":   step.get("upstream_note", ""),
             "resolves_smells":  step.get("cascades_types", []),
-            "estimated_effort": step.get("effort", "medium"),
+            "estimated_effort": _effort_label(step.get("effort", 2)),
             "risk":             "medium",
             "risk_reason":      "Estimated from static analysis only",
         }
@@ -202,13 +211,73 @@ def _fallback_plan(preliminary_plan: List[Dict], error: str = "") -> Dict:
     ]
     return {
         "executive_summary":        "Plan generated from static analysis (LLM unavailable).",
-        "primary_root_cause":       (top[0].get("smell_type") if top else "unknown"),
+        "primary_root_cause":       (top[0].get("type") if top else "unknown"),
         "smell_root_causes":        {
-            "primary":   top[0].get("smell_type") if top else "?",
-            "secondary": top[1].get("smell_type") if len(top) > 1 else "?",
+            "primary":   top[0].get("type") if top else "?",
+            "secondary": top[1].get("type") if len(top) > 1 else "?",
         },
         "refactor_plan":            steps,
         "long_term_recommendation": "Address root cause smells first; see smell dependency graph.",
         "_source":                  "static_analysis_fallback",
         "_error":                   error,
     }
+
+
+# ── Code Preview (before/after snippet) ──────────────────────────────────────
+
+_CODE_PREVIEW_SYSTEM = """\
+You are a refactoring assistant. Given a code smell and refactoring suggestion,
+produce a SHORT before/after Python/pseudocode snippet (max 15 lines total).
+Return JSON only: { before: string, after: string, explanation: string }"""
+
+
+def get_code_preview(
+    smell_type: str,
+    target_name: str,
+    metrics:     Dict,
+    suggestion:  str,
+    language:    str,
+) -> Optional[Dict]:
+    """
+    Ask the LLM for a short before/after refactor snippet for a single smell.
+    Returns { before, after, explanation } or None on any failure (never raises).
+    """
+    if not GROQ_API_KEY:
+        return None
+
+    try:
+        from groq import Groq
+    except ImportError:
+        logger.error("groq package not installed — run: pip install groq")
+        return None
+
+    user_msg = (
+        f"Smell: {smell_type} on function '{target_name}'\n"
+        f"Metrics: {json.dumps(metrics, separators=(',', ':'))}\n"
+        f"Suggested refactor: {suggestion}\n"
+        f"Language: {language}\n"
+        f"Write a realistic before/after snippet showing the refactor."
+    )
+
+    try:
+        client   = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": _CODE_PREVIEW_SYSTEM},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=TEMPERATURE,
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(response.choices[0].message.content)
+        if not all(k in parsed for k in ("before", "after", "explanation")):
+            return None
+        return {
+            "before":      parsed["before"],
+            "after":       parsed["after"],
+            "explanation": parsed["explanation"],
+        }
+    except Exception as exc:
+        logger.warning(f"get_code_preview failed for {smell_type}/{target_name}: {exc}")
+        return None
