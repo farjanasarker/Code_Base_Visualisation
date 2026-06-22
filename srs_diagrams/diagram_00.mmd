@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph Client["Client (Browser)"]
+        UI["Vue 3 SPA<br/>GraphView.vue"]
+        VF["Vue Flow + Dagre<br/>(Graph Rendering)"]
+        SM["sessionManager.js"]
+    end
+
+    subgraph Server["Backend (FastAPI / Uvicorn)"]
+        API["main.py — REST API & Session Mgmt"]
+        AN["analyzer.py — AST Parsing & Metrics"]
+        PD["pattern_detector.py — Architecture Patterns"]
+        SD["smell_detector.py — Code Smell Rules"]
+        SG["smell_graph.py — Smell Dependency Graph"]
+        LE["llm_engine.py — LLM Refactor Reasoning"]
+        DB_MOD["db.py — Neo4j Access Layer"]
+    end
+
+    subgraph External["External Services"]
+        NEO[("Neo4j Aura<br/>Graph Database")]
+        GROQ["Groq LLM API<br/>llama-3.3-70b-versatile"]
+        GIT["Local Git Repository<br/>(if .git uploaded)"]
+    end
+
+    UI <--> SM
+    SM <-- "HTTPS / JSON<br/>X-Session-ID header" --> API
+    API --> AN
+    API --> PD
+    API --> SD
+    SD --> SG
+    API --> LE
+    LE -- "prompt/response" --> GROQ
+    API --> DB_MOD
+    DB_MOD <--> NEO
+    API -- "git log / git show" --> GIT
+    AN --> VF
