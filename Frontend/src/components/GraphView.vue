@@ -1157,7 +1157,7 @@ const createNode = (id, position, opts = {}) => {
     label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false,
     language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none',
     violationCount = 0, violationSeverity = 'none', smellSeverity = 'none',
-    parentFile = null, fnCount = 0,
+    parentFile = null, fnCount = 0, className = null,
   } = opts;
   return {
     id,
@@ -1178,6 +1178,7 @@ const createNode = (id, position, opts = {}) => {
       smellSeverity,
       parentFile,
       fnCount,
+      className,
     },
     position,
     sourcePosition: Position.Bottom,
@@ -1781,6 +1782,7 @@ const renderFunctionView = async (fileId, functionGraph) => {
       smellSeverity: smellSeverityMap.value[fn.label || fn.id] || 'none',
       parentFile: fn.type === 'chunk' ? fileId : null,
       fnCount: fn.fn_count || 0,
+      className: fn.class_name || null,
     });
   });
 

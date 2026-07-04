@@ -52,6 +52,7 @@ const riskTitle = computed(() => {
       <div v-if="data.nodeType === 'chunk'" class="fn-sub chunk-sub">
         {{ data.fnCount > 0 ? data.fnCount + ' functions' : (data.language || 'chunk') }}
       </div>
+      <div v-else-if="data.nodeType === 'function' && data.className" class="fn-sub fn-class">{{ data.className }}</div>
       <div v-else class="fn-sub">{{ data.language || data.nodeType }}</div>
     </div>
 
@@ -165,6 +166,10 @@ const riskTitle = computed(() => {
 /* ── Chunk-specific ─────────────────────────────── */
 .chunk-sub {
   color: #8b5cf6;
+  font-weight: 600;
+}
+.fn-class {
+  color: #6366f1;
   font-weight: 600;
 }
 .chunk-expand-hint {

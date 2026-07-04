@@ -694,17 +694,22 @@ class SmellDetector:
         return out
 
     # ── Circular Dependency ───────────────────────────────────────────────────
-    def _circular_deps(self, cycles: List[List[str]]) -> List[Smell]:
+    def _circular_deps(self, cycles: List[List[str]], name_to_file: Optional[Dict[str, str]] = None) -> List[Smell]:
         out = []
+        name_to_file = name_to_file or {}
         for cycle in cycles:
             if len(cycle) < 2:
                 continue
             chain = " → ".join(cycle)
             sev   = "critical" if len(cycle) <= 3 else "high"
+            # cycle can span multiple files — anchor the smell on the first
+            # function's file so it still shows up under a real file in the
+            # Ranked Files view instead of falling into an "(unknown)" bucket.
+            cycle_file = next((name_to_file[n] for n in cycle if name_to_file.get(n)), "")
             out.append(Smell(
                 type="circular_dependency",
                 severity=sev,
-                target_file="",
+                target_file=cycle_file,
                 target_name=chain[:70],
                 language="",
                 metrics={"cycle_length": len(cycle), "functions": cycle[:8]},
@@ -755,7 +760,12 @@ class SmellDetector:
         smells += self._data_clumps(functions)
         smells += self._magic_numbers(functions)
         if cycles:
-            smells += self._circular_deps(cycles)
+            name_to_file = {
+                fn.get("name"): fn.get("file", "")
+                for fn in functions
+                if fn.get("name") != "__file__"
+            }
+            smells += self._circular_deps(cycles, name_to_file)
         depth = metrics.get("max_call_chain_depth", 0)
         if depth:
             smells += self._long_chain(depth)
