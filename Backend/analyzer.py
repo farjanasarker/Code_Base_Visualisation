@@ -596,6 +596,11 @@ class ParsedFunction:
     line_end: int
     complexity: int = 1
     calls: List[str] = field(default_factory=list)
+    # bare call-name -> owning class name, only populated when the call can be traced back to
+    # a `self.<attr> = <ClassName>(...)` assignment — used to disambiguate same-named methods
+    # across classes in the same file (e.g. self.cell.forward() vs self.forward()) when
+    # rendering the flat function graph.
+    call_targets: Dict[str, str] = field(default_factory=dict)
     fan_in: int = 0
     fan_out: int = 0
     risk_level: str = "none"      # none | low | medium | high
@@ -603,6 +608,7 @@ class ParsedFunction:
     dead_confidence: str = "none"  # none | medium | high
     max_nesting_depth: int = 0     # max block-nesting depth inside the function
     literal_count: int = 0         # count of non-trivial numeric literals (magic numbers)
+    is_god_file: bool = False      # True → file classified as god_file and actually chunked
 
 
 class UniversalParser:
@@ -1078,6 +1084,27 @@ class UniversalParser:
         functions: List[ParsedFunction] = []
         seen = set()
 
+        # class_name -> {attr_name -> target_class_name}, from `self.<attr> = <ClassName>(...)`
+        # assignments — lets call extraction tell `self.cell.forward()` (LSTMCell.forward)
+        # apart from `self.forward()` (own class) when two classes share a method name.
+        class_defs = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+        class_names = {n.name for n in class_defs}
+        self_attr_map: Dict[str, Dict[str, str]] = {}
+        for cls_node in class_defs:
+            attr_map: Dict[str, str] = {}
+            for child in ast.walk(cls_node):
+                if not (isinstance(child, ast.Assign) and isinstance(child.value, ast.Call)):
+                    continue
+                callee = child.value.func
+                target_class = callee.id if isinstance(callee, ast.Name) else None
+                if target_class not in class_names:
+                    continue
+                for tgt in child.targets:
+                    if (isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name)
+                            and tgt.value.id == "self"):
+                        attr_map[tgt.attr] = target_class
+            self_attr_map[cls_node.name] = attr_map
+
         class PythonVisitor(ast.NodeVisitor):
             def __init__(self):
                 self.current_class = None
@@ -1094,6 +1121,7 @@ class UniversalParser:
                     return
                 seen.add(key)
                 line_end = getattr(node, "end_lineno", node.lineno)
+                calls, call_targets = self._extract_python_calls(node)
                 functions.append(ParsedFunction(
                     name=node.name,
                     file=filepath,
@@ -1103,7 +1131,8 @@ class UniversalParser:
                     line_start=node.lineno,
                     line_end=line_end,
                     complexity=self._estimate_python_complexity(node),
-                    calls=self._extract_python_calls(node),
+                    calls=calls,
+                    call_targets=call_targets,
                     max_nesting_depth=self._estimate_python_nesting(node),
                     literal_count=self._estimate_python_literals(node),
                 ))
@@ -1143,6 +1172,8 @@ class UniversalParser:
 
             def _extract_python_calls(self, node):
                 calls = set()
+                call_targets: Dict[str, str] = {}
+                attr_map = self_attr_map.get(self.current_class, {})
                 for child in ast.walk(node):
                     if isinstance(child, ast.Call):
                         callee = None
@@ -1150,9 +1181,20 @@ class UniversalParser:
                             callee = child.func.id
                         elif isinstance(child.func, ast.Attribute):
                             callee = child.func.attr
+                            value = child.func.value
+                            if isinstance(value, ast.Name) and value.id == "self" and self.current_class:
+                                # self.<callee>() → definitely this class's own method
+                                call_targets[callee] = self.current_class
+                            elif (isinstance(value, ast.Attribute)
+                                    and isinstance(value.value, ast.Name)
+                                    and value.value.id == "self"):
+                                # self.<attr>.<callee>() → resolve <attr>'s class if known
+                                target_class = attr_map.get(value.attr)
+                                if target_class:
+                                    call_targets[callee] = target_class
                         if callee:
                             calls.add(callee)
-                return list(calls)
+                return list(calls), call_targets
 
         visitor = PythonVisitor()
         visitor.visit(tree)
@@ -1808,6 +1850,7 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
                 for p in parsed:
                     if p.name in names_in_chunk:
                         p.virtual_module = chunk["virtual_module"]
+                        p.is_god_file = True
 
         all_functions.extend(parsed)
 
@@ -2101,8 +2144,12 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
     files_in_result = {fn.get("file") for fn in file_fns}
     # Only chunk when all fns are from one file (same god file) AND there are multiple chunk groups
     non_default_vms = {vm for vm in virtual_modules if vm != file_path}
+    # Only files that were actually classified as god_file at ingest time should get the
+    # chunk-drill-down view — a normal small file with 2+ classes should show a flat function
+    # graph instead, otherwise its top-level (non-class) functions get silently dropped below.
+    is_actual_god_file = any(fn.get("is_god_file") for fn in file_fns)
 
-    if len(non_default_vms) > 1 and len(files_in_result) == 1:
+    if len(non_default_vms) > 1 and len(files_in_result) == 1 and is_actual_god_file:
         # এটা god file chunk view — file_path আসলে একটা virtual_module id
         nodes = []
         for vm_name, fns in virtual_modules.items():
@@ -2155,23 +2202,38 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
             "is_dead": fn.get("is_dead", False),
             "dead_confidence": fn.get("dead_confidence", "none"),
             "language": fn.get("language"),
+            # owning class, when this function is a method — lets same-named methods on
+            # different classes (e.g. LSTMCell.forward vs LSTMModel.forward) be told apart
+            "class_name": fn.get("virtual_module") if fn.get("virtual_module") != file_path else None,
         }
         for fn in file_fns
     ]
 
     # called name → list of node ids (for duplicate targets)
     name_to_ids: Dict[str, list] = {}
+    id_to_vm: Dict[str, str] = {}
     for fn in file_fns:
-        name_to_ids.setdefault(fn.get("name", ""), []).append(_node_id(fn))
+        node_id = _node_id(fn)
+        name_to_ids.setdefault(fn.get("name", ""), []).append(node_id)
+        id_to_vm[node_id] = fn.get("virtual_module") or file_path
 
     seen_edges: set = set()
     edges = []
     for fn in file_fns:
         src_id = _node_id(fn)
+        call_targets = fn.get("call_targets") or {}
         for called in fn.get("calls", []):
             if called not in fn_names:
                 continue
-            for tgt_id in name_to_ids.get(called, []):
+            candidates = name_to_ids.get(called, [])
+            # when the same method name exists on 2+ classes in this file, narrow to the
+            # one actually being called (resolved from self.<attr> tracking at parse time)
+            hinted_class = call_targets.get(called)
+            if len(candidates) > 1 and hinted_class:
+                narrowed = [c for c in candidates if id_to_vm.get(c) == hinted_class]
+                if narrowed:
+                    candidates = narrowed
+            for tgt_id in candidates:
                 key = (src_id, tgt_id)
                 if key not in seen_edges:
                     seen_edges.add(key)
