@@ -48,7 +48,7 @@ _load_dotenv()
 
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 TEMPERATURE  = 0.20   # low temperature → deterministic, structured output
 
