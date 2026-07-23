@@ -20,6 +20,9 @@ const riskTitle = computed(() => {
   if (props.data.nodeType === 'function' && props.data.fanIn > 0) {
     return `${base}\n⚠ Changing this will affect ${props.data.fanIn} caller(s)`;
   }
+  if (props.data.nodeType === 'service-unresolved') {
+    return `${base}\n⚠ Referenced in service-map.json but no matching folder was found.\nCheck for a typo in the service name.`;
+  }
   return base;
 });
 </script>
@@ -40,7 +43,9 @@ const riskTitle = computed(() => {
     <Handle type="source" :position="Position.Bottom" class="fn-handle" />
 
     <div class="fn-badge">
-      <span v-if="data.nodeType === 'module'">M</span>
+      <span v-if="data.nodeType === 'service'">S</span>
+      <span v-else-if="data.nodeType === 'service-unresolved'">!</span>
+      <span v-else-if="data.nodeType === 'module'">M</span>
       <span v-else-if="data.nodeType === 'rootfiles'">RF</span>
       <span v-else-if="data.nodeType === 'file'">F</span>
       <span v-else-if="data.nodeType === 'chunk'">C</span>
@@ -53,6 +58,8 @@ const riskTitle = computed(() => {
         {{ data.fnCount > 0 ? data.fnCount + ' functions' : (data.language || 'chunk') }}
       </div>
       <div v-else-if="data.nodeType === 'function' && data.className" class="fn-sub fn-class">{{ data.className }}</div>
+      <div v-else-if="data.nodeType === 'service' && data.className" class="fn-sub fn-class">{{ data.className }}</div>
+      <div v-else-if="data.nodeType === 'service-unresolved'" class="fn-sub">not found</div>
       <div v-else class="fn-sub">{{ data.language || data.nodeType }}</div>
     </div>
 
@@ -101,6 +108,8 @@ const riskTitle = computed(() => {
 .fn-card.chunk     { background: #f5f3ff; border-color: #ddd6fe; box-shadow: 0 1px 4px rgba(139,92,246,0.10); animation: pulse-chunk 2.8s ease-in-out infinite; }
 .fn-card.fn-root   { background: #eef2ff; border-color: #a5b4fc; box-shadow: 0 2px 10px rgba(99,102,241,0.20); }
 .fn-card.rootfiles { background: #f0fdf4; border-color: #86efac; border-style: dashed; box-shadow: 0 1px 4px rgba(34,197,94,0.15); }
+.fn-card.service   { background: #f0fdfa; border-color: #5eead4; box-shadow: 0 1px 4px rgba(20,184,166,0.15); }
+.fn-card.service-unresolved { background: #fef2f2; border-color: #fca5a5; border-style: dashed; box-shadow: 0 1px 4px rgba(239,68,68,0.15); }
 
 /* ── Risk level overrides (only for function nodes) ── */
 .fn-card.function.risk-high   { border-color: #ef4444; border-width: 2px; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
@@ -136,6 +145,8 @@ const riskTitle = computed(() => {
 .fn-card.file      .fn-badge { background: #f59e0b; font-style: normal; font-size: 11px; }
 .fn-card.chunk     .fn-badge { background: #8b5cf6; font-style: normal; font-size: 12px; }
 .fn-card.rootfiles .fn-badge { background: #22c55e; font-style: normal; font-size: 14px; }
+.fn-card.service   .fn-badge { background: #14b8a6; font-style: normal; font-size: 11px; }
+.fn-card.service-unresolved .fn-badge { background: #ef4444; font-style: normal; font-size: 14px; }
 
 /* ── Text body ───────────────────────────────────── */
 .fn-body {

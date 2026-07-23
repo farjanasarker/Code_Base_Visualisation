@@ -781,6 +781,8 @@
         <MiniMap
           position="bottom-left"
           :node-color="(n) => {
+            if (n.data?.nodeType === 'service') return '#14b8a6';
+            if (n.data?.nodeType === 'service-unresolved') return '#ef4444';
             if (n.data?.nodeType === 'module') return '#3b82f6';
             if (n.data?.nodeType === 'rootfiles') return '#f59e0b';
             if (n.data?.nodeType === 'file') return '#f59e0b';
@@ -867,6 +869,7 @@ const discoveredFunctions = ref([]);
 const selectedRoot = ref("");
 const functionLayoutMode = ref(false);
 const navStack = ref([]);   // [{label, nodes, edges, expandedNodes, nodeLevelMap}]
+const activeServiceId = ref(null);   // set while drilled into one service (Tier 0 -> Tier 1+), null at the top / in single-project mode
 const currentLabel = ref('');
 const riskData = ref(null);         // { functions: [...], summary: {...}, total: N }
 const deadCodeData = ref(null);     // { unreachable_functions: [...], unused_imports: [...], summary: {...} }
@@ -1063,12 +1066,23 @@ const ROOT_FILES_VIRTUAL_ID = '__root_files__';
 
 // Edge color per source node type
 const EDGE_COLORS = {
+  service:  '#14b8a6',
   module:   '#3b82f6',
   file:     '#f59e0b',
   function: '#6366f1',
   chunk:    '#8b5cf6',
   default:  '#6366f1'
 };
+
+// Auto-detected inter-service connection "type" -> edge color, for the Tier 0 service graph
+const CONNECTION_TYPE_COLORS = {
+  REST:         '#22c55e',
+  gRPC:         '#0ea5e9',
+  MessageQueue: '#a855f7',
+  DB:           '#f59e0b',
+  Other:        '#94a3b8',
+};
+const UNRESOLVED_EDGE_COLOR = '#ef4444';
 
 const defaultEdgeOptions = {
   markerEnd: {
@@ -1286,6 +1300,10 @@ const goBack = async () => {
   expandedNodes.value = prev.expandedNodes;
   nodeLevelMap.value = prev.nodeLevelMap;
   currentLabel.value = prev.label;
+  if (prev.label === 'Services' && activeServiceId.value !== null) {
+    activeServiceId.value = null;
+    fetchAnalysisPanels(false, uploadedFile.value || '').catch(() => {});
+  }
   await nextTick();
   fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
 };
@@ -1334,6 +1352,92 @@ const renderFileRelationsView = async (fileGraph) => {
   fileGraph.nodes.forEach(f => nodeLevelMap.value.set(f.id, 0));
   navStack.value = [];
   currentLabel.value = 'Files';
+  await nextTick();
+  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+};
+
+// Build Tier 0 (service) edges, colored by connection type rather than by
+// source-node type (toVueFlowEdges' default rule doesn't apply here).
+const makeServiceEdges = (rawConnections) => {
+  return rawConnections.map((c, i) => {
+    const color = c.unresolved
+      ? UNRESOLVED_EDGE_COLOR
+      : (CONNECTION_TYPE_COLORS[c.type] || CONNECTION_TYPE_COLORS.Other);
+    const labelText = c.unresolved ? `⚠ ${c.label || c.type}` : (c.label || c.type);
+    return {
+      id: `svc-${c.from}-${c.to}-${i}`,
+      source: c.from,
+      target: c.to,
+      animated: false,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      label: labelText,
+      labelStyle: { fill: color, fontWeight: 600, fontSize: '10px' },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color },
+      style: {
+        stroke: color,
+        strokeWidth: 2,
+        strokeLinecap: 'round',
+        strokeDasharray: c.unresolved ? '6 4' : '0',
+      },
+      type: 'smoothstep',
+      pathOptions: { borderRadius: 8 },
+    };
+  });
+};
+
+const renderTier0Graph = async (serviceGraph) => {
+  activeServiceId.value = null;
+  if (!serviceGraph || !Array.isArray(serviceGraph.services) || serviceGraph.services.length === 0) {
+    uploadError.value = 'No services detected.';
+    nodes.value = [];
+    edges.value = [];
+    return;
+  }
+
+  const connections = serviceGraph.connections || [];
+  const knownServiceIds = new Set(serviceGraph.services.map((s) => s.service_id));
+
+  // Defensive: a connection referencing a service_id with no matching folder
+  // still needs an endpoint node — render it as a warning node. Auto-detection
+  // only resolves against known services, so this shouldn't normally trigger.
+  const phantomIds = [];
+  connections.forEach((c) => {
+    if (!knownServiceIds.has(c.from) && !phantomIds.includes(c.from)) phantomIds.push(c.from);
+    if (!knownServiceIds.has(c.to) && !phantomIds.includes(c.to)) phantomIds.push(c.to);
+  });
+
+  const serviceNodes = serviceGraph.services.map((s, index) =>
+    createNode(
+      s.service_id,
+      { x: index * 300, y: 0 },
+      {
+        fullLabel: s.service_id,
+        nodeType: 'service',
+        className: `${s.module_count} module${s.module_count === 1 ? '' : 's'} · ${s.file_count} file${s.file_count === 1 ? '' : 's'}`,
+      }
+    )
+  );
+
+  const phantomNodes = phantomIds.map((id, index) =>
+    createNode(
+      id,
+      { x: (serviceNodes.length + index) * 300, y: 0 },
+      { fullLabel: id, nodeType: 'service-unresolved' }
+    )
+  );
+
+  const allNodes = [...serviceNodes, ...phantomNodes];
+  const dagreEdges = connections.map((c) => ({ source: c.from, target: c.to }));
+  const layoutedNodes = applyDagreLayout(allNodes, dagreEdges, { rankdir: 'LR', nodesep: 80, ranksep: 180 });
+
+  nodes.value = layoutedNodes;
+  edges.value = makeServiceEdges(connections);
+  expandedNodes.value.clear();
+  nodeLevelMap.value.clear();
+  layoutedNodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
+  navStack.value = [];
+  currentLabel.value = 'Services';
   await nextTick();
   fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
 };
@@ -1514,16 +1618,19 @@ const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
   try {
     const isFolder = !isSingleFile || sourceName.toLowerCase().endsWith('.zip');
     const sid = sessionManager.getSessionId();
+    // While drilled into one service of a monorepo, scope these panels to it —
+    // absent (top-level Services view, or a plain single-project upload) they're unfiltered.
+    const svcQuery = activeServiceId.value ? `?service_id=${encodeURIComponent(activeServiceId.value)}` : '';
     const requests = [
       sessionManager.apiCall('/risk-score',                          { method: 'GET' }),
-      sessionManager.apiCall('/dead-code',                           { method: 'GET' }),
+      sessionManager.apiCall(`/dead-code${svcQuery}`,                { method: 'GET' }),
       sessionManager.apiCall('/metrics',                             { method: 'GET' }),
       sessionManager.apiCall('/git-history',                         { method: 'GET' }),
-      sessionManager.apiCall('/smell-analysis',                      { method: 'GET' }),
-      sessionManager.apiCall(`/api/patterns/${sid}`,                 { method: 'GET' }),
+      sessionManager.apiCall(`/smell-analysis${svcQuery}`,           { method: 'GET' }),
+      sessionManager.apiCall(`/api/patterns/${sid}${svcQuery}`,      { method: 'GET' }),
     ];
     if (isFolder) {
-      requests.push(sessionManager.apiCall('/layer-violations', { method: 'GET' }));
+      requests.push(sessionManager.apiCall(`/layer-violations${svcQuery}`, { method: 'GET' }));
     }
     const results = await Promise.all(requests);
     riskData.value     = await results[0].json();
@@ -1563,6 +1670,19 @@ const uploadWithFormData = async (formData, sourceName) => {
     uploadSuccess.value = true;
 
     const render = data.render_strategy;
+
+    // Monorepo with 2+ detected services — land on Tier 0 instead of Tier 1.
+    // Single-project uploads never set this flag, so this branch is a no-op for them.
+    if (data.is_multi_service && data.service_graph) {
+      await renderTier0Graph(data.service_graph);
+      window.__render_strategy = render;
+      discoveredFunctions.value = [];
+      selectedRoot.value = '';
+      functionLayoutMode.value = false;
+      await fetchAnalysisPanels(false, sourceName);
+      return;
+    }
+
     const tier1 = data.tier1_graph || null;
 
     const resolvedTier1 = tier1 || await (async () => {
@@ -1868,7 +1988,28 @@ const onNodeClick = async ({ node }) => {
   if (expandedNodes.value.has(node.id)) return;
 
   const type = node.data?.nodeType || 'module';
+  if (type === 'service-unresolved') return; // phantom warning node — nothing to drill into
   try {
+    if (type === 'service') {
+      const response = await sessionManager.apiCall(`/graph/tier1?service_id=${encodeURIComponent(node.id)}`, {
+        method: 'GET',
+      });
+      const res = await response.json();
+      // renderTier1Graph resets navStack itself, so snapshot the Tier 0 state
+      // and re-seed navStack afterward — this keeps "Back" returning to Services.
+      const tier0Snapshot = {
+        label: 'Services',
+        nodes: JSON.parse(JSON.stringify(nodes.value)),
+        edges: JSON.parse(JSON.stringify(edges.value)),
+        expandedNodes: new Set(expandedNodes.value),
+        nodeLevelMap: new Map(nodeLevelMap.value),
+      };
+      activeServiceId.value = node.id;
+      await renderTier1Graph(res);
+      navStack.value = [tier0Snapshot];
+      fetchAnalysisPanels(false, uploadedFile.value || '').catch(() => {});
+      return;
+    }
     // onNodeClick এর module branch-এ — drill down করার সময় clean state রাখো
   if (type === 'module' || type === 'rootfiles') {
     if (node.id === ROOT_FILES_VIRTUAL_ID) {
