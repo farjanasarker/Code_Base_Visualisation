@@ -18,6 +18,7 @@ from smell_detector import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS
 from smell_graph import build_smell_graph
 import llm_engine
 from pattern_detector import ArchitecturePatternDetector
+from service_call_detector import detect_service_connections
 import logging
 
 logger = logging.getLogger(__name__)
@@ -458,6 +459,105 @@ def has_skipped_dir(path_parts: tuple[str, ...]) -> bool:
     return any(part.lower() in SKIP_DIRS_LOWER for part in path_parts)
 
 
+# Filenames that mark a folder as an independently buildable/deployable unit.
+# A top-level folder only counts as a monorepo "service" if it has one of these
+# directly inside it — this is what tells a real microservice folder apart from
+# an ordinary src/, test/, or docs/ directory in a single, non-monorepo project.
+SERVICE_MANIFEST_FILES = {
+    "package.json",       # node / js / ts
+    "requirements.txt",   # python
+    "pyproject.toml",     # python
+    "setup.py",           # python
+    "pom.xml",            # java (maven)
+    "build.gradle",       # java (gradle)
+    "build.gradle.kts",   # java (gradle, kotlin dsl)
+    "go.mod",             # go
+    "Cargo.toml",         # rust
+    "Dockerfile",         # generic — independently deployable service
+}
+
+
+def _has_service_manifest(dir_path: str) -> bool:
+    """Shallow (non-recursive) check for a manifest file directly inside dir_path."""
+    try:
+        with os.scandir(dir_path) as entries:
+            for entry in entries:
+                if not entry.is_file():
+                    continue
+                if entry.name in SERVICE_MANIFEST_FILES or entry.name.lower().endswith(".csproj"):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+# Common microservice folder-naming convention: book_service, auth-service,
+# paymentService, notification-svc, service-billing, etc. A second, independent
+# signal from _has_service_manifest() — many demo/course monorepos name each
+# service suggestively without giving it its own package.json/go.mod/etc.
+def _looks_like_service_name(name: str) -> bool:
+    lname = name.lower()
+    return lname.endswith("service") or lname.endswith("svc") or lname.startswith("service")
+
+
+def _find_manifest_dirs(scan_root: str, rel_prefix: str = "") -> list[dict]:
+    """Return one entry per non-SKIP_DIRS directory directly under scan_root
+    that either carries its own manifest file or has a microservice-style name.
+
+    `rel_path` is the path-from-upload-root prefix used to bucket `all_files`
+    entries into this service later (differs from `service_id` when a wrapper
+    folder was unwrapped — see detect_services()).
+    """
+    found: list[dict] = []
+    try:
+        with os.scandir(scan_root) as entries:
+            for entry in entries:
+                if not entry.is_dir() or entry.name.lower() in SKIP_DIRS_LOWER:
+                    continue
+                if _has_service_manifest(entry.path) or _looks_like_service_name(entry.name):
+                    found.append({
+                        "service_id": entry.name,
+                        "rel_path": f"{rel_prefix}{entry.name}",
+                        "path": entry.path,
+                    })
+    except OSError:
+        pass
+    return found
+
+
+def detect_services(root_path: str) -> list[dict]:
+    """Detect monorepo services: each top-level directory under root_path that
+    isn't a SKIP_DIRS entry AND (a) carries its own manifest file (package.json,
+    requirements.txt, pom.xml, go.mod, Cargo.toml, Dockerfile, etc.) directly
+    inside it, OR (b) has a microservice-style name (book_service, auth-service,
+    paymentSvc, ...), is treated as one independently-buildable service.
+
+    Handles the common "wrapped zip" shape too: when a zip extracts to a
+    single repo-name folder with the actual services nested one level inside
+    it (e.g. RepoName/auth-service/package.json), that wrapper is transparently
+    unwrapped so services are still detected — mirrors the root-stripping the
+    frontend's tier1 view already does for the same wrapped-zip shape.
+
+    Must be called while root_path still exists on disk (i.e. before the
+    TemporaryDirectory it lives in is closed).
+    """
+    services = _find_manifest_dirs(root_path)
+    if services:
+        return services
+
+    try:
+        with os.scandir(root_path) as entries:
+            subdirs = [e for e in entries if e.is_dir() and e.name.lower() not in SKIP_DIRS_LOWER]
+    except OSError:
+        subdirs = []
+
+    if len(subdirs) == 1:
+        wrapper = subdirs[0]
+        return _find_manifest_dirs(wrapper.path, rel_prefix=f"{wrapper.name}/")
+
+    return []
+
+
 def handle_zip(zip_path: str, extract_to: str) -> str:
     extract_root = Path(extract_to).resolve()
 
@@ -611,6 +711,7 @@ async def upload(
         session_upload_dir.mkdir(parents=True, exist_ok=True)
         
         git_history: Optional[Dict] = None   # captured inside tmpdir before it closes
+        services: list[dict] = []   # detected monorepo services — must be captured before tmpdir closes
 
         with tempfile.TemporaryDirectory() as tmpdir:
             if file is not None:
@@ -631,6 +732,7 @@ async def upload(
                     if git_root:
                         git_history = _get_git_history(str(git_root))
 
+                    services = detect_services(str(extract_path))
                     all_files = walk_folder(str(extract_path))
                 else:
                     single_path = Path(tmpdir) / file_name
@@ -641,6 +743,7 @@ async def upload(
             elif files:
                 folder_root = Path(tmpdir) / "folder_upload"
                 await persist_folder_upload(files, str(folder_root))
+                services = detect_services(str(folder_root))
                 all_files = walk_folder(str(folder_root))
 
             else:
@@ -674,7 +777,55 @@ async def upload(
                 pass
             raise HTTPException(status_code=400, detail="No supported source files found")
 
-        functions, unused_imports, layer_violations = analyze_files(all_files)
+        # A monorepo Service tier only activates with 2+ detected top-level service
+        # folders — single-folder / flat uploads keep the exact single-project behavior.
+        is_multi_service = len(services) > 1
+        service_connections: list = []
+        service_buckets: list = []  # [{"service_id":, "files":, "functions":}] — multi-service only
+
+        if is_multi_service:
+            functions = []
+            unused_imports: dict = {}
+            all_violations: list = []
+            for svc in services:
+                sid = svc["service_id"]
+                # rel_path (path from the upload root) differs from service_id when a
+                # wrapper folder was unwrapped in detect_services() — bucket by rel_path.
+                prefix = svc.get("rel_path", sid) + "/"
+                bucket_files = [f for f in all_files if f.get("path", "").startswith(prefix)]
+                if not bucket_files:
+                    continue
+                bucket_functions, bucket_unused, bucket_layer = analyze_files(bucket_files)
+                for fn in bucket_functions:
+                    fn["service"] = sid
+                for f in bucket_files:
+                    f["service"] = sid
+                functions.extend(bucket_functions)
+                unused_imports.update(bucket_unused)
+                all_violations.extend(bucket_layer.get("all_violations", []))
+                service_buckets.append({"service_id": sid, "files": bucket_files, "functions": bucket_functions})
+
+            # Automatic inter-service call detection (HTTP/REST + message-queue
+            # pub/sub) from source text — no manual service-map.json needed.
+            try:
+                service_connections = detect_service_connections(
+                    [{"service_id": b["service_id"], "files": b["files"]} for b in service_buckets]
+                )
+            except Exception:
+                logger.exception("Service call detection failed")
+                service_connections = []
+
+            layer_violations = {
+                "by_module": {},
+                "summary": {
+                    "total": len(all_violations),
+                    "high": sum(1 for v in all_violations if v.get("severity") == "high"),
+                    "medium": sum(1 for v in all_violations if v.get("severity") == "medium"),
+                },
+                "all_violations": all_violations,
+            }
+        else:
+            functions, unused_imports, layer_violations = analyze_files(all_files)
 
         # Compute aggregate metrics (needs file content — do it before all_files is gc'd)
         try:
@@ -692,11 +843,13 @@ async def upload(
             SESSION_CACHE[session_id] = {
                 "functions": functions,
                 "tier1": tier1,
-                "all_files": [{"path": f["path"], "language": f["language"]} for f in all_files],
+                "all_files": [{"path": f["path"], "language": f["language"], "service": f.get("service")} for f in all_files],
                 "unused_imports": unused_imports,
                 "layer_violations": layer_violations,
                 "metrics": metrics,
                 "git_history": git_history,
+                "services": services if is_multi_service else [],
+                "service_connections": service_connections,
             }
 
             # Also update global cache for fallback
@@ -705,13 +858,17 @@ async def upload(
             PARSED_CACHE["unused_imports"] = unused_imports
             PARSED_CACHE["layer_violations"] = layer_violations
             PARSED_CACHE["metrics"] = metrics
-            
+
         except Exception:
             logger.exception(f"Failed to cache parsed functions for session {session_id}")
 
         # Persist to Neo4j with session_id (best-effort)
         try:
-            store_all(functions, session_id, all_files)
+            if is_multi_service:
+                for bucket in service_buckets:
+                    store_all(bucket["functions"], session_id, bucket["files"], service_id=bucket["service_id"])
+            else:
+                store_all(functions, session_id, all_files)
             logger.info(f"✅ Stored graph to Neo4j for session {session_id}")
         except Exception:
             logger.exception(f"⚠️ Failed to store graph to Neo4j for session {session_id}")
@@ -719,7 +876,7 @@ async def upload(
         tier1 = SESSION_CACHE.get(session_id, {}).get("tier1") or PARSED_CACHE.get("tier1") or build_module_graph(functions)
         render = decide_render_strategy(len(tier1["nodes"]))
 
-        return {
+        response = {
             "message": "Graph generated",
             "status": "success",
             "session_id": session_id,
@@ -728,6 +885,12 @@ async def upload(
             "total_functions": len(functions),
             "total_files": len(all_files),
         }
+
+        if is_multi_service:
+            response["is_multi_service"] = True
+            response["service_graph"] = _build_service_graph(session_id)
+
+        return response
     except ValueError as e:
         # Log and attach the validation error to the session for debugging
         logger.error(f"Validation error for session {session_id if 'session_id' in locals() else 'unknown'}: {str(e)}")
@@ -847,19 +1010,84 @@ def _expand_from_cache(function_name: str, session_id: str) -> list[str]:
     return list(neighbors)
 
 
-@app.get("/graph/tier1")
-def api_tier1(request: Request):
+def _build_service_graph(session_id: str) -> dict:
+    """Assemble the Tier-0 service graph from SESSION_CACHE (in-memory-first,
+    mirrors how /graph/files derives its cache fallback)."""
+    cache = SESSION_CACHE.get(session_id, {})
+    functions = cache.get("functions", [])
+    all_files = cache.get("all_files", [])
+    services = cache.get("services", [])
+    connections = cache.get("service_connections", [])
+
+    modules_by_service: Dict[str, set] = {}
+    files_by_service: Dict[str, set] = {}
+    for fn in functions:
+        sid = fn.get("service")
+        if not sid:
+            continue
+        mod = (fn.get("module") or "").strip()
+        if mod:
+            modules_by_service.setdefault(sid, set()).add(mod)
+    for f in all_files:
+        sid = f.get("service")
+        if not sid:
+            continue
+        files_by_service.setdefault(sid, set()).add(f.get("path"))
+
+    service_list = [
+        {
+            "service_id": svc["service_id"],
+            "module_count": len(modules_by_service.get(svc["service_id"], set())),
+            "file_count": len(files_by_service.get(svc["service_id"], set())),
+        }
+        for svc in services
+    ]
+    return {"services": service_list, "connections": connections}
+
+
+@app.get("/service-graph")
+def api_service_graph(request: Request):
     try:
         session_id = request.headers.get("X-Session-ID")
         session_id = validate_session(session_id)
         update_session_activity(session_id)
-        
-        return get_tier1(session_id)
+
+        return _build_service_graph(session_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Service graph error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching service graph: {str(e)}")
+
+
+@app.get("/graph/tier1")
+def api_tier1(request: Request, service_id: str | None = None):
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        if service_id:
+            # Prefer the in-memory build here — it's richer than the live Neo4j
+            # query (it also infers edges from import/require statements, not
+            # just direct function CALLS relationships), matching how the
+            # initial non-service tier1 view already gets its edge set today.
+            functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+            scoped = [fn for fn in functions if fn.get("service") == service_id]
+            if scoped:
+                return build_module_graph(scoped)
+
+        return get_tier1(session_id, service_id)
     except HTTPException:
         raise
     except Exception:
         logger.exception(f"Failed to fetch tier1 from DB for session {session_id}")
         # fallback to session cache
+        if service_id:
+            functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+            scoped = [fn for fn in functions if fn.get("service") == service_id]
+            if scoped:
+                return build_module_graph(scoped)
         tier = SESSION_CACHE.get(session_id, {}).get("tier1")
         if tier:
             return tier
@@ -867,19 +1095,21 @@ def api_tier1(request: Request):
 
 
 @app.get("/graph/tier2/{module_name:path}")
-def api_tier2(request: Request, module_name: str):
+def api_tier2(request: Request, module_name: str, service_id: str | None = None):
     try:
         session_id = request.headers.get("X-Session-ID")
         session_id = validate_session(session_id)
         update_session_activity(session_id)
-        
-        return get_tier2(module_name, session_id)
+
+        return get_tier2(module_name, session_id, service_id)
     except HTTPException:
         raise
     except Exception:
         logger.exception(f"Failed to fetch tier2 from DB for session {session_id}")
         # fallback: build from session cache
         functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        if service_id:
+            functions = [fn for fn in functions if fn.get("service") == service_id]
         if functions:
             from analyzer import build_file_graph
             return build_file_graph(module_name, functions)
@@ -933,26 +1163,30 @@ def api_all_files(request: Request):
 
 
 @app.get("/graph/tier3")
-def api_tier3(request: Request, file_path: str):
+def api_tier3(request: Request, file_path: str, service_id: str | None = None):
     try:
         session_id = request.headers.get("X-Session-ID")
         session_id = validate_session(session_id)
         update_session_activity(session_id)
 
         functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        if service_id:
+            functions = [fn for fn in functions if fn.get("service") == service_id]
         if functions:
             from analyzer import build_function_graph
             graph = build_function_graph(file_path, functions)
             if graph.get("nodes"):
                 return graph
 
-        return get_tier3(file_path, session_id)
+        return get_tier3(file_path, session_id, service_id)
     except HTTPException:
         raise
     except Exception:
         logger.exception(f"Failed to fetch tier3 from DB for session {session_id}")
         # fallback: build from session cache
         functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        if service_id:
+            functions = [fn for fn in functions if fn.get("service") == service_id]
         if functions:
             from analyzer import build_function_graph
             return build_function_graph(file_path, functions)
@@ -1111,7 +1345,7 @@ def api_impact_analysis(function_name: str, request: Request):
 
 
 @app.get("/dead-code")
-def api_dead_code(request: Request):
+def api_dead_code(request: Request, service_id: str | None = None):
     """Detect potentially unreachable functions and unused imports per file.
 
     Confidence levels:
@@ -1134,6 +1368,10 @@ def api_dead_code(request: Request):
         cache = SESSION_CACHE.get(session_id, {})
         functions = cache.get("functions", [])
         unused_imports: dict = cache.get("unused_imports", {})
+
+        if service_id:
+            functions = [fn for fn in functions if fn.get("service") == service_id]
+            unused_imports = {k: v for k, v in unused_imports.items() if k.startswith(service_id + "/")}
 
         real_fns = [fn for fn in functions if fn.get("name") != "__file__"]
 
@@ -1210,7 +1448,7 @@ def api_dead_code(request: Request):
 
 
 @app.get("/layer-violations")
-def api_layer_violations(request: Request):
+def api_layer_violations(request: Request, service_id: str | None = None):
     """Detect architectural layer violations in a multi-file project.
 
     Only meaningful for folder / ZIP uploads (single files are skipped).
@@ -1230,6 +1468,9 @@ def api_layer_violations(request: Request):
         lv = cache.get("layer_violations", {})
         functions = cache.get("functions", [])
 
+        if service_id:
+            functions = [fn for fn in functions if fn.get("service") == service_id]
+
         # Build file → module_id map so we can group by tier-1 module
         file_module_map: dict = {}
         for fn in functions:
@@ -1239,6 +1480,8 @@ def api_layer_violations(request: Request):
                 file_module_map[fp] = mod
 
         raw_violations = lv.get("all_violations", [])
+        if service_id:
+            raw_violations = [v for v in raw_violations if v.get("source_file", "").startswith(service_id + "/")]
         by_module: dict = {}
 
         for v in raw_violations:
@@ -1257,10 +1500,18 @@ def api_layer_violations(request: Request):
             for mod, data in by_module.items()
         }
 
+        summary = lv.get("summary", {"total": 0, "high": 0, "medium": 0})
+        if service_id:
+            summary = {
+                "total": len(raw_violations),
+                "high": sum(1 for v in raw_violations if v.get("severity") == "high"),
+                "medium": sum(1 for v in raw_violations if v.get("severity") == "medium"),
+            }
+
         return {
             "by_module": by_module_compact,
             "violations": raw_violations,
-            "summary": lv.get("summary", {"total": 0, "high": 0, "medium": 0}),
+            "summary": summary,
             "is_folder": len(cache.get("all_files", [])) > 1,
         }
     except HTTPException:
@@ -1364,7 +1615,7 @@ def _build_fix_tree(smells: list) -> list:
 
 
 @app.get("/smell-analysis")
-async def api_smell_analysis(request: Request):
+async def api_smell_analysis(request: Request, service_id: str | None = None):
     """
     Run static-analysis code smell detection + build smell dependency graph.
 
@@ -1384,6 +1635,9 @@ async def api_smell_analysis(request: Request):
         cache     = SESSION_CACHE.get(session_id, {})
         functions = cache.get("functions", [])
         metrics   = cache.get("metrics",   {})
+
+        if service_id:
+            functions = [fn for fn in functions if fn.get("service") == service_id]
 
         if not functions:
             return {"smells": [], "summary": {}, "graph_summary": {}, "plan": [],
@@ -1525,7 +1779,7 @@ async def api_llm_refactor(request: Request):
 
 
 @app.get("/api/patterns/{session_id}")
-async def api_detect_patterns(session_id: str):
+async def api_detect_patterns(session_id: str, service_id: str | None = None):
     """
     Detect architecture patterns in a previously uploaded project.
     Rule-based, no LLM. Returns patterns with confidence >= 0.55.
@@ -1543,7 +1797,11 @@ async def api_detect_patterns(session_id: str):
 
         # Build flat file list from all_files
         raw_functions: list = cache.get("functions", [])
-        files: list[str] = [f["path"] for f in cache.get("all_files", [])]
+        all_files_cache: list = cache.get("all_files", [])
+        if service_id:
+            raw_functions = [fn for fn in raw_functions if fn.get("service") == service_id]
+            all_files_cache = [f for f in all_files_cache if f.get("service") == service_id]
+        files: list[str] = [f["path"] for f in all_files_cache]
 
         # Derive call_edges from functions[].calls
         fn_name_to_file: dict[str, str] = {
