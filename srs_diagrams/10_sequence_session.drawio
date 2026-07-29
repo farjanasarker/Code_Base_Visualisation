@@ -1,0 +1,25 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Sequence - Session Lifecycle (UC13)" id="61049e1c">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="620" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="hdr_User" value="User" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="5" y="60" width="170" height="40" as="geometry" /></mxCell>
+        <mxCell id="life_User" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="89" y="100" width="2" height="500" as="geometry" /></mxCell>
+        <mxCell id="hdr_Frontend" value="Frontend" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="565" y="60" width="170" height="40" as="geometry" /></mxCell>
+        <mxCell id="life_Frontend" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="649" y="100" width="2" height="500" as="geometry" /></mxCell>
+        <mxCell id="hdr_Backend" value="Backend" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1125" y="60" width="170" height="40" as="geometry" /></mxCell>
+        <mxCell id="life_Backend" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1209" y="100" width="2" height="500" as="geometry" /></mxCell>
+        <mxCell id="e0_bc0390" value="app load" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e1_497e9e" value="POST /start-session" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2_3efc55" value="session_id" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;dashed=1;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3_4caf30" value="store in sessionStorage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4_94289f" value="use app (X-Session-ID header on every call)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5_4be2ca" value="close tab" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6_4635d8" value="DELETE /end-session (sendBeacon)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7_2cc496" value="delete Neo4j + disk + cache for session" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8_a79b00" value="background task (every 30 min): expire idle &gt;3h" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

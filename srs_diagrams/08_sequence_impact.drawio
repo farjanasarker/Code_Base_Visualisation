@@ -1,0 +1,21 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Sequence - Change Impact Analysis (UC10)" id="b0f56994">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="436" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="hdr_User" value="User" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="5" y="60" width="170" height="40" as="geometry" /></mxCell>
+        <mxCell id="life_User" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="89" y="100" width="2" height="316" as="geometry" /></mxCell>
+        <mxCell id="hdr_Frontend" value="Frontend" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="565" y="60" width="170" height="40" as="geometry" /></mxCell>
+        <mxCell id="life_Frontend" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="649" y="100" width="2" height="316" as="geometry" /></mxCell>
+        <mxCell id="hdr_Backend" value="Backend" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1125" y="60" width="170" height="40" as="geometry" /></mxCell>
+        <mxCell id="life_Backend" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1209" y="100" width="2" height="316" as="geometry" /></mxCell>
+        <mxCell id="e0_098ef0" value="hover / select function node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e1_950901" value="GET /impact-analysis/{function_name}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2_222ad8" value="BFS over reverse call graph" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3_523863" value="affected functions/files/modules + hop-depth" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;dashed=1;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4_71d5e2" value="impact overlay tooltip rendered" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;dashed=1;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_User"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

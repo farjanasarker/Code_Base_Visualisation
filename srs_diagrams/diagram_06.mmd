@@ -1,26 +1,24 @@
 sequenceDiagram
     actor U as User
     participant FE as GraphView.vue
+    participant SM as sessionManager.js
     participant API as FastAPI (main.py)
+    participant AN as analyzer.py
     participant DB as db.py / Neo4j
 
-    U->>FE: Click Module node
-    FE->>API: GET /graph/tier2/{module_name}
-    API->>DB: query files in module
-    DB-->>API: file nodes + edges
-    API-->>FE: tier2_graph
-    FE->>FE: push breadcrumb, render Tier-2
-
-    U->>FE: Click File node
-    FE->>API: GET /graph/tier3?file_path=...
-    API->>DB: query functions in file
-    DB-->>API: function nodes + CALLS edges
-    API-->>FE: tier3_graph
-    FE->>FE: push breadcrumb, render Tier-3
-
-    U->>FE: Click Function node
-    FE->>API: GET /expand/{function_name}
-    API->>DB: query direct callers/callees
-    DB-->>API: neighbor nodes
-    API-->>FE: expanded subgraph
-    FE->>FE: merge into canvas inline
+    U->>FE: Select file / ZIP / folder
+    FE->>SM: getSessionId()
+    SM->>API: POST /start-session (if none)
+    API-->>SM: session_id
+    FE->>API: POST /upload (X-Session-ID, file data)
+    API->>API: validate size, type, zip-slip
+    API->>API: detect_services(root)
+    API->>AN: analyze_files() once, or per service bucket
+    AN->>AN: Tree-sitter AST parse,<br/>build call graph, compute metrics
+    AN-->>API: functions, metrics (per bucket if multi-service)
+    API->>DB: store_all(..., service_id=X if multi-service)
+    DB->>Neo4j: CREATE nodes/relationships
+    Neo4j-->>DB: ack
+    API->>API: detect_service_connections() [multi-service only]
+    API-->>FE: is_multi_service, tier1_graph OR service_graph
+    FE->>FE: renderTier0Graph() or renderTier1Graph()

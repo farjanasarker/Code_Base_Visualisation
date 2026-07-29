@@ -1,29 +1,29 @@
-stateDiagram-v2
-    [*] --> Created : POST /start-session
+sequenceDiagram
+    actor U as User
+    participant FE as App (main.js)
+    participant SM as sessionManager.js
+    participant API as FastAPI (main.py)
+    participant DB as db.py / Neo4j
 
-    Created --> Active : Upload received\n(POST /upload)
+    FE->>SM: init()
+    SM->>SM: check sessionStorage for existing session_id
+    alt no existing session
+        SM->>API: POST /start-session
+        API-->>SM: new session_id
+        SM->>SM: persist in sessionStorage
+    end
 
-    Active --> Idle : No API request\nfor a period
-    Idle --> Active : New request\n(X-Session-ID header)
+    loop every API call
+        FE->>API: request + X-Session-ID header
+        API->>API: scope query by session_id
+    end
 
-    Idle --> Expired : Idle > 3 hours\n(background cleanup task, every 30 min)
+    Note over API: Background task every 30 min
+    API->>API: scan sessions, expire if idle > 3h
+    API->>DB: delete expired session nodes
+    API->>API: delete expired upload dirs
 
-    Active --> Ended : DELETE /end-session\n(sendBeacon on tab close)
-    Idle --> Ended : DELETE /end-session
-
-    Expired --> Cleaned : Delete Neo4j nodes,\ndisk uploads, in-memory cache
-    Ended --> Cleaned : Delete Neo4j nodes,\ndisk uploads, in-memory cache
-
-    Cleaned --> [*]
-
-    note right of Active
-        Tier-1/2/3 graphs, patterns,
-        smells, metrics all scoped
-        to this session_id
-    end note
-
-    note right of Expired
-        Auto-expiry guards against
-        resource leakage from
-        abandoned sessions
-    end note
+    U->>FE: Close tab
+    FE->>API: DELETE /end-session (via sendBeacon)
+    API->>DB: delete session nodes
+    API->>API: delete disk uploads, clear cache

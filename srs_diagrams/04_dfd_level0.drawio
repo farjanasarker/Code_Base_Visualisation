@@ -1,0 +1,22 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="DFD - Level 0 (Context Diagram)" id="33e80261">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1460" pageHeight="630" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="user" value="Developer / User" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="40" y="260" width="240" height="90" as="geometry" /></mxCell>
+        <mxCell id="system" value="0
+CodeLens System" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="520" y="220" width="340" height="170" as="geometry" /></mxCell>
+        <mxCell id="neo4j" value="Neo4j Aura
+(cloud graph DB)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1080" y="100" width="280" height="90" as="geometry" /></mxCell>
+        <mxCell id="groq" value="Groq LLM API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1080" y="440" width="280" height="90" as="geometry" /></mxCell>
+        <mxCell id="e0_b51f36" value="source file / ZIP / folder upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="user" target="system"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e1_0eb882" value="graph visualization + analysis results" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="user"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2_6a5fda" value="store / query code graph
+(session + service scoped)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="neo4j"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3_67b2fc" value="refactor reasoning request /
+AI plan response" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="groq"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

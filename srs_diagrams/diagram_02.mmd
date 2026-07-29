@@ -1,12 +1,52 @@
-flowchart LR
-    User["Developer / Architect<br/>(External Entity)"]
-    System(("CodeFlow<br/>System"))
-    Neo[("Neo4j Graph DB")]
-    Groq["Groq LLM API"]
+graph TB
+    Dev["👤 Developer /<br/>Code Reviewer"]
+    Arch["👤 Software<br/>Architect"]
+    Admin["👤 System<br/>Administrator"]
 
-    User -- "Source code (file/zip/folder)" --> System
-    System -- "Graphs, metrics, reports,<br/>diagrams, recommendations" --> User
-    System -- "Store / query code graph" --> Neo
-    Neo -- "Graph data" --> System
-    System -- "Smell summary prompt" --> Groq
-    Groq -- "Refactor plan (text)" --> System
+    subgraph CodeFlow["CodeFlow System"]
+        UC1((Upload Source Code))
+        UC2((Browse 3-Tier<br/>Code Graph))
+        UC3((Search Code Entities))
+        UC4((View Code Metrics))
+        UC5((Detect Architecture<br/>Patterns))
+        UC6((Analyze Layer<br/>Violations))
+        UC7((Run Code Smell<br/>Analysis))
+        UC8((Request AI<br/>Refactor Plan))
+        UC9((View Dependency<br/>Risk Score))
+        UC10((Run Change Impact<br/>Analysis))
+        UC11((Detect Dead Code))
+        UC12((View Git History &<br/>Quality Trend))
+        UC13((Manage Session))
+        UC14((Monitor Active<br/>Sessions))
+        UC15((View Service Tier<br/>Microservice Graph))
+        UC16((Drill Into<br/>a Service))
+        UC17((View Auto-Detected<br/>Inter-Service Connections))
+    end
+
+    Dev --> UC1
+    Dev --> UC2
+    Dev --> UC3
+    Dev --> UC4
+    Dev --> UC9
+    Dev --> UC10
+    Dev --> UC11
+    Dev --> UC12
+
+    Arch --> UC5
+    Arch --> UC6
+    Arch --> UC7
+    Arch --> UC8
+
+    Admin --> UC14
+    Dev --> UC13
+    Arch --> UC13
+    Dev --> UC15
+    Dev --> UC16
+    Arch --> UC15
+    Arch --> UC17
+
+    UC8 -.includes.-> UC7
+    UC2 -.includes.-> UC1
+    UC10 -.extends.-> UC2
+    UC16 -.extends.-> UC2
+    UC17 -.includes.-> UC15
