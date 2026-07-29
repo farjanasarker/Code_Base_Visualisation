@@ -206,8 +206,9 @@ flowchart TB
 
 ```mermaid
 graph TB
-    Dev["👤 Developer /<br/>Code Reviewer"]
+    Dev["👤 Developer"]
     Arch["👤 Software<br/>Architect"]
+    Lead["👤 Tech Lead"]
     Admin["👤 System<br/>Administrator"]
 
     subgraph CodeFlow["CodeFlow System"]
@@ -225,9 +226,6 @@ graph TB
         UC12((View Git History &<br/>Quality Trend))
         UC13((Manage Session))
         UC14((Monitor Active<br/>Sessions))
-        UC15((View Service Tier<br/>Microservice Graph))
-        UC16((Drill Into<br/>a Service))
-        UC17((View Auto-Detected<br/>Inter-Service Connections))
     end
 
     Dev --> UC1
@@ -238,25 +236,24 @@ graph TB
     Dev --> UC10
     Dev --> UC11
     Dev --> UC12
+    Dev --> UC13
 
+    Arch --> UC2
     Arch --> UC5
     Arch --> UC6
     Arch --> UC7
     Arch --> UC8
+    Arch --> UC13
+
+    Lead --> UC7
+    Lead --> UC12
+    Lead --> UC13
 
     Admin --> UC14
-    Dev --> UC13
-    Arch --> UC13
-    Dev --> UC15
-    Dev --> UC16
-    Arch --> UC15
-    Arch --> UC17
 
-    UC8 -.includes.-> UC7
     UC2 -.includes.-> UC1
+    UC8 -.extends.-> UC7
     UC10 -.extends.-> UC2
-    UC16 -.extends.-> UC2
-    UC17 -.includes.-> UC15
 ```
 
 ### 4.2 Use Case Descriptions
@@ -319,19 +316,7 @@ graph TB
 - **Actor:** Administrator
 - **Flow:** GET `/admin/sessions` → returns list of all active sessions with metadata for operational monitoring.
 
-**UC15 — View Service Tier (Microservice Graph)**
-- **Actor:** Developer / Architect
-- **Precondition:** Uploaded monorepo has 2+ detected services (FR-14).
-- **Flow:** GET `/service-graph` → Tier 0 view renders one node per detected service, with auto-detected inter-service connections color-coded by type (REST, MessageQueue).
-- **Postcondition:** User can drill into any service node to reach its Tier-1 module view.
-
-**UC16 — Drill Into a Service** (extends UC2)
-- **Actor:** Developer / Architect
-- **Flow:** User clicks a service node in Tier 0 → GET `/graph/tier1?service_id=X` → the existing module→file→function drill-down (UC2) is reused unmodified, scoped to that service.
-
-**UC17 — View Auto-Detected Inter-Service Connections** (includes UC15)
-- **Actor:** Architect
-- **Flow:** Backend scans each service’s source text for HTTP/REST calls (a known service hostname near an HTTP-call keyword or URL scheme) and correlates message-queue publish/consume calls sharing the same queue/topic name → connections rendered as colored, labeled edges between service nodes in Tier 0.
+> **Note:** The Service Tier / monorepo microservice-detection capability (service graph, per-service drill-down, auto-detected inter-service connections) is implemented in code — see `service_call_detector.py`, `GET /service-graph`, and FR-14/FR-15 below — but is intentionally left out of the use case model for now and will be documented here once the feature is finalized for release.
 
 ---
 

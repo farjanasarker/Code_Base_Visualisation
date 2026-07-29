@@ -18,7 +18,7 @@
         <mxCell id="e5_4be2ca" value="close tab" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e6_4635d8" value="DELETE /end-session (sendBeacon)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e7_2cc496" value="delete Neo4j + disk + cache for session" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e8_a79b00" value="background task (every 30 min): expire idle &gt;3h" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8_a79b00" value="background task (every 30 min): expire idle &amp;gt;3h" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

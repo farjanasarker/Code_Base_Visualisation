@@ -1,6 +1,7 @@
 graph TB
-    Dev["👤 Developer /<br/>Code Reviewer"]
+    Dev["👤 Developer"]
     Arch["👤 Software<br/>Architect"]
+    Lead["👤 Tech Lead"]
     Admin["👤 System<br/>Administrator"]
 
     subgraph CodeFlow["CodeFlow System"]
@@ -18,9 +19,6 @@ graph TB
         UC12((View Git History &<br/>Quality Trend))
         UC13((Manage Session))
         UC14((Monitor Active<br/>Sessions))
-        UC15((View Service Tier<br/>Microservice Graph))
-        UC16((Drill Into<br/>a Service))
-        UC17((View Auto-Detected<br/>Inter-Service Connections))
     end
 
     Dev --> UC1
@@ -31,22 +29,21 @@ graph TB
     Dev --> UC10
     Dev --> UC11
     Dev --> UC12
+    Dev --> UC13
 
+    Arch --> UC2
     Arch --> UC5
     Arch --> UC6
     Arch --> UC7
     Arch --> UC8
+    Arch --> UC13
+
+    Lead --> UC7
+    Lead --> UC12
+    Lead --> UC13
 
     Admin --> UC14
-    Dev --> UC13
-    Arch --> UC13
-    Dev --> UC15
-    Dev --> UC16
-    Arch --> UC15
-    Arch --> UC17
 
-    UC8 -.includes.-> UC7
     UC2 -.includes.-> UC1
+    UC8 -.extends.-> UC7
     UC10 -.extends.-> UC2
-    UC16 -.extends.-> UC2
-    UC17 -.includes.-> UC15
