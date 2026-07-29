@@ -4,10 +4,28 @@ sequenceDiagram
     participant API as FastAPI (main.py)
     participant DB as db.py / Neo4j
 
-    U->>FE: Hover/select Function node
-    FE->>API: GET /impact-analysis/{function_name}
-    API->>DB: fetch reverse CALLS edges
-    DB-->>API: caller graph
-    API->>API: BFS transitive closure,<br/>compute hop-depth per caller
-    API-->>FE: { affected_functions, files, modules, depth }
-    FE->>FE: Render impact overlay tooltip<br/>(direct → vs indirect ⇢ callers)
+    U->>FE: Click Service node (Tier 0, monorepo only)
+    FE->>API: GET /graph/tier1?service_id=X
+    API-->>FE: module nodes+edges (service-scoped)
+    FE->>FE: renderTier1Graph() shows modules
+
+    U->>FE: Click Module node
+    FE->>API: GET /graph/tier2/{module_name}
+    API->>DB: query files in module
+    DB-->>API: file nodes + edges
+    API-->>FE: tier2_graph
+    FE->>FE: push breadcrumb, render Tier-2
+
+    U->>FE: Click File node
+    FE->>API: GET /graph/tier3?file_path=...
+    API->>DB: query functions in file
+    DB-->>API: function nodes + CALLS edges
+    API-->>FE: tier3_graph
+    FE->>FE: push breadcrumb, render Tier-3
+
+    U->>FE: Click Function node
+    FE->>API: GET /expand/{function_name}
+    API->>DB: query direct callers/callees
+    DB-->>API: neighbor nodes
+    API-->>FE: expanded subgraph
+    FE->>FE: merge into canvas inline

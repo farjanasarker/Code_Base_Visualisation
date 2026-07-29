@@ -34,6 +34,7 @@ This document specifies the software requirements for **CodeFlow**, a web-based 
 CodeFlow allows a user to:
 - Upload source code (Python, JavaScript, TypeScript, Java, Go, Rust, C, C++, C#).
 - Visualize the codebase as a drill-down graph: **Module → File → Function → Chunk**.
+- Visualize a monorepo containing multiple microservices as a **Service tier** above Module, with automatically detected HTTP/REST and message-queue connections between services.
 - Search for any function/file/module across the uploaded project.
 - Detect software architecture patterns (MVC, Layered, Clean, Hexagonal, Repository, GoF patterns).
 - Detect layered-architecture rule violations.
@@ -58,6 +59,8 @@ Out of scope: code editing/modification, real-time collaborative editing, CI/CD 
 | DFD | Data Flow Diagram |
 | ERD | Entity Relationship Diagram |
 | LLM | Large Language Model (Groq `llama-3.3-70b-versatile`) |
+| Service (monorepo) | A top-level upload folder detected as an independently deployable microservice, via a manifest file or *_service/-service style naming |
+| Tier 0 | Service-level graph view, shown above Tier 1 only for monorepos with 2+ detected services |
 
 ### 1.4 References
 - Backend source: `Backend/main.py`, `analyzer.py`, `pattern_detector.py`, `smell_detector.py`, `smell_graph.py`, `db.py`, `llm_engine.py`
@@ -90,6 +93,8 @@ CodeFlow is a standalone, self-contained web application with a decoupled fronte
 | F11 | Code Metrics Dashboard | LOC, complexity, Halstead, Maintainability Index |
 | F12 | Git History & Evolution | Per-commit quality trend (if `.git` present) |
 | F13 | Session Management | Isolated, auto-expiring per-user sessions |
+| F14 | Service Tier & Monorepo Detection | Detects microservices from folder manifests/naming; scopes Neo4j storage and all analyses per service |
+| F15 | Automatic Inter-Service Call Detection | Static scan for HTTP/REST calls and message-queue pub/sub correlation between services |
 
 ### 2.3 User Classes and Characteristics
 | User Class | Description |
@@ -157,6 +162,42 @@ flowchart TB
     AN --> VF
 ```
 
+### 3.1 Service Tier Architecture (Monorepo / Microservice Detection)
+
+A monorepo containing 2+ detected services is analyzed with an added pipeline stage above the existing
+Module tier. Single-project uploads are unaffected — this stage only activates when `detect_services()`
+finds 2 or more services.
+
+```mermaid
+flowchart TB
+    UP["User uploads ZIP / folder"]
+    DETECT["detect_services(root)<br/>manifest file OR *_service/-service naming;<br/>unwraps one wrapper level if needed"]
+    DECIDE{"≥2 services<br/>detected?"}
+
+    SINGLE["Single-project pipeline (unchanged)<br/>analyze_files(all_files) once<br/>store_all(functions, session_id)"]
+    NEO_SINGLE[("Neo4j — tagged by session_id only")]
+
+    PARTITION["Partition all_files by service<br/>(bucket by rel_path prefix)"]
+    PERSERVICE["Per service bucket:<br/>analyze_files(bucket)<br/>store_all(bucket, service_id=X)"]
+    CALLDETECT["detect_service_connections()<br/>HTTP/REST hostname+keyword scan<br/>MQ publish/consume queue-name correlation"]
+    NEO_MULTI[("Neo4j — session_id + service property")]
+    CACHE["SESSION_CACHE<br/>functions[], services[], service_connections[]"]
+
+    RESPONSE["/upload response<br/>is_multi_service, tier1_graph OR service_graph"]
+    FRONTEND["Frontend: renderTier0Graph() or existing tier1 flow"]
+    CLICK["User clicks a service node"]
+    TIER1REQ["GET /graph/tier1?service_id=X"]
+    REUSE["renderTier1Graph() — reused, unmodified<br/>existing module→file→function drill-down"]
+
+    UP --> DETECT --> DECIDE
+    DECIDE -- No --> SINGLE --> NEO_SINGLE --> RESPONSE
+    DECIDE -- Yes --> PARTITION --> PERSERVICE
+    PERSERVICE --> NEO_MULTI --> CACHE
+    PERSERVICE -- "file contents" --> CALLDETECT -- "connections[]" --> CACHE
+    CACHE --> RESPONSE
+    RESPONSE --> FRONTEND --> CLICK --> TIER1REQ --> REUSE
+```
+
 ---
 
 ## 4. Use Case Model
@@ -184,6 +225,9 @@ graph TB
         UC12((View Git History &<br/>Quality Trend))
         UC13((Manage Session))
         UC14((Monitor Active<br/>Sessions))
+        UC15((View Service Tier<br/>Microservice Graph))
+        UC16((Drill Into<br/>a Service))
+        UC17((View Auto-Detected<br/>Inter-Service Connections))
     end
 
     Dev --> UC1
@@ -203,10 +247,16 @@ graph TB
     Admin --> UC14
     Dev --> UC13
     Arch --> UC13
+    Dev --> UC15
+    Dev --> UC16
+    Arch --> UC15
+    Arch --> UC17
 
     UC8 -.includes.-> UC7
     UC2 -.includes.-> UC1
     UC10 -.extends.-> UC2
+    UC16 -.extends.-> UC2
+    UC17 -.includes.-> UC15
 ```
 
 ### 4.2 Use Case Descriptions
@@ -269,6 +319,20 @@ graph TB
 - **Actor:** Administrator
 - **Flow:** GET `/admin/sessions` → returns list of all active sessions with metadata for operational monitoring.
 
+**UC15 — View Service Tier (Microservice Graph)**
+- **Actor:** Developer / Architect
+- **Precondition:** Uploaded monorepo has 2+ detected services (FR-14).
+- **Flow:** GET `/service-graph` → Tier 0 view renders one node per detected service, with auto-detected inter-service connections color-coded by type (REST, MessageQueue).
+- **Postcondition:** User can drill into any service node to reach its Tier-1 module view.
+
+**UC16 — Drill Into a Service** (extends UC2)
+- **Actor:** Developer / Architect
+- **Flow:** User clicks a service node in Tier 0 → GET `/graph/tier1?service_id=X` → the existing module→file→function drill-down (UC2) is reused unmodified, scoped to that service.
+
+**UC17 — View Auto-Detected Inter-Service Connections** (includes UC15)
+- **Actor:** Architect
+- **Flow:** Backend scans each service’s source text for HTTP/REST calls (a known service hostname near an HTTP-call keyword or URL scheme) and correlates message-queue publish/consume calls sharing the same queue/topic name → connections rendered as colored, labeled edges between service nodes in Tier 0.
+
 ---
 
 ## 5. Functional Requirements (System Features)
@@ -283,7 +347,12 @@ graph TB
 - FR-2.1: System shall parse Python, JavaScript, TypeScript, Java, Go, Rust, C, C++, and C# using Tree-sitter.
 - FR-2.2: System shall extract, per function: name, parameters, line range, cyclomatic complexity, fan-in, fan-out.
 - FR-2.3: System shall build an internal call graph using only same-project function calls (external/stdlib calls excluded).
-- FR-2.4: System shall classify "god files" and chunk them into virtual modules using class-based, complexity-based, or line-range strategies.
+- FR-2.4: System shall classify large files by line count and AST function count, and chunk "god files" into virtual modules for readability, as follows:
+  - FR-2.4.1: A file with ≤ 10,000 lines is classified “normal”. Above that threshold, it is classified by AST-parsed function count: < 3 functions → “data file” (excluded from god-file chunking); 3–100 functions → “large normal”; > 100 functions → “god file”.
+  - FR-2.4.2: Recognized generated-file suffixes (`.pb.go`, `.pb.gw.go`, `_grpc.pb.go`, `.gen.go`, `.generated.go`, `_generated.go`) are always classified “god file” regardless of size, unless they exceed 100,000 lines, in which case they are treated as a “data file” and skipped.
+  - FR-2.4.3: A god file is split into virtual modules using the first strategy that yields a usable result, in priority order: (1) class-based — one virtual module per class, containing its methods; (2) complexity-based — High (cyclomatic complexity > 15) / Medium (5–15) / Low (≤ 5) buckets, used when no classes are found; (3) line-range — fixed groups of 50 functions labeled by line span, used as the final fallback.
+  - FR-2.4.4: A Tier-3 (file-level) request for a chunked god file shall return the chunk-level graph (one node per virtual module) instead of every function individually; selecting a chunk (Tier-4) drills into that chunk’s own functions.
+  - FR-2.4.5: Chunking is a purely structural, read-only grouping — it does not alter parsed function identity, call-graph edges, or computed metrics.
 
 ### 5.3 FR-3: 3-Tier Graph Visualization
 - FR-3.1: System shall render Tier-1 (module), Tier-2 (file), Tier-3 (function), and Tier-4 (chunk) graphs using Vue Flow with Dagre auto-layout.
@@ -342,6 +411,21 @@ graph TB
 - FR-13.3: Sessions shall auto-expire after 3 hours of inactivity via a background cleanup task (every 30 minutes); explicit cleanup shall occur via `sendBeacon` on tab close.
 - FR-13.4: An admin endpoint shall list all active sessions for monitoring.
 
+### 5.14 FR-14: Service Tier & Monorepo Detection
+- FR-14.1: System shall detect monorepo services from top-level upload folders using either (a) a recognized manifest file (`package.json`, `requirements.txt`, `pyproject.toml`, `setup.py`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, `Cargo.toml`, `Dockerfile`, `*.csproj`) directly inside the folder, or (b) a microservice-style folder name (`*_service`, `*-service`, `*service`, `*svc`, `service*`).
+- FR-14.2: If an uploaded ZIP extracts to a single wrapping folder with the real services nested one level inside it, the wrapper shall be transparently unwrapped so services are still detected.
+- FR-14.3: The Service tier shall only activate when 2 or more services are detected; a single-folder or flat upload (the common case) renders exactly as it does without a Service tier — this is a hard backward-compatibility guarantee.
+- FR-14.4: Every Module and File node created for a detected service shall carry a `service` property, scoping Neo4j storage per service within the existing per-session namespace, with no cross-service leakage.
+- FR-14.5: The Module, File, and Function tier endpoints shall accept an optional `service_id` parameter to scope results to one service, reusing the existing drill-down interaction without introducing a new navigation paradigm.
+- FR-14.6: Dead-code, layer-violation, code-smell, and architecture-pattern analyses shall each be filterable by `service_id`, with no cross-service leakage between analyses.
+
+### 5.15 FR-15: Automatic Inter-Service Call Detection
+- FR-15.1: System shall automatically detect inter-service HTTP/REST calls by scanning source text for a known service’s hostname appearing near an HTTP-call keyword (e.g. `axios`, `fetch`, `requests.get/post`, `RestTemplate`, `WebClient`, `http.Get/Post`, `reqwest`, `HttpClient`) or a `http://` or `https://` URL scheme.
+- FR-15.2: System shall automatically detect inter-service message-queue relationships by correlating publish/produce calls in one service with consume/subscribe calls in another service that reference the same queue or topic name string.
+- FR-15.3: Detected connections shall be returned via GET `/service-graph` and rendered as colored, labeled edges between service nodes in the Tier 0 view, distinguished by type (REST, MessageQueue).
+- FR-15.4: Detection is static-text-based and best-effort; it does not execute code, does not detect gRPC calls or database connection strings, and can miss dynamically constructed URLs — consistent with the static-analysis limitations already documented for Dead Code Detection (FR-10).
+- FR-15.5: There is no manual override file (e.g. a hand-authored service-map) — all inter-service connections shown are automatically detected from source code.
+
 ---
 
 ## 6. Data Flow Diagrams
@@ -369,8 +453,10 @@ flowchart LR
 flowchart TB
     User["Developer"]
 
+    P0["0.0<br/>Detect Services<br/>(monorepo)"]
     P1["1.0<br/>Upload & Validate<br/>Source Code"]
     P2["2.0<br/>Parse Code &<br/>Build Call Graph"]
+    P2B["2.5<br/>Detect Inter-Service<br/>Calls"]
     P3["3.0<br/>Generate Tiered<br/>Visualization Graph"]
     P4["4.0<br/>Detect Patterns /<br/>Layer Violations"]
     P5["5.0<br/>Detect Code Smells &<br/>Generate AI Refactor Plan"]
@@ -379,16 +465,19 @@ flowchart TB
     P8["8.0<br/>Manage Session"]
 
     D1[("D1: Uploaded Files<br/>(disk)")]
-    D2[("D2: Code Graph<br/>(Neo4j)")]
+    D2[("D2: Code Graph<br/>(Neo4j, session + service scoped)")]
     D3[("D3: Session Store<br/>(in-memory + Neo4j)")]
 
     User -- "raw code" --> P1
     P1 -- "validated files" --> D1
-    P1 -- "validated files" --> P2
+    P1 -- "validated files" --> P0
+    P0 -- "service buckets (or all_files)" --> P2
     P2 -- "AST / functions / calls" --> D2
+    P2 -- "file contents" --> P2B
+    P2B -- "service_connections" --> D3
     P2 --> P3
     D2 --> P3
-    P3 -- "tier graphs" --> User
+    P3 -- "tier graphs (incl. Tier 0 services)" --> User
 
     D2 --> P4
     P4 -- "patterns / violations" --> User
@@ -421,6 +510,7 @@ erDiagram
         string id
         string name
         string path
+        string service "NEW, nullable"
         int file_count
         int function_count
         float avg_complexity
@@ -431,12 +521,26 @@ erDiagram
         string name
         string path
         string language
+        string service "NEW, nullable"
         int size_bytes
         int line_count
         int function_count
         boolean is_data_file
         boolean is_god_file
         string checksum
+    }
+    SERVICE {
+        string service_id "logical, NOT a Neo4j node"
+        int module_count
+        int file_count
+    }
+    SERVICE_CONNECTION {
+        string from_service "logical, NOT a Neo4j node"
+        string to_service
+        string type "REST or MessageQueue"
+        string label
+        float confidence
+        string evidence "file:line"
     }
     FUNCTION {
         string id
@@ -473,12 +577,16 @@ erDiagram
     SESSION ||--o{ MODULE : "scopes"
     SESSION ||--o{ FILE : "scopes"
     SESSION ||--o{ FUNCTION : "scopes"
+    MODULE }o..o| SERVICE : "tagged by (derived, not stored)"
+    FILE }o..o| SERVICE : "tagged by (derived, not stored)"
+    SERVICE ||--o{ SERVICE_CONNECTION : "from / to (derived, not stored)"
 ```
 
 **Notes:**
 - All nodes are tagged with `session_id` to isolate per-user data within the shared Neo4j instance.
 - `CALLS` is a many-to-many self-relationship on `FUNCTION`, carrying `frequency` and `line` properties.
 - `VIRTUAL_MODULE` exists only for "god files" that are split for readability; it sits between `FILE` and `FUNCTION`.
+- `SERVICE` and `SERVICE_CONNECTION` are **logical groupings only** — they are never written to Neo4j as nodes/relationships. `SERVICE` is derived by grouping `MODULE`/`FILE` on their `service` property; `SERVICE_CONNECTION` is computed once at upload time by `detect_service_connections()` and held in the in-memory `SESSION_CACHE`.
 
 ---
 
@@ -501,13 +609,16 @@ sequenceDiagram
     API-->>SM: session_id
     FE->>API: POST /upload (X-Session-ID, file data)
     API->>API: validate size, type, zip-slip
-    API->>AN: parse_files(files)
+    API->>API: detect_services(root)
+    API->>AN: analyze_files() once, or per service bucket
     AN->>AN: Tree-sitter AST parse,<br/>build call graph, compute metrics
-    AN-->>API: tier1_graph, metrics
-    API->>DB: store_graph(session_id, nodes, edges)
+    AN-->>API: functions, metrics (per bucket if multi-service)
+    API->>DB: store_all(..., service_id=X if multi-service)
     DB->>Neo4j: CREATE nodes/relationships
-    API-->>FE: 200 OK { tier1_graph, render_strategy, metrics }
-    FE->>FE: Render Tier-1 graph (Vue Flow + Dagre)
+    Neo4j-->>DB: ack
+    API->>API: detect_service_connections() [multi-service only]
+    API-->>FE: is_multi_service, tier1_graph OR service_graph
+    FE->>FE: renderTier0Graph() or renderTier1Graph()
 ```
 
 ### 8.2 Sequence — Drill-Down Navigation (UC2)
@@ -518,6 +629,11 @@ sequenceDiagram
     participant FE as GraphView.vue
     participant API as FastAPI (main.py)
     participant DB as db.py / Neo4j
+
+    U->>FE: Click Service node (Tier 0, monorepo only)
+    FE->>API: GET /graph/tier1?service_id=X
+    API-->>FE: module nodes+edges (service-scoped)
+    FE->>FE: renderTier1Graph() shows modules
 
     U->>FE: Click Module node
     FE->>API: GET /graph/tier2/{module_name}
@@ -572,7 +688,7 @@ sequenceDiagram
     participant GROQ as Groq LLM API
 
     U->>FE: Open "Smell Analysis" panel
-    FE->>API: GET /smell-analysis
+    FE->>API: GET /smell-analysis?service_id= (optional)
     API->>SD: detect_smells(graph)
     SD-->>API: function/module/architecture smells
     API->>SG: build_dependency_graph(smells)
@@ -691,21 +807,22 @@ stateDiagram-v2
 | GET | `/sessions/info` | Current session metadata |
 | GET | `/admin/sessions` | List all active sessions |
 | POST | `/upload` | Upload & analyze file/zip/folder |
-| GET | `/graph/tier1` | Module-level graph |
-| GET | `/graph/tier2/{module_name}` | File-level graph |
-| GET | `/graph/tier3?file_path=` | Function-level graph |
+| GET | `/graph/tier1` | Module-level graph (optional `service_id` param scopes to one service) |
+| GET | `/graph/tier2/{module_name}` | File-level graph (optional `service_id` param) |
+| GET | `/graph/tier3?file_path=` | Function-level graph (optional `service_id` param) |
 | GET | `/graph/chunk?file_path=&chunk_name=` | Function graph for a chunked god file |
 | GET | `/graph/files` | All-files flat graph |
 | GET | `/expand/{function_name}` | Direct callers/callees of a function |
 | GET | `/risk-score` | Dependency risk ranking |
 | GET | `/impact-analysis/{function_name}` | Reverse call graph / change impact |
-| GET | `/dead-code` | Unreachable functions & unused imports |
-| GET | `/layer-violations` | Architectural layer rule violations |
+| GET | `/dead-code` | Unreachable functions & unused imports (optional `service_id` param) |
+| GET | `/layer-violations` | Architectural layer rule violations (optional `service_id` param) |
 | GET | `/metrics` | Aggregated code metrics |
 | GET | `/git-history` | Commit history with quality estimation |
-| GET | `/smell-analysis` | Code smell detection + fix plan |
+| GET | `/smell-analysis` | Code smell detection + fix plan (optional `service_id` param) |
 | POST | `/llm-refactor-reason` | LLM-based architectural reasoning |
-| GET | `/api/patterns/{session_id}` | Architecture pattern detection |
+| GET | `/api/patterns/{session_id}` | Architecture pattern detection (optional `service_id` param) |
+| GET | `/service-graph` | Service tier graph: detected services + auto-detected inter-service connections |
 
 ### 10.3 Communication Interfaces
 - Frontend ↔ Backend: HTTPS/JSON REST, `X-Session-ID` custom header for session scoping.
@@ -721,8 +838,8 @@ stateDiagram-v2
 | **Performance** | Parse 100 files in <2s; Tier-1 graph in <5s; Tier-2 in <1s; Tier-3 in <500ms; search over 1000+ functions in <1s; god-file chunking in <10s |
 | **Security** | Zip-slip prevention, filename sanitization, symlink rejection, max file size/count enforcement, no server-side code execution, per-session data isolation |
 | **Scalability** | Designed to support 500+ concurrent isolated sessions; in-memory + Neo4j dual caching |
-| **Reliability** | Falls back to in-memory cache if Neo4j is unreachable; conservative (false-negative biased) dead-code detection to avoid false positives |
-| **Maintainability** | Modular backend (`analyzer`, `pattern_detector`, `smell_detector`, `smell_graph`, `llm_engine`, `db` separated by responsibility) |
+| **Reliability** | Falls back to in-memory cache if Neo4j is unreachable; conservative (false-negative biased) dead-code detection to avoid false positives; service detection (manifest file or naming pattern) and inter-service call detection (static text scan) are both heuristic/best-effort, consistent with the system's static-analysis approach elsewhere |
+| **Maintainability** | Modular backend (`analyzer`, `pattern_detector`, `smell_detector`, `smell_graph`, `llm_engine`, `db`, `service_call_detector` separated by responsibility) |
 | **Usability** | Drill-down navigation with breadcrumbs, color-coded risk/severity indicators, in-app "How to Use" guidance |
 | **Availability** | Session auto-cleanup every 30 minutes prevents resource leakage; sessions expire after 3 hours of inactivity |
 
@@ -734,6 +851,9 @@ stateDiagram-v2
 - Layer Violation Analysis and Git History features require a **folder/ZIP upload**; they do not apply to single-file uploads.
 - The AI Refactor Plan feature depends on third-party LLM availability (Groq); if the API is unavailable, the static smell report is still available without the AI-generated plan.
 - Git History extraction assumes the uploaded archive/folder includes a valid `.git` directory with accessible commit objects.
+- Service detection (FR-14) is heuristic — a folder counts as a service only if it has a recognized manifest file or a microservice-style name (`*_service`, `*-service`, `*service`, `*svc`, `service*`); a monorepo whose service folders carry neither signal will not be detected and will render as a single project.
+- Automatic inter-service call detection (FR-15) is static-text-based and best-effort — it does not detect gRPC calls, database connection strings, or dynamically constructed URLs/queue names, and cannot verify that a detected call executes at runtime.
+- Multi-repo upload (multiple independent repositories in a single upload) is not supported — only a single monorepo archive or folder containing all services is recognized.
 
 ---
 
