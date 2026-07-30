@@ -8,7 +8,7 @@ sequenceDiagram
     participant GROQ as Groq LLM API
 
     U->>FE: Open "Smell Analysis" panel
-    FE->>API: GET /smell-analysis?service_id= (optional)
+    FE->>API: GET /smell-analysis
     API->>SD: detect_smells(graph)
     SD-->>API: function/module/architecture smells
     API->>SG: build_dependency_graph(smells)

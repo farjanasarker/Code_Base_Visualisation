@@ -3,7 +3,6 @@ erDiagram
         string id
         string name
         string path
-        string service "NEW, nullable"
         int file_count
         int function_count
         float avg_complexity
@@ -14,26 +13,12 @@ erDiagram
         string name
         string path
         string language
-        string service "NEW, nullable"
         int size_bytes
         int line_count
         int function_count
         boolean is_data_file
         boolean is_god_file
         string checksum
-    }
-    SERVICE {
-        string service_id "logical, NOT a Neo4j node"
-        int module_count
-        int file_count
-    }
-    SERVICE_CONNECTION {
-        string from_service "logical, NOT a Neo4j node"
-        string to_service
-        string type "REST or MessageQueue"
-        string label
-        float confidence
-        string evidence "file:line"
     }
     FUNCTION {
         string id
@@ -70,6 +55,3 @@ erDiagram
     SESSION ||--o{ MODULE : "scopes"
     SESSION ||--o{ FILE : "scopes"
     SESSION ||--o{ FUNCTION : "scopes"
-    MODULE }o..o| SERVICE : "tagged by (derived, not stored)"
-    FILE }o..o| SERVICE : "tagged by (derived, not stored)"
-    SERVICE ||--o{ SERVICE_CONNECTION : "from / to (derived, not stored)"

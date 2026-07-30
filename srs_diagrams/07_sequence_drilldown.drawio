@@ -1,5 +1,5 @@
 <mxfile host="app.diagrams.net">
-  <diagram name="Sequence - Drill-Down Navigation (UC2, UC16)" id="f658f4d7">
+  <diagram name="Sequence - Drill-Down Navigation (UC2)" id="f658f4d7">
     <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="758" math="0" shadow="0">
       <root>
         <mxCell id="0" />
@@ -10,10 +10,6 @@
         <mxCell id="life_Frontend" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="649" y="100" width="2" height="638" as="geometry" /></mxCell>
         <mxCell id="hdr_Backend" value="Backend" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1125" y="60" width="170" height="40" as="geometry" /></mxCell>
         <mxCell id="life_Backend" value="" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;fillColor=#000000;strokeColor=#999999;fontSize=12;dashed=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1209" y="100" width="2" height="638" as="geometry" /></mxCell>
-        <mxCell id="e0_e189d7" value="click Service node (Tier 0)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e1_26d1c0" value="GET /graph/tier1?service_id=X" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e2_eda5f0" value="module nodes+edges (service-scoped)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;dashed=1;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e3_c3df6a" value="renderTier1Graph() shows modules" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;dashed=1;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_User"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e4_2b35f0" value="click Module node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_User" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e5_eda543" value="GET /graph/tier2/{module}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Frontend" target="life_Backend"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e6_29acf3" value="file nodes+edges" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;dashed=1;endArrow=block;endFill=1;" edge="1" parent="1" source="life_Backend" target="life_Frontend"><mxGeometry relative="1" as="geometry" /></mxCell>

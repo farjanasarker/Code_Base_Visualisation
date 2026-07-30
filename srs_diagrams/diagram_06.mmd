@@ -12,13 +12,11 @@ sequenceDiagram
     API-->>SM: session_id
     FE->>API: POST /upload (X-Session-ID, file data)
     API->>API: validate size, type, zip-slip
-    API->>API: detect_services(root)
-    API->>AN: analyze_files() once, or per service bucket
+    API->>AN: analyze_files()
     AN->>AN: Tree-sitter AST parse,<br/>build call graph, compute metrics
-    AN-->>API: functions, metrics (per bucket if multi-service)
-    API->>DB: store_all(..., service_id=X if multi-service)
+    AN-->>API: functions, metrics
+    API->>DB: store_all(functions, session_id)
     DB->>Neo4j: CREATE nodes/relationships
     Neo4j-->>DB: ack
-    API->>API: detect_service_connections() [multi-service only]
-    API-->>FE: is_multi_service, tier1_graph OR service_graph
-    FE->>FE: renderTier0Graph() or renderTier1Graph()
+    API-->>FE: tier1_graph + metrics
+    FE->>FE: renderTier1Graph()

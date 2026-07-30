@@ -1,27 +1,49 @@
-flowchart TB
-    UP["User uploads ZIP / folder"]
-    DETECT["detect_services(root)<br/>manifest file OR *_service/-service naming;<br/>unwraps one wrapper level if needed"]
-    DECIDE{"≥2 services<br/>detected?"}
+graph TB
+    Dev["👤 Developer"]
+    Arch["👤 Software<br/>Architect"]
+    Lead["👤 Tech Lead"]
+    Admin["👤 System<br/>Administrator"]
 
-    SINGLE["Single-project pipeline (unchanged)<br/>analyze_files(all_files) once<br/>store_all(functions, session_id)"]
-    NEO_SINGLE[("Neo4j — tagged by session_id only")]
+    subgraph CodeFlow["CodeFlow System"]
+        UC1((Upload Source Code))
+        UC2((Browse 3-Tier<br/>Code Graph))
+        UC3((Search Code Entities))
+        UC4((View Code Metrics))
+        UC5((Detect Architecture<br/>Patterns))
+        UC6((Analyze Layer<br/>Violations))
+        UC7((Run Code Smell<br/>Analysis))
+        UC8((Request AI<br/>Refactor Plan))
+        UC9((View Dependency<br/>Risk Score))
+        UC10((Run Change Impact<br/>Analysis))
+        UC11((Detect Dead Code))
+        UC12((View Git History &<br/>Quality Trend))
+        UC13((Manage Session))
+        UC14((Monitor Active<br/>Sessions))
+    end
 
-    PARTITION["Partition all_files by service<br/>(bucket by rel_path prefix)"]
-    PERSERVICE["Per service bucket:<br/>analyze_files(bucket)<br/>store_all(bucket, service_id=X)"]
-    CALLDETECT["detect_service_connections()<br/>HTTP/REST hostname+keyword scan<br/>MQ publish/consume queue-name correlation"]
-    NEO_MULTI[("Neo4j — session_id + service property")]
-    CACHE["SESSION_CACHE<br/>functions[], services[], service_connections[]"]
+    Dev --> UC1
+    Dev --> UC2
+    Dev --> UC3
+    Dev --> UC4
+    Dev --> UC9
+    Dev --> UC10
+    Dev --> UC11
+    Dev --> UC12
+    Dev --> UC13
 
-    RESPONSE["/upload response<br/>is_multi_service, tier1_graph OR service_graph"]
-    FRONTEND["Frontend: renderTier0Graph() or existing tier1 flow"]
-    CLICK["User clicks a service node"]
-    TIER1REQ["GET /graph/tier1?service_id=X"]
-    REUSE["renderTier1Graph() — reused, unmodified<br/>existing module→file→function drill-down"]
+    Arch --> UC2
+    Arch --> UC5
+    Arch --> UC6
+    Arch --> UC7
+    Arch --> UC8
+    Arch --> UC13
 
-    UP --> DETECT --> DECIDE
-    DECIDE -- No --> SINGLE --> NEO_SINGLE --> RESPONSE
-    DECIDE -- Yes --> PARTITION --> PERSERVICE
-    PERSERVICE --> NEO_MULTI --> CACHE
-    PERSERVICE -- "file contents" --> CALLDETECT -- "connections[]" --> CACHE
-    CACHE --> RESPONSE
-    RESPONSE --> FRONTEND --> CLICK --> TIER1REQ --> REUSE
+    Lead --> UC7
+    Lead --> UC12
+    Lead --> UC13
+
+    Admin --> UC14
+
+    UC2 -.includes.-> UC1
+    UC8 -.extends.-> UC7
+    UC10 -.extends.-> UC2

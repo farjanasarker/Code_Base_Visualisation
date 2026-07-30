@@ -1,12 +1,41 @@
-flowchart LR
-    User["Developer / Architect<br/>(External Entity)"]
-    System(("CodeFlow<br/>System"))
-    Neo[("Neo4j Graph DB")]
-    Groq["Groq LLM API"]
+flowchart TB
+    User["Developer"]
 
-    User -- "Source code (file/zip/folder)" --> System
-    System -- "Graphs, metrics, reports,<br/>diagrams, recommendations" --> User
-    System -- "Store / query code graph" --> Neo
-    Neo -- "Graph data" --> System
-    System -- "Smell summary prompt" --> Groq
-    Groq -- "Refactor plan (text)" --> System
+    P1["1.0<br/>Upload & Validate<br/>Source Code"]
+    P2["2.0<br/>Parse Code &<br/>Build Call Graph"]
+    P3["3.0<br/>Generate Tiered<br/>Visualization Graph"]
+    P4["4.0<br/>Detect Patterns /<br/>Layer Violations"]
+    P5["5.0<br/>Detect Code Smells &<br/>Generate AI Refactor Plan"]
+    P6["6.0<br/>Compute Risk / Impact /<br/>Dead Code / Metrics"]
+    P7["7.0<br/>Extract Git History"]
+    P8["8.0<br/>Manage Session"]
+
+    D1[("D1: Uploaded Files<br/>(disk)")]
+    D2[("D2: Code Graph<br/>(Neo4j, session scoped)")]
+    D3[("D3: Session Store<br/>(in-memory + Neo4j)")]
+
+    User -- "raw code" --> P1
+    P1 -- "validated files" --> D1
+    P1 -- "validated files" --> P2
+    P2 -- "AST / functions / calls" --> D2
+    P2 --> P3
+    D2 --> P3
+    P3 -- "tier graphs" --> User
+
+    D2 --> P4
+    P4 -- "patterns / violations" --> User
+
+    D2 --> P5
+    P5 -- "LLM prompt" --> User
+    P5 -- "smell report + plan" --> User
+
+    D2 --> P6
+    P6 -- "risk / impact / dead code / metrics" --> User
+
+    P1 -- ".git data" --> P7
+    P7 -- "commit history" --> User
+
+    User -- "session id" --> P8
+    P8 <--> D3
+    P8 -. "scopes all access" .-> D1
+    P8 -. "scopes all access" .-> D2

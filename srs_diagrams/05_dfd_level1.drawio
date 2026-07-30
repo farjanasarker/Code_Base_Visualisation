@@ -8,12 +8,8 @@
         <mxCell id="groq" value="Groq LLM API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="2020" y="760" width="210" height="90" as="geometry" /></mxCell>
         <mxCell id="p1" value="P1
 Validate &amp;amp; Extract Upload" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="260" y="60" width="210" height="100" as="geometry" /></mxCell>
-        <mxCell id="p2" value="P2
-Detect Services" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="620" y="60" width="210" height="100" as="geometry" /></mxCell>
         <mxCell id="p3" value="P3
-Parse &amp;amp; Analyze Code" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="980" y="60" width="210" height="100" as="geometry" /></mxCell>
-        <mxCell id="p4" value="P4
-Detect Inter-Service Calls" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1340" y="60" width="230" height="100" as="geometry" /></mxCell>
+Parse &amp;amp; Analyze Code" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="620" y="60" width="210" height="100" as="geometry" /></mxCell>
         <mxCell id="p7" value="P7
 Run Quality Analyses" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="260" y="340" width="210" height="100" as="geometry" /></mxCell>
         <mxCell id="p6" value="P6
@@ -25,18 +21,14 @@ Store Code Graph" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;stroke
         <mxCell id="p8" value="P8
 AI Refactor Reasoning" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=12;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1600" y="560" width="230" height="100" as="geometry" /></mxCell>
         <mxCell id="e0_f0de1c" value="upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="user" target="p1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e1_9bf67e" value="extracted files" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p1" target="p2"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e2_ebea7e" value="service buckets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p2" target="p3"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e3_fcb4e6" value="file contents" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p3" target="p4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e1_9bf67e" value="validated files" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p1" target="p3"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e4_d16257" value="functions, metrics" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p3" target="p5"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e5_c81e93" value="service_connections" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p4" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e6_0b8ef2" value="nodes/edges" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p5" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e7_91f176" value="functions, tier1 cache" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p5" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e8_e9dc81" value="graph query" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="d1" target="p6"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e9_74db88" value="cached graph" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="d2" target="p6"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e10_dfefd6" value="tier0/1/2/3 JSON" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p6" target="user"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e11_ded454" value="functions
-(service-scoped)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="d2" target="p7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10_dfefd6" value="tier1/2/3 JSON" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p6" target="user"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11_ded454" value="functions" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="d2" target="p7"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e12_b24fa4" value="smells / patterns /
 dead-code / violations" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p7" target="user"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e13_01fa15" value="smell summary" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="p7" target="p8"><mxGeometry relative="1" as="geometry" /></mxCell>
