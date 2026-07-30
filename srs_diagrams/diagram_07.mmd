@@ -4,11 +4,6 @@ sequenceDiagram
     participant API as FastAPI (main.py)
     participant DB as db.py / Neo4j
 
-    U->>FE: Click Service node (Tier 0, monorepo only)
-    FE->>API: GET /graph/tier1?service_id=X
-    API-->>FE: module nodes+edges (service-scoped)
-    FE->>FE: renderTier1Graph() shows modules
-
     U->>FE: Click Module node
     FE->>API: GET /graph/tier2/{module_name}
     API->>DB: query files in module

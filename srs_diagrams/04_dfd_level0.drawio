@@ -13,7 +13,7 @@ CodeLens System" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeC
         <mxCell id="e0_b51f36" value="source file / ZIP / folder upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="user" target="system"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e1_0eb882" value="graph visualization + analysis results" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="user"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e2_6a5fda" value="store / query code graph
-(session + service scoped)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="neo4j"><mxGeometry relative="1" as="geometry" /></mxCell>
+(session scoped)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="neo4j"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e3_67b2fc" value="refactor reasoning request /
 AI plan response" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="system" target="groq"><mxGeometry relative="1" as="geometry" /></mxCell>
       </root>

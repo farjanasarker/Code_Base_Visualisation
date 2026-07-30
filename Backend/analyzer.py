@@ -457,6 +457,8 @@ def _load_tree_sitter_runtime():
 
         Language = tree_sitter_module.Language
         Parser = tree_sitter_module.Parser
+        Query = getattr(tree_sitter_module, "Query", None)
+        QueryCursor = getattr(tree_sitter_module, "QueryCursor", None)
 
         tree_sitter_languages = {
             "python":     Language(tspython.language()),
@@ -478,15 +480,57 @@ def _load_tree_sitter_runtime():
                 parser.set_language(lang)
             return parser
 
-        return tree_sitter_languages, get_parser
+        def run_query(lang, query_string: str, node) -> Dict[str, list]:
+            """Execute a tree-sitter query and return {capture_name: [nodes]}.
+
+            tree-sitter >= 0.22 moved capture execution off Query onto a
+            separate QueryCursor object (Query.captures() was removed); older
+            versions returned captures directly from Query and sometimes as a
+            list of (node, name) tuples instead of a dict. Normalize both.
+            """
+            if Query is not None and QueryCursor is not None:
+                query = Query(lang, query_string)
+                return QueryCursor(query).captures(node)
+            query = lang.query(query_string)
+            raw = query.captures(node)
+            if isinstance(raw, dict):
+                return raw
+            result: Dict[str, list] = {}
+            for n, name in raw:
+                result.setdefault(name, []).append(n)
+            return result
+
+        def run_query_matches(lang, query_string: str, node):
+            """Execute a query and return [(pattern_index, {capture_name: node|[nodes]})].
+
+            Unlike run_query()/captures(), this keeps captures grouped by the
+            pattern match they came from — needed to pair an @fn_name capture
+            with its sibling @fn_def when they're only related by appearing in
+            the same query pattern (e.g. naming an arrow function from the
+            property it's assigned to), not by AST field structure.
+            """
+            if Query is not None and QueryCursor is not None:
+                query = Query(lang, query_string)
+                return QueryCursor(query).matches(node)
+            return lang.query(query_string).matches(node)
+
+        return tree_sitter_languages, get_parser, run_query, run_query_matches
     except Exception:
-        return {}, None
+        return {}, None, None, None
 
 
-TREE_SITTER_LANGUAGES, get_parser = _load_tree_sitter_runtime()
+TREE_SITTER_LANGUAGES, get_parser, run_query, run_query_matches = _load_tree_sitter_runtime()
 
 if get_parser is None:
     def get_parser(language: str):
+        raise RuntimeError("tree-sitter is not available in this environment")
+
+if run_query is None:
+    def run_query(lang, query_string: str, node) -> Dict[str, list]:
+        raise RuntimeError("tree-sitter is not available in this environment")
+
+if run_query_matches is None:
+    def run_query_matches(lang, query_string: str, node):
         raise RuntimeError("tree-sitter is not available in this environment")
 
 
@@ -512,9 +556,33 @@ FUNCTION_QUERIES = {
 
         (arrow_function) @fn_def
 
+        (function_expression) @fn_def
+
         (variable_declarator
           name: (identifier) @fn_name
           value: (arrow_function) @fn_def)
+
+        (variable_declarator
+          name: (identifier) @fn_name
+          value: (function_expression) @fn_def)
+
+        (assignment_expression
+          left: (member_expression
+            property: (property_identifier) @fn_name)
+          right: (arrow_function) @fn_def)
+
+        (assignment_expression
+          left: (member_expression
+            property: (property_identifier) @fn_name)
+          right: (function_expression) @fn_def)
+
+        (pair
+          key: (property_identifier) @fn_name
+          value: (arrow_function) @fn_def)
+
+        (pair
+          key: (property_identifier) @fn_name
+          value: (function_expression) @fn_def)
     """,
 
     "typescript": """
@@ -525,6 +593,34 @@ FUNCTION_QUERIES = {
           name: (property_identifier) @fn_name) @fn_def
 
         (arrow_function) @fn_def
+
+        (function_expression) @fn_def
+
+        (variable_declarator
+          name: (identifier) @fn_name
+          value: (arrow_function) @fn_def)
+
+        (variable_declarator
+          name: (identifier) @fn_name
+          value: (function_expression) @fn_def)
+
+        (assignment_expression
+          left: (member_expression
+            property: (property_identifier) @fn_name)
+          right: (arrow_function) @fn_def)
+
+        (assignment_expression
+          left: (member_expression
+            property: (property_identifier) @fn_name)
+          right: (function_expression) @fn_def)
+
+        (pair
+          key: (property_identifier) @fn_name
+          value: (arrow_function) @fn_def)
+
+        (pair
+          key: (property_identifier) @fn_name
+          value: (function_expression) @fn_def)
     """,
 
     "java": """
@@ -749,10 +845,13 @@ class UniversalParser:
         fn_patterns = [
             # function foo(...) { ... }
             re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{", re.MULTILINE),
-            # const foo = function(...) { ... }
-            re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\([^)]*\)\s*\{", re.MULTILINE),
-            # const foo = (...) => { ... }
-            re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\([^)]*\)\s*=>\s*\{", re.MULTILINE),
+            # const foo = function(...) { ... } / const foo = async function(...) { ... }
+            re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\([^)]*\)\s*\{", re.MULTILINE),
+            # const foo = (...) => { ... } / const foo = async (...) => { ... }
+            re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{", re.MULTILINE),
+            # exports.foo = (...) / module.exports.foo = (...), function or arrow, optionally async
+            re.compile(r"\b(?:module\.exports|exports)\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\([^)]*\)\s*\{", re.MULTILINE),
+            re.compile(r"\b(?:module\.exports|exports)\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{", re.MULTILINE),
         ]
 
         # class Foo { bar(...) { ... } }
@@ -1207,32 +1306,49 @@ class UniversalParser:
         if not lang_obj:
             return []
 
-        query = lang_obj.query(FUNCTION_QUERIES[language])
-        raw_captures = query.captures(tree.root_node)
+        matches = run_query_matches(lang_obj, FUNCTION_QUERIES[language], tree.root_node)
 
-        # tree-sitter >= 0.22 returns dict[str, list[Node]]; older returns list[tuple[Node, str]]
-        if isinstance(raw_captures, dict):
-            capture_pairs = [
-                (node, name)
-                for name, nodes in raw_captures.items()
-                for node in nodes
-            ]
-        else:
-            capture_pairs = raw_captures
+        def _first(v):
+            return v[0] if isinstance(v, list) else v
+
+        # A given function node (e.g. an arrow_function) can be captured by
+        # more than one pattern in the query — once generically as @fn_def
+        # with no name, and again by a naming pattern (variable/property/
+        # exports assignment) that pairs @fn_name with the same node in one
+        # match. Collect any such name per node span before building results,
+        # since arrow/function expressions have no "name" AST field of
+        # their own to fall back on.
+        name_by_span: Dict[Tuple[int, int], str] = {}
+        ordered_defs = []
+        seen_spans = set()
+
+        for _, cap in matches:
+            fn_def = cap.get("fn_def")
+            if fn_def is None:
+                continue
+            fn_def = _first(fn_def)
+            span = (fn_def.start_byte, fn_def.end_byte)
+            fn_name_cap = cap.get("fn_name")
+            if fn_name_cap is not None:
+                name_node = _first(fn_name_cap)
+                name_by_span[span] = content[name_node.start_byte:name_node.end_byte]
+            if span not in seen_spans:
+                seen_spans.add(span)
+                ordered_defs.append(fn_def)
 
         functions: List[ParsedFunction] = []
         seen = set()
 
-        for node, capture_name in capture_pairs:
-            if "fn_def" not in capture_name:
-                continue
-            # attempt to get the name child
+        for node in ordered_defs:
+            span = (node.start_byte, node.end_byte)
+            # attempt to get the name child, else a name paired via the query, else anonymous
             name_node = node.child_by_field_name("name")
-            fn_name = (
-                content[name_node.start_byte:name_node.end_byte]
-                if name_node is not None
-                else f"anonymous_{node.start_point[0]}"
-            )
+            if name_node is not None:
+                fn_name = content[name_node.start_byte:name_node.end_byte]
+            elif span in name_by_span:
+                fn_name = name_by_span[span]
+            else:
+                fn_name = f"anonymous_{node.start_point[0]}"
 
             # For Go method_declarations, prefix with receiver type for uniqueness
             if language == "go":
@@ -1265,8 +1381,7 @@ class UniversalParser:
         lang_obj = TREE_SITTER_LANGUAGES.get(language)
         if not lang_obj:
             return []
-        query = lang_obj.query(CALL_QUERIES[language])
-        raw_captures = query.captures(tree.root_node)
+        raw_captures = run_query(lang_obj, CALL_QUERIES[language], tree.root_node)
 
         calls = set()
         if isinstance(raw_captures, dict):
@@ -1379,9 +1494,8 @@ def count_functions_ast(filepath: str, content: str) -> int:
     try:
         parser = get_parser(language_name)
         tree = parser.parse(bytes(content, "utf8"))
-        query = TREE_SITTER_LANGUAGES[language_name].query(FUNCTION_QUERIES[language_name])
-        captures = query.captures(tree.root_node)
-        return sum(1 for _, name in captures if "fn_def" in name)
+        captures = run_query(TREE_SITTER_LANGUAGES[language_name], FUNCTION_QUERIES[language_name], tree.root_node)
+        return len(captures.get("fn_def", []))
     except Exception:
         # tree-sitter আছে কিন্তু parse fail → regex fallback
         if language_name == "go":
@@ -1440,14 +1554,12 @@ def chunk_god_file(filepath: str, content: str, language: str, functions: List[D
             try:
                 parser = get_parser(language)
                 tree = parser.parse(bytes(content, "utf8"))
-                q = TREE_SITTER_LANGUAGES[language].query(
-                    "(class_definition name: (identifier) @class_name) @class_def"
+                raw = run_query(
+                    TREE_SITTER_LANGUAGES[language],
+                    "(class_definition name: (identifier) @class_name) @class_def",
+                    tree.root_node,
                 )
-                raw = q.captures(tree.root_node)
-                pairs = (
-                    [(n, name) for name, nodes in raw.items() for n in nodes]
-                    if isinstance(raw, dict) else raw
-                )
+                pairs = [(n, name) for name, nodes in raw.items() for n in nodes]
                 for node, capture_name in pairs:
                     if "class_def" in capture_name:
                         classes.append({

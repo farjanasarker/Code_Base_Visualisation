@@ -1,46 +1,12 @@
-flowchart TB
-    User["Developer"]
+flowchart LR
+    SD["smell_detector.py<br/>function/module/architecture smells"]
+    SG["smell_graph.py<br/>dependency graph +<br/>greedy set-cover plan"]
+    PB["_build_prompt()<br/>smell summary + plan +<br/>project context (data only)"]
+    LLM["Groq API<br/>llama-3.3-70b-versatile<br/>temperature=0.20"]
+    PARSE{"Valid JSON<br/>response?"}
+    PLAN["Structured refactor plan<br/>rendered in LLM plan box"]
+    FALLBACK["_fallback_plan()<br/>static-analysis-only plan<br/>_source=static_analysis_fallback"]
 
-    P0["0.0<br/>Detect Services<br/>(monorepo)"]
-    P1["1.0<br/>Upload & Validate<br/>Source Code"]
-    P2["2.0<br/>Parse Code &<br/>Build Call Graph"]
-    P2B["2.5<br/>Detect Inter-Service<br/>Calls"]
-    P3["3.0<br/>Generate Tiered<br/>Visualization Graph"]
-    P4["4.0<br/>Detect Patterns /<br/>Layer Violations"]
-    P5["5.0<br/>Detect Code Smells &<br/>Generate AI Refactor Plan"]
-    P6["6.0<br/>Compute Risk / Impact /<br/>Dead Code / Metrics"]
-    P7["7.0<br/>Extract Git History"]
-    P8["8.0<br/>Manage Session"]
-
-    D1[("D1: Uploaded Files<br/>(disk)")]
-    D2[("D2: Code Graph<br/>(Neo4j, session + service scoped)")]
-    D3[("D3: Session Store<br/>(in-memory + Neo4j)")]
-
-    User -- "raw code" --> P1
-    P1 -- "validated files" --> D1
-    P1 -- "validated files" --> P0
-    P0 -- "service buckets (or all_files)" --> P2
-    P2 -- "AST / functions / calls" --> D2
-    P2 -- "file contents" --> P2B
-    P2B -- "service_connections" --> D3
-    P2 --> P3
-    D2 --> P3
-    P3 -- "tier graphs (incl. Tier 0 services)" --> User
-
-    D2 --> P4
-    P4 -- "patterns / violations" --> User
-
-    D2 --> P5
-    P5 -- "LLM prompt" --> User
-    P5 -- "smell report + plan" --> User
-
-    D2 --> P6
-    P6 -- "risk / impact / dead code / metrics" --> User
-
-    P1 -- ".git data" --> P7
-    P7 -- "commit history" --> User
-
-    User -- "session id" --> P8
-    P8 <--> D3
-    P8 -. "scopes all access" .-> D1
-    P8 -. "scopes all access" .-> D2
+    SD --> SG --> PB --> LLM --> PARSE
+    PARSE -- Yes --> PLAN
+    PARSE -- "No / error / no API key" --> FALLBACK --> PLAN
