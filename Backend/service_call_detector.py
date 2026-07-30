@@ -65,14 +65,31 @@ def _service_hostname_variants(service_id: str) -> List[str]:
     return [v for v in variants if len(v) >= _MIN_VARIANT_LEN]
 
 
+def _hostname_matches(hostname: str, lower_line: str) -> bool:
+    """Match `hostname` as its own token, not as a run inside a longer word.
+
+    Only alphanumerics count as "part of the same word" on either side —
+    '_' and '-' are treated as separators, not continuations. That's the
+    deliberate asymmetry here: it blocks 'auth' from matching inside
+    'author'/'authorize'/'authservice' (a letter runs straight on), while
+    still matching it in the extremely common env-var/hostname styles
+    'AUTH_SERVICE_URL', 'auth-service-v2', 'MY_AUTH_SERVICE_HOST' — all of
+    which butt a '_' or '-' right up against the hostname. A stricter
+    boundary that also excluded '_'/'-' would silently stop detecting most
+    real *_SERVICE_URL / *_HOST / *_ENDPOINT config vars, trading one false
+    positive for a much more common false negative.
+    """
+    pattern = r"(?<![a-z0-9])" + re.escape(hostname) + r"(?![a-z0-9])"
+    return re.search(pattern, lower_line) is not None
+
+
 def detect_http_calls(services: List[dict]) -> List[DetectedConnection]:
     hostname_to_service: Dict[str, str] = {}
     for svc in services:
         for variant in _service_hostname_variants(svc["service_id"]):
             hostname_to_service[variant.lower()] = svc["service_id"]
 
-    connections: List[DetectedConnection] = []
-    seen_pairs = set()
+    best: Dict[tuple, DetectedConnection] = {}
     for svc in services:
         src_id = svc["service_id"]
         for file_info in svc.get("files", []):
@@ -85,22 +102,23 @@ def detect_http_calls(services: List[dict]) -> List[DetectedConnection]:
                 if not (has_http_keyword or has_url_scheme):
                     continue
                 for hostname, target_id in hostname_to_service.items():
-                    if target_id == src_id or hostname not in lower:
+                    if target_id == src_id or not _hostname_matches(hostname, lower):
                         continue
                     pair_key = (src_id, target_id)
-                    if pair_key in seen_pairs:
-                        continue
-                    seen_pairs.add(pair_key)
-                    connections.append(DetectedConnection(
+                    confidence = 0.85 if (has_http_keyword and has_url_scheme) else 0.6
+                    candidate = DetectedConnection(
                         from_service=src_id,
                         to_service=target_id,
                         type="REST",
                         label=f"HTTP call to {target_id}",
                         evidence_file=path,
                         evidence_line=line_no,
-                        confidence=0.85 if (has_http_keyword and has_url_scheme) else 0.6,
-                    ))
-    return connections
+                        confidence=confidence,
+                    )
+                    existing = best.get(pair_key)
+                    if existing is None or candidate.confidence > existing.confidence:
+                        best[pair_key] = candidate
+    return list(best.values())
 
 
 def _scan_mq_keywords(services: List[dict], keywords: List[str]) -> Dict[str, List[tuple]]:
