@@ -1,29 +1,27 @@
-stateDiagram-v2
-    [*] --> Created : POST /start-session
+sequenceDiagram
+    actor U as User
+    participant FE as GraphView.vue
+    participant API as FastAPI (main.py)
+    participant SD as smell_detector.py
+    participant SG as smell_graph.py
+    participant LE as llm_engine.py
+    participant GROQ as Groq LLM API
 
-    Created --> Active : Upload received\n(POST /upload)
+    U->>FE: Open "Smell Analysis" panel
+    FE->>API: GET /smell-analysis
+    API->>SD: detect_smells(graph)
+    SD-->>API: function/module/architecture smells
+    API->>SG: build_dependency_graph(smells)
+    SG->>SG: root-cause BFS + greedy set-cover
+    SG-->>API: ranked fix plan
+    API-->>FE: { severity_summary, ranked_files, fix_plan }
+    FE->>FE: Render smell panel
 
-    Active --> Idle : No API request\nfor a period
-    Idle --> Active : New request\n(X-Session-ID header)
-
-    Idle --> Expired : Idle > 3 hours\n(background cleanup task, every 30 min)
-
-    Active --> Ended : DELETE /end-session\n(sendBeacon on tab close)
-    Idle --> Ended : DELETE /end-session
-
-    Expired --> Cleaned : Delete Neo4j nodes,\ndisk uploads, in-memory cache
-    Ended --> Cleaned : Delete Neo4j nodes,\ndisk uploads, in-memory cache
-
-    Cleaned --> [*]
-
-    note right of Active
-        Tier-1/2/3 graphs, patterns,
-        smells, metrics all scoped
-        to this session_id
-    end note
-
-    note right of Expired
-        Auto-expiry guards against
-        resource leakage from
-        abandoned sessions
-    end note
+    U->>FE: Click "AI Refactor Plan"
+    FE->>API: POST /llm-refactor-reason (smell summary)
+    API->>LE: generate_refactor_reasoning(summary)
+    LE->>GROQ: prompt (architectural context)
+    GROQ-->>LE: completion (root cause, steps)
+    LE-->>API: parsed plan
+    API-->>FE: { executive_summary, root_cause, steps, recommendation }
+    FE->>FE: Render LLM plan box

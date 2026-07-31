@@ -280,6 +280,70 @@ graph TB
 
 > **Note:** The Service Tier / monorepo microservice-detection capability (service graph, per-service drill-down, auto-detected inter-service connections) is implemented in code (`service_call_detector.py`, `GET /service-graph`) but is intentionally left out of this SRS revision — use case model, functional requirements, DFDs, ER diagram, and sequence diagrams — and will be documented here once the feature is finalized for release.
 
+### 4.3 Activity Diagram — Code Smell Analysis & AI Refactor Plan (UC7, UC8)
+
+```mermaid
+flowchart TD
+    START(("Start"))
+    A1["Upload source code<br/>file / ZIP / folder"]
+    A2["Parse with Tree-sitter,<br/>build call graph & metrics"]
+    A3["Run code smell analysis<br/>smell_detector.py"]
+    D1{"Smells<br/>detected?"}
+    A4["Build dependency graph +<br/>greedy set-cover fix plan<br/>smell_graph.py"]
+    A5["User requests<br/>AI Refactor Plan"]
+    A6["_build_prompt()<br/>smell summary + plan +<br/>project context"]
+    A7["Call Groq API<br/>llama-3.3-70b-versatile"]
+    D2{"Valid JSON<br/>response?"}
+    A8["_fallback_plan()<br/>static-analysis-only plan"]
+    A9["Render structured<br/>refactor plan in UI"]
+    END1(("End"))
+    END2(("End"))
+
+    START --> A1 --> A2 --> A3 --> D1
+    D1 -- No --> END2
+    D1 -- Yes --> A4 --> A5 --> A6 --> A7 --> D2
+    D2 -- Yes --> A9
+    D2 -- "No / error / no API key" --> A8 --> A9
+    A9 --> END1
+```
+
+### 4.4 Activity Diagram — Overall System Workflow
+
+```mermaid
+flowchart TD
+    START(("Start"))
+    S1["Create / restore session<br/>UC13"]
+    S2["Upload source code<br/>UC1"]
+    S3["Parse &amp; build 3-tier<br/>code graph"]
+    HUB{"Select an action"}
+    U2["Browse 3-Tier Graph<br/>UC2"]
+    U3["Search Code Entities<br/>UC3"]
+    U5["Detect Architecture Patterns<br/>UC5"]
+    U6["Analyze Layer Violations<br/>UC6"]
+    U78["Smell Analysis + AI Refactor Plan<br/>UC7, UC8 — see 4.3"]
+    U9["View Dependency Risk Score<br/>UC9"]
+    U10["Run Change Impact Analysis<br/>UC10"]
+    U11["Detect Dead Code<br/>UC11"]
+    U12["View Git History &amp;<br/>Quality Trend — UC12"]
+    D1{"Close tab, or session<br/>idle &gt; 3h?"}
+    S4["End / expire session<br/>cleanup Neo4j + disk + cache<br/>UC13"]
+    END(("End"))
+
+    START --> S1 --> S2 --> S3 --> HUB
+    HUB --> U2 --> HUB
+    HUB --> U3 --> HUB
+    HUB --> U5 --> HUB
+    HUB --> U6 --> HUB
+    HUB --> U78 --> HUB
+    HUB --> U9 --> HUB
+    HUB --> U10 --> HUB
+    HUB --> U11 --> HUB
+    HUB --> U12 --> HUB
+    HUB --> D1
+    D1 -- No --> HUB
+    D1 -- Yes --> S4 --> END
+```
+
 ---
 
 ## 5. Functional Requirements (System Features)

@@ -1,12 +1,22 @@
-flowchart LR
-    User["Developer / Architect<br/>(External Entity)"]
-    System(("CodeFlow<br/>System"))
-    Neo[("Neo4j Graph DB")]
-    Groq["Groq LLM API"]
+flowchart TD
+    START(("Start"))
+    A1["Upload source code<br/>file / ZIP / folder"]
+    A2["Parse with Tree-sitter,<br/>build call graph & metrics"]
+    A3["Run code smell analysis<br/>smell_detector.py"]
+    D1{"Smells<br/>detected?"}
+    A4["Build dependency graph +<br/>greedy set-cover fix plan<br/>smell_graph.py"]
+    A5["User requests<br/>AI Refactor Plan"]
+    A6["_build_prompt()<br/>smell summary + plan +<br/>project context"]
+    A7["Call Groq API<br/>llama-3.3-70b-versatile"]
+    D2{"Valid JSON<br/>response?"}
+    A8["_fallback_plan()<br/>static-analysis-only plan"]
+    A9["Render structured<br/>refactor plan in UI"]
+    END1(("End"))
+    END2(("End"))
 
-    User -- "Source code (file/zip/folder)" --> System
-    System -- "Graphs, metrics, reports,<br/>diagrams, recommendations" --> User
-    System -- "Store / query code graph" --> Neo
-    Neo -- "Graph data" --> System
-    System -- "Smell summary prompt" --> Groq
-    Groq -- "Refactor plan (text)" --> System
+    START --> A1 --> A2 --> A3 --> D1
+    D1 -- No --> END2
+    D1 -- Yes --> A4 --> A5 --> A6 --> A7 --> D2
+    D2 -- Yes --> A9
+    D2 -- "No / error / no API key" --> A8 --> A9
+    A9 --> END1
