@@ -2034,28 +2034,24 @@ const onNodeClick = async ({ node }) => {
     });
     const res = await response.json();
     pushNav(node.data?.label || node.id);
-    
-    // ← এইটাই key fix: শুধু clicked module + তার children দেখাও
-    const parentLevel = nodeLevelMap.value.get(node.id) ?? 0;
+
+    // Mirror the file→function drill-down (Tier-3): show only this module's
+    // own files, connected by their real cross-file call edges — not the
+    // module box re-drawn as a parent above its children.
     const newChildNodes = res.nodes.map((f, index) => {
       const pos = getRootChildPosition(node, index, res.nodes.length);
-      nodeLevelMap.value.set(f.id, parentLevel + 1);
+      nodeLevelMap.value.set(f.id, 0);
       return createNode(f.id, pos, { fullLabel: f.id, nodeType: 'file', language: f.language });
     });
 
-    const structuralEdges = makeParentChildEdges(node, newChildNodes);
-    const peerEdges = toVueFlowEdges(res.edges, [node, ...newChildNodes]);
-    const allEdgesRaw = [...structuralEdges, ...peerEdges];
-
-    // ← Dagre layout: module উপরে, files নিচে (TB = top to bottom)
-    const layoutedNodes = applyDagreLayout([node, ...newChildNodes], res.edges, { rankdir: 'TB', nodesep: 60, ranksep: 140 });
+    const layoutedNodes = applyDagreLayout(newChildNodes, res.edges, { rankdir: 'TB', nodesep: 60, ranksep: 140 });
 
     nodes.value = layoutedNodes;
-    edges.value = toVueFlowEdges(allEdgesRaw, layoutedNodes);
+    edges.value = toVueFlowEdges(res.edges, layoutedNodes);
     expandedNodes.value.clear();
     expandedNodes.value.add(node.id);
     nodeLevelMap.value.clear();
-    layoutedNodes.forEach((n, i) => nodeLevelMap.value.set(n.id, n.id === node.id ? 0 : 1));
+    layoutedNodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
 
     await nextTick();
     fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
