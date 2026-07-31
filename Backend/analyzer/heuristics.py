@@ -123,6 +123,21 @@ def _is_likely_runtime_invoked(name: str) -> bool:
     return False
 
 
+_ANONYMOUS_NAME_RE = re.compile(r'^anonymous_\d+$')
+
+
+def _is_anonymous_callback(name: str) -> bool:
+    """True for the parser's `anonymous_<line>` fallback name (see
+    UniversalParser._extract_functions), assigned only when a function
+    expression has no name of its own — i.e. it sits inline as a call
+    argument, object-literal callback, or IIFE. Such a literal's only
+    appearance IS its invocation site, so it is always run by whatever
+    received it; a missing fan_in edge here is the AST call-graph's blind
+    spot for argument-passed callbacks, not evidence of dead code.
+    """
+    return bool(_ANONYMOUS_NAME_RE.match(name))
+
+
 def _compute_nesting_depth(body: str) -> int:
     """Compute max brace-nesting depth inside a function body string.
 

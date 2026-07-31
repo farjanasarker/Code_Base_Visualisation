@@ -6,6 +6,7 @@ file or god-file chunk (tier 3), plus a flat all-files graph.
 from pathlib import Path
 from typing import Dict, List
 
+from .heuristics import _is_anonymous_callback
 from .imports_resolution import _build_stem_to_files, _module_basename, _resolve_import
 
 
@@ -204,6 +205,13 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
     if not file_fns:
         # God file chunk case: virtual_module id দিয়ে call হয়েছে
         file_fns = [fn for fn in all_functions if fn.get("virtual_module") == file_path]
+
+    # Inline anonymous callbacks (db.query/.then/.addEventListener arguments, IIFEs,
+    # multer option handlers, ...) are still tracked upstream for accurate fan_in/
+    # dead-code/complexity — this only trims them from the rendered function graph,
+    # where dozens of un-clickable "anonymous_<line>" boxes add noise without a
+    # meaningful name to navigate to.
+    file_fns = [fn for fn in file_fns if not _is_anonymous_callback(fn.get("name", ""))]
 
     fn_names = {fn.get("name") for fn in file_fns}
 

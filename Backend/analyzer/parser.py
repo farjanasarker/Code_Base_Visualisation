@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple
 from .heuristics import (
     _compute_nesting_depth,
     _count_magic_literals,
+    _is_anonymous_callback,
     _is_entry_point,
     _is_likely_runtime_invoked,
     _is_private_name,
@@ -787,6 +788,15 @@ class UniversalParser:
 
             # Definitive entry points — OS / framework calls these
             if _is_entry_point(fn.name):
+                fn.is_dead = False
+                fn.dead_confidence = "none"
+                continue
+
+            # Inline anonymous function expressions (callback arguments,
+            # object-literal handlers, IIFEs) — the call-graph has no name
+            # to link a fan_in edge to, but the literal is always invoked
+            # at its definition site by whatever received it.
+            if _is_anonymous_callback(fn.name):
                 fn.is_dead = False
                 fn.dead_confidence = "none"
                 continue
