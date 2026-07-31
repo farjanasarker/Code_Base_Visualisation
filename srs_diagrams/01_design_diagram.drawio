@@ -1,0 +1,24 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="7.4 Design Diagram" id="d4a1c9e2">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1640" pageHeight="560" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="sd" value="smell_detector.py&#10;function/module/architecture smells" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=16;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="40" y="210" width="200" height="90" as="geometry" /></mxCell>
+        <mxCell id="sg" value="smell_graph.py&#10;dependency graph +&#10;greedy set-cover plan" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=16;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="300" y="210" width="200" height="90" as="geometry" /></mxCell>
+        <mxCell id="pb" value="_build_prompt()&#10;smell summary + plan +&#10;project context (data only)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=16;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="560" y="210" width="220" height="90" as="geometry" /></mxCell>
+        <mxCell id="llm" value="Groq API&#10;llama-3.3-70b-versatile&#10;temperature=0.20" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=16;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="840" y="210" width="200" height="90" as="geometry" /></mxCell>
+        <mxCell id="parse" value="Valid JSON&#10;response?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=16;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1100" y="195" width="160" height="120" as="geometry" /></mxCell>
+        <mxCell id="plan" value="Structured refactor plan&#10;rendered in LLM plan box" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=16;fontStyle=1;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1380" y="30" width="220" height="90" as="geometry" /></mxCell>
+        <mxCell id="fallback" value="_fallback_plan()&#10;static-analysis-only plan&#10;_source=static_analysis_fallback" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=16;fontColor=#1A1A1A;" vertex="1" parent="1"><mxGeometry x="1120" y="400" width="220" height="100" as="geometry" /></mxCell>
+        <mxCell id="e_sd_sg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="sd" target="sg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_sg_pb" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="sg" target="pb"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_pb_llm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="pb" target="llm"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_llm_parse" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="llm" target="parse"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_parse_plan" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;fontSize=14;" edge="1" parent="1" source="parse" target="plan"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1300" y="75" /></Array></mxGeometry></mxCell>
+        <mxCell id="e_parse_fallback" value="No / error / no API key" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;fontSize=14;" edge="1" parent="1" source="parse" target="fallback"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1180" y="450" /></Array></mxGeometry></mxCell>
+        <mxCell id="e_fallback_plan" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=block;endFill=1;" edge="1" parent="1" source="fallback" target="plan"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1490" y="450" /></Array></mxGeometry></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

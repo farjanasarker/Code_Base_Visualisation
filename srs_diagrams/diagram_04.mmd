@@ -1,12 +1,12 @@
 flowchart LR
-    SD["smell_detector.py<br/>function/module/architecture smells"]
-    SG["smell_graph.py<br/>dependency graph +<br/>greedy set-cover plan"]
-    PB["_build_prompt()<br/>smell summary + plan +<br/>project context (data only)"]
-    LLM["Groq API<br/>llama-3.3-70b-versatile<br/>temperature=0.20"]
-    PARSE{"Valid JSON<br/>response?"}
-    PLAN["Structured refactor plan<br/>rendered in LLM plan box"]
-    FALLBACK["_fallback_plan()<br/>static-analysis-only plan<br/>_source=static_analysis_fallback"]
+    User["Developer / Architect<br/>(External Entity)"]
+    System(("CodeFlow<br/>System"))
+    Neo[("Neo4j Graph DB")]
+    Groq["Groq LLM API"]
 
-    SD --> SG --> PB --> LLM --> PARSE
-    PARSE -- Yes --> PLAN
-    PARSE -- "No / error / no API key" --> FALLBACK --> PLAN
+    User -- "Source code (file/zip/folder)" --> System
+    System -- "Graphs, metrics, reports,<br/>diagrams, recommendations" --> User
+    System -- "Store / query code graph" --> Neo
+    Neo -- "Graph data" --> System
+    System -- "Smell summary prompt" --> Groq
+    Groq -- "Refactor plan (text)" --> System

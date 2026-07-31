@@ -1,26 +1,57 @@
-sequenceDiagram
-    actor U as User
-    participant FE as GraphView.vue
-    participant API as FastAPI (main.py)
-    participant DB as db.py / Neo4j
+erDiagram
+    MODULE {
+        string id
+        string name
+        string path
+        int file_count
+        int function_count
+        float avg_complexity
+        datetime created_at
+    }
+    FILE {
+        string id
+        string name
+        string path
+        string language
+        int size_bytes
+        int line_count
+        int function_count
+        boolean is_data_file
+        boolean is_god_file
+        string checksum
+    }
+    FUNCTION {
+        string id
+        string name
+        string file_path
+        int line_start
+        int line_end
+        int cyclomatic_complexity
+        int fan_in
+        int fan_out
+        boolean is_public
+    }
+    VIRTUAL_MODULE {
+        string id
+        string name
+        string source_file
+        string chunk_strategy
+        int line_start
+        int line_end
+        int function_count
+    }
+    SESSION {
+        string session_id
+        datetime created_at
+        datetime last_active
+        string upload_path
+    }
 
-    U->>FE: Click Module node
-    FE->>API: GET /graph/tier2/{module_name}
-    API->>DB: query files in module
-    DB-->>API: file nodes + edges
-    API-->>FE: tier2_graph
-    FE->>FE: push breadcrumb, render Tier-2
-
-    U->>FE: Click File node
-    FE->>API: GET /graph/tier3?file_path=...
-    API->>DB: query functions in file
-    DB-->>API: function nodes + CALLS edges
-    API-->>FE: tier3_graph
-    FE->>FE: push breadcrumb, render Tier-3
-
-    U->>FE: Click Function node
-    FE->>API: GET /expand/{function_name}
-    API->>DB: query direct callers/callees
-    DB-->>API: neighbor nodes
-    API-->>FE: expanded subgraph
-    FE->>FE: merge into canvas inline
+    MODULE ||--o{ FILE : "BELONGS_TO"
+    FILE ||--o{ FUNCTION : "DEFINED_IN"
+    FILE ||--o{ VIRTUAL_MODULE : "BELONGS_TO (god file)"
+    VIRTUAL_MODULE ||--o{ FUNCTION : "DEFINED_IN (chunked)"
+    FUNCTION }o--o{ FUNCTION : "CALLS (frequency, line)"
+    SESSION ||--o{ MODULE : "scopes"
+    SESSION ||--o{ FILE : "scopes"
+    SESSION ||--o{ FUNCTION : "scopes"

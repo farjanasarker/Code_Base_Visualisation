@@ -1,41 +1,32 @@
-flowchart TB
-    User["Developer"]
+flowchart TD
+    START(("Start"))
+    S1["Create / restore session<br/>UC13"]
+    S2["Upload source code<br/>UC1"]
+    S3["Parse &amp; build 3-tier<br/>code graph"]
+    HUB{"Select an action"}
+    U2["Browse 3-Tier Graph<br/>UC2"]
+    U3["Search Code Entities<br/>UC3"]
+    U5["Detect Architecture Patterns<br/>UC5"]
+    U6["Analyze Layer Violations<br/>UC6"]
+    U78["Smell Analysis + AI Refactor Plan<br/>UC7, UC8 — see 4.3"]
+    U9["View Dependency Risk Score<br/>UC9"]
+    U10["Run Change Impact Analysis<br/>UC10"]
+    U11["Detect Dead Code<br/>UC11"]
+    U12["View Git History &amp;<br/>Quality Trend — UC12"]
+    D1{"Close tab, or session<br/>idle &gt; 3h?"}
+    S4["End / expire session<br/>cleanup Neo4j + disk + cache<br/>UC13"]
+    END(("End"))
 
-    P1["1.0<br/>Upload & Validate<br/>Source Code"]
-    P2["2.0<br/>Parse Code &<br/>Build Call Graph"]
-    P3["3.0<br/>Generate Tiered<br/>Visualization Graph"]
-    P4["4.0<br/>Detect Patterns /<br/>Layer Violations"]
-    P5["5.0<br/>Detect Code Smells &<br/>Generate AI Refactor Plan"]
-    P6["6.0<br/>Compute Risk / Impact /<br/>Dead Code / Metrics"]
-    P7["7.0<br/>Extract Git History"]
-    P8["8.0<br/>Manage Session"]
-
-    D1[("D1: Uploaded Files<br/>(disk)")]
-    D2[("D2: Code Graph<br/>(Neo4j, session scoped)")]
-    D3[("D3: Session Store<br/>(in-memory + Neo4j)")]
-
-    User -- "raw code" --> P1
-    P1 -- "validated files" --> D1
-    P1 -- "validated files" --> P2
-    P2 -- "AST / functions / calls" --> D2
-    P2 --> P3
-    D2 --> P3
-    P3 -- "tier graphs" --> User
-
-    D2 --> P4
-    P4 -- "patterns / violations" --> User
-
-    D2 --> P5
-    P5 -- "LLM prompt" --> User
-    P5 -- "smell report + plan" --> User
-
-    D2 --> P6
-    P6 -- "risk / impact / dead code / metrics" --> User
-
-    P1 -- ".git data" --> P7
-    P7 -- "commit history" --> User
-
-    User -- "session id" --> P8
-    P8 <--> D3
-    P8 -. "scopes all access" .-> D1
-    P8 -. "scopes all access" .-> D2
+    START --> S1 --> S2 --> S3 --> HUB
+    HUB --> U2 --> HUB
+    HUB --> U3 --> HUB
+    HUB --> U5 --> HUB
+    HUB --> U6 --> HUB
+    HUB --> U78 --> HUB
+    HUB --> U9 --> HUB
+    HUB --> U10 --> HUB
+    HUB --> U11 --> HUB
+    HUB --> U12 --> HUB
+    HUB --> D1
+    D1 -- No --> HUB
+    D1 -- Yes --> S4 --> END

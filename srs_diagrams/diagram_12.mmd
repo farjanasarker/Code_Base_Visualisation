@@ -1,0 +1,29 @@
+sequenceDiagram
+    actor U as User
+    participant FE as App (main.js)
+    participant SM as sessionManager.js
+    participant API as FastAPI (main.py)
+    participant DB as db.py / Neo4j
+
+    FE->>SM: init()
+    SM->>SM: check sessionStorage for existing session_id
+    alt no existing session
+        SM->>API: POST /start-session
+        API-->>SM: new session_id
+        SM->>SM: persist in sessionStorage
+    end
+
+    loop every API call
+        FE->>API: request + X-Session-ID header
+        API->>API: scope query by session_id
+    end
+
+    Note over API: Background task every 30 min
+    API->>API: scan sessions, expire if idle > 3h
+    API->>DB: delete expired session nodes
+    API->>API: delete expired upload dirs
+
+    U->>FE: Close tab
+    FE->>API: DELETE /end-session (via sendBeacon)
+    API->>DB: delete session nodes
+    API->>API: delete disk uploads, clear cache

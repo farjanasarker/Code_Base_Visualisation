@@ -2,26 +2,25 @@ sequenceDiagram
     actor U as User
     participant FE as GraphView.vue
     participant API as FastAPI (main.py)
-    participant SD as smell_detector.py
-    participant SG as smell_graph.py
-    participant LE as llm_engine.py
-    participant GROQ as Groq LLM API
+    participant DB as db.py / Neo4j
 
-    U->>FE: Open "Smell Analysis" panel
-    FE->>API: GET /smell-analysis
-    API->>SD: detect_smells(graph)
-    SD-->>API: function/module/architecture smells
-    API->>SG: build_dependency_graph(smells)
-    SG->>SG: root-cause BFS + greedy set-cover
-    SG-->>API: ranked fix plan
-    API-->>FE: { severity_summary, ranked_files, fix_plan }
-    FE->>FE: Render smell panel
+    U->>FE: Click Module node
+    FE->>API: GET /graph/tier2/{module_name}
+    API->>DB: query files in module
+    DB-->>API: file nodes + edges
+    API-->>FE: tier2_graph
+    FE->>FE: push breadcrumb, render Tier-2
 
-    U->>FE: Click "AI Refactor Plan"
-    FE->>API: POST /llm-refactor-reason (smell summary)
-    API->>LE: generate_refactor_reasoning(summary)
-    LE->>GROQ: prompt (architectural context)
-    GROQ-->>LE: completion (root cause, steps)
-    LE-->>API: parsed plan
-    API-->>FE: { executive_summary, root_cause, steps, recommendation }
-    FE->>FE: Render LLM plan box
+    U->>FE: Click File node
+    FE->>API: GET /graph/tier3?file_path=...
+    API->>DB: query functions in file
+    DB-->>API: function nodes + CALLS edges
+    API-->>FE: tier3_graph
+    FE->>FE: push breadcrumb, render Tier-3
+
+    U->>FE: Click Function node
+    FE->>API: GET /expand/{function_name}
+    API->>DB: query direct callers/callees
+    DB-->>API: neighbor nodes
+    API-->>FE: expanded subgraph
+    FE->>FE: merge into canvas inline
