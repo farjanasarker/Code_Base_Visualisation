@@ -72,13 +72,15 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
 
         if strategy == "god_file":
             chunks = chunk_god_file(file_path, content, lang, parsed_dicts)
-            # assign virtual modules
+            # assign virtual modules directly on the dicts already grouped per chunk —
+            # these are the same dict objects backing each ParsedFunction (p.__dict__),
+            # so mutating them here mutates `parsed` in place. Matching by name instead
+            # (the old approach) mis-assigns every function sharing a common name
+            # (__init__, forward, run, ...) to whichever chunk processes that name last.
             for chunk in chunks:
-                names_in_chunk = {f["name"] for f in chunk["functions"]}
-                for p in parsed:
-                    if p.name in names_in_chunk:
-                        p.virtual_module = chunk["virtual_module"]
-                        p.is_god_file = True
+                for f in chunk["functions"]:
+                    f["virtual_module"] = chunk["virtual_module"]
+                    f["is_god_file"] = True
 
         all_functions.extend(parsed)
 
@@ -155,6 +157,7 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
             "risk_level": fn.risk_level,
             "is_dead": fn.is_dead,
             "dead_confidence": fn.dead_confidence,
+            "is_god_file": fn.is_god_file,
             "param_count":       _fn_param_count(fn, file_content_map),
             "max_nesting_depth": fn.max_nesting_depth,
             "literal_count":     fn.literal_count,
