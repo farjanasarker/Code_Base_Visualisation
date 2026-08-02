@@ -1,9 +1,10 @@
 # Code Smell Detection — কী কী লজিক দিয়ে কাজ করে
 
-এই ডকুমেন্টে ৩টা জিনিস ব্যাখ্যা করা হয়েছে:
+এই ডকুমেন্টে ৪টা জিনিস ব্যাখ্যা করা হয়েছে:
 1. Code smell **detection** এর পেছনের লজিক (কোন ফাইলে, কীভাবে)
 2. **ROI Plan** (তুমি যেটাকে "RIO plan" বলেছ) — কীভাবে fix-priority ঠিক হয়
 3. **"By Layer"** এবং **"Fix Tree"** (তুমি যেটাকে "by lear" আর "fixed tree" বলেছ) কী বোঝায়
+4. **Debt Score** (Technical Debt Score) — কীভাবে হিসাব হয় এবং এর মানে কী
 
 > Source ফাইল: `Backend/analyzer.py`, `Backend/smell_detector.py`, `Backend/smell_graph.py`, `Backend/main.py`, `Backend/llm_engine.py`
 
@@ -140,7 +141,39 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৮. সারমর্ম — কোথায় কী আছে
+## ৮. Debt Score (তোমার "DEBT score") — `main.py:_extract_functions` এর পরের ধাপ (`main.py:1675-1680`)
+
+UI তে "Debt Score" আর "Est. Dev Days" নামে যে দুইটা সংখ্যা দেখায় (screenshot এ `debt-stats` অংশ), সেটাও কোনো ML/AI স্কোর না — একটা সহজ weighted-sum ফর্মুলা, ROI Plan যে দুইটা জিনিস (`SEVERITY_WEIGHTS`, `SMELL_CAUSATION` এর `effort`) আগে থেকেই ব্যবহার করে সেগুলো দিয়েই বানানো।
+
+### হিসাব:
+
+```
+total_debt_score = Σ (severity_weight(smell) × effort(smell.type))   — সব detected smell এর উপর যোগফল
+```
+
+- `severity_weight`: critical=4, high=3, medium=2, low=1 (`SEVERITY_WEIGHTS`, `smell_detector.py:54`)
+- `effort`: প্রতিটা smell **type**-এর জন্য fix করতে কতটা কষ্ট লাগে তার raw মান (১-৫ স্কেল, `SMELL_CAUSATION[type]["effort"]`, না পেলে default 2)। এটা ROI Plan এ যে `effort` ব্যবহার হয় সেই একই সংখ্যা — round/clamp করা হয় না এখানে।
+
+তারপর:
+
+```
+estimated_dev_days = total_debt_score / 24
+```
+
+**২৪ দিয়ে ভাগ করার মানে:** এই ভাগফলটা একটা fixed conversion constant — মোট "debt point" যোগফলকে একটা মোটামুটি developer-day estimate এ রূপান্তর করার জন্য বসানো হয়েছে (কোনো time-tracking data থেকে derive করা না, একটা arbitrary কিন্তু consistent স্কেলিং factor)।
+
+### এর মানে কী:
+
+- **কোনো single "code quality percentage" না** — এটা একটা **absolute/cumulative সংখ্যা**, যত বেশি smell থাকবে (এবং যত বেশি severe + fix-করা-কঠিন হবে), সংখ্যাটা তত বড় হবে। তাই দুইটা ভিন্ন codebase এর মধ্যে compare করা যায় (কোনটার debt বেশি), কিন্তু একা একটা সংখ্যা দেখে "৭০% ভালো কোড" এই টাইপ ব্যাখ্যা করা যায় না।
+- এতে **প্রতিটা detected smell instance-এর অবদান আছে** — শুধু root-cause smell না (এটাই ROI Plan/root_cause_score থেকে পার্থক্য, যেখানে শুধু downstream cascade গোনা হয়)। মানে ১০০টা ছোট `magic_numbers` smell থাকলেও সেগুলো মিলে debt score-এ যোগ হবে, একটা বড় `god_module` এর পাশাপাশি।
+- **Severity আর Effort দুটোই একসাথে count হয়** — শুধু "কতগুলো smell আছে" গোনা হয় না; একটা `critical` severity + বেশি `effort` লাগা smell (যেমন `god_module`, weight 4 × effort 5 = 20) একটা `low` severity + কম effort smell (যেমন `magic_numbers`, weight 1 × effort 1 = 1)-এর চেয়ে অনেক বেশি অবদান রাখে debt score এ।
+- **`estimated_dev_days`** — এটা debt score-এর একটা "মানুষের বোঝার মতো" রূপান্তর: "পুরো codebase-এর সব smell ঠিক করতে মোটামুটি কত developer-day লাগতে পারে" — একটা rough approximation, প্রকৃত effort estimation টুল (story point, sprint planning) না।
+
+**সংক্ষেপে:** Debt Score = "পুরো codebase জুড়ে যত smell আছে, প্রতিটার severity ও fix-effort মিলিয়ে ভারিত (weighted) মোট বোঝা" — সংখ্যাটা যত বড়, technical debt তত বেশি জমে আছে।
+
+---
+
+## ৯. সারমর্ম — কোথায় কী আছে
 
 | জিনিস | ফাইল | Function/Variable |
 |---|---|---|
@@ -152,6 +185,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 | **ROI Plan** | `smell_graph.py` | `minimal_fix_plan()` → `roi_score` |
 | **By Layer grouping** | `main.py` | `_group_smells_by_layer()` |
 | **Fix Tree** | `main.py` | `_build_fix_tree()` |
+| **Debt Score** | `main.py` | `total_debt_score`, `estimated_dev_days` (`main.py:1675-1680`) |
 | LLM reasoning (WHY/HOW, detection না) | `llm_engine.py` | system prompt + `get_code_preview` |
 
 **এক লাইনে বললে:** পুরো detection ১০০% rule-based static analysis (কোনো machine learning/trained model নেই, সব fixed threshold আর graph algorithm), আর LLM শুধু শেষে এসে already-detected smell গুলোর architectural reasoning আর before/after code example দেয়।

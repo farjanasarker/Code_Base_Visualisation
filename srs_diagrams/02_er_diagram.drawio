@@ -1,82 +1,63 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Data Model (ER Diagram)" id="add7fb12">
-    <mxGraphModel dx="1585" dy="865" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="820" background="light-dark(#FFFFFF,#FFFFFF)" math="0" shadow="0">
+    <mxGraphModel dx="1471" dy="803" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="820" background="light-dark(#FFFFFF,#FFFFFF)" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="session" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=light-dark(#FFFFFF,#CCCCCC);strokeColor=#333333;fontSize=12;fontColor=#1A1A1A;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;SESSION&lt;/font&gt;&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;session_id (PK)&lt;br&gt;created_at&lt;br&gt;last_active&lt;/font&gt;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="110" width="220" x="40" y="260" as="geometry" />
+        <mxCell id="module" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=19;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;MODULE&lt;/font&gt;&lt;/b&gt;&lt;hr&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;name (PK)&lt;br&gt;session_id (PK)&lt;/font&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="120" width="260" x="124" y="80" as="geometry" />
         </mxCell>
-        <mxCell id="module" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=light-dark(#FFFFFF,#CCCCCC);strokeColor=#333333;fontSize=12;fontColor=#1A1A1A;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;MODULE&lt;/font&gt;&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;name (PK)&lt;br&gt;session_id (PK)&lt;/font&gt;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="120" width="260" x="340" y="80" as="geometry" />
+        <mxCell id="file" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=19;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;FILE&lt;/font&gt;&lt;/b&gt;&lt;hr&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;path (PK)&lt;br&gt;language&lt;br&gt;session_id (PK)&lt;/font&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="140" width="260" x="164" y="280" as="geometry" />
         </mxCell>
-        <mxCell id="file" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=light-dark(#FFFFFF,#CCCCCC);strokeColor=#333333;fontSize=12;fontColor=#1A1A1A;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;FILE&lt;/font&gt;&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;path (PK)&lt;br&gt;language&lt;br&gt;session_id (PK)&lt;/font&gt;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="140" width="260" x="380" y="280" as="geometry" />
+        <mxCell id="function" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=19;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;FUNCTION&lt;/font&gt;&lt;/b&gt;&lt;hr&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;name (PK)&lt;br&gt;file (PK)&lt;br&gt;session_id (PK)&lt;br&gt;line_start / line_end&lt;br&gt;complexity, language&lt;br&gt;fan_in, fan_out&lt;br&gt;virtual_module&lt;/font&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="220" width="260" x="117" y="500" as="geometry" />
         </mxCell>
-        <mxCell id="function" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=light-dark(#FFFFFF,#CCCCCC);strokeColor=#333333;fontSize=12;fontColor=#1A1A1A;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;FUNCTION&lt;/font&gt;&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;name (PK)&lt;br&gt;file (PK)&lt;br&gt;session_id (PK)&lt;br&gt;line_start / line_end&lt;br&gt;complexity, fan_in, fan_out&lt;br&gt;virtual_module&lt;/font&gt;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="210" width="260" x="333" y="500" as="geometry" />
-        </mxCell>
-        <mxCell id="chunk" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=light-dark(#FFFFFF,#CCCCCC);strokeColor=#333333;fontSize=12;fontColor=#1A1A1A;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;CHUNK&lt;/font&gt;&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;name (PK)&lt;br&gt;session_id (PK)&lt;br&gt;(god-file virtual module)&lt;/font&gt;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="110" width="240" x="700" y="500" as="geometry" />
-        </mxCell>
-        <mxCell id="note" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=14;fillColor=none;fontSize=12;" value="&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;Dashed edge = many-to-many&lt;br&gt;self-relationship&lt;/font&gt;&lt;/span&gt;" vertex="1">
-          <mxGeometry height="80" width="260" x="700" y="80" as="geometry" />
-        </mxCell>
-        <mxCell id="e0_58f559" edge="1" parent="1" source="session" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=1;exitY=0;exitDx=0;exitDy=0;" value="1..N">
+        <mxCell id="e3_ecc3c4" edge="1" parent="1" source="file" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=0.362;exitY=0.021;exitDx=0;exitDy=0;exitPerimeter=0;fontSize=19;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;BELONGS_TO  N..1&lt;/font&gt;">
           <mxGeometry relative="1" as="geometry">
-            <mxPoint x="199.92000000000002" y="315" as="sourcePoint" />
-            <mxPoint x="409.9969230769229" y="200" as="targetPoint" />
+            <mxPoint x="295.07692307692287" y="280" as="sourcePoint" />
+            <mxPoint x="255.07692307692287" y="200" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="e1_935317" edge="1" parent="1" source="session" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=0.75;exitY=1;exitDx=0;exitDy=0;" value="1..N">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="e4_9dfcc0" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=none;strokeWidth=2;fontSize=19;" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;DEFINED_IN  N..1&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.3953" y="16" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="205" y="390.08" />
-              <mxPoint x="250.08" y="390.08" />
-              <mxPoint x="250.08" y="560.08" />
+              <mxPoint x="220" y="500" />
             </Array>
-            <mxPoint x="180" y="380" as="sourcePoint" />
-            <mxPoint x="330" y="560" as="targetPoint" />
+            <mxPoint x="214" y="500" as="sourcePoint" />
+            <mxPoint x="220.00000000000023" y="420" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="e3_ecc3c4" edge="1" parent="1" source="file" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=0.362;exitY=0.021;exitDx=0;exitDy=0;exitPerimeter=0;" value="BELONGS_TO  N..1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="511.07692307692287" y="280" as="sourcePoint" />
-            <mxPoint x="471.07692307692287" y="200" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e4_9dfcc0" edge="1" parent="1" source="function" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=none;" target="file" value="DEFINED_IN  N..1">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e5_66ea5e" edge="1" parent="1" source="function" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);dashed=1;endArrow=none;innerLoopWaypoints=1;" target="function" value="CALLS  N..N">
+        <mxCell id="e5_66ea5e" edge="1" parent="1" source="function" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);dashed=1;endArrow=none;innerLoopWaypoints=1;fontSize=19;" target="function" value="&lt;font style=&quot;font-size: 17px;&quot;&gt;CALLS  N..N&lt;/font&gt;">
           <mxGeometry relative="1" x="-0.1361" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="613" y="595" />
-              <mxPoint x="613" y="770.08" />
-              <mxPoint x="463" y="770.08" />
+              <mxPoint x="397" y="595" />
+              <mxPoint x="397" y="770.08" />
+              <mxPoint x="247" y="770.08" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e6_a00803" edge="1" parent="1" source="function" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=1;exitY=0.25;exitDx=0;exitDy=0;" value="PART_OF  N..1">
+        <mxCell id="e6_a00803" edge="1" parent="1" source="function" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=19;" target="chunk" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;PART_OF  N..1&lt;/font&gt;">
           <mxGeometry relative="1" as="geometry">
-            <mxPoint x="593" y="602" as="sourcePoint" />
-            <mxPoint x="700" y="552" as="targetPoint" />
+            <mxPoint x="377" y="602" as="sourcePoint" />
+            <mxPoint x="484" y="552" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="e7_cc595d" edge="1" parent="1" source="function" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;strokeWidth=2;strokeColor=light-dark(#000000,#000000);exitX=0.689;exitY=0.01;exitDx=0;exitDy=0;exitPerimeter=0;" target="file" value="IN_FILE  N..1">
+        <mxCell id="e7_cc595d" edge="1" parent="1" source="chunk" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;strokeWidth=2;strokeColor=light-dark(#000000,#000000);exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;fontSize=19;" target="file" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;IN_FILE  N..1&lt;/font&gt;">
           <mxGeometry relative="1" x="0.0469" as="geometry">
             <mxPoint y="1" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="wWJOSCIlftHvhrBqc4BO-1" edge="1" parent="1" source="session" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=light-dark(#000000,#000000);endArrow=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="file" value="1..N">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="330" y="400" as="sourcePoint" />
-            <mxPoint x="479.9969230769229" y="340" as="targetPoint" />
-          </mxGeometry>
+        <mxCell id="wWJOSCIlftHvhrBqc4BO-2" parent="1" style="swimlane;startSize=0;strokeColor=light-dark(#000000,#000000);strokeWidth=3;fontSize=19;" value="" vertex="1">
+          <mxGeometry height="790" width="860" x="20" y="10" as="geometry" />
         </mxCell>
-        <mxCell id="wWJOSCIlftHvhrBqc4BO-2" parent="1" style="swimlane;startSize=0;strokeColor=light-dark(#000000,#000000);strokeWidth=3;" value="" vertex="1">
-          <mxGeometry height="790" width="1010" x="20" y="10" as="geometry" />
+        <mxCell id="chunk" parent="wWJOSCIlftHvhrBqc4BO-2" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=19;" value="&lt;b style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;CHUNK&lt;/font&gt;&lt;/b&gt;&lt;hr&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;name (PK)&lt;br&gt;session_id (PK)&lt;br&gt;(god-file virtual module)&lt;/font&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="130" width="240" x="494" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="note" parent="wWJOSCIlftHvhrBqc4BO-2" style="shape=note;whiteSpace=wrap;html=1;size=14;fontSize=19;" value="&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;&lt;font&gt;Dashed edge = many-to-many&lt;br&gt;self-relationship&lt;/font&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="80" width="260" x="520" y="70" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
