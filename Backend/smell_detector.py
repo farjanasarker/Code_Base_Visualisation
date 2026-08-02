@@ -323,6 +323,14 @@ class SmellDetector:
             key = fn.get("module") or fn.get("file") or "unknown"
             buckets.setdefault(key, []).append(fn)
 
+        # Module names are flat directory-parent strings (e.g. "Backend",
+        # "Backend/analyzer") with no built-in parent/child relationship, so a
+        # folder that has both loose files and a subpackage ends up as two
+        # sibling buckets. Flag which ones have a nested sibling so the
+        # displayed name can make that relationship explicit instead of
+        # reading like an unrelated duplicate module.
+        module_keys = set(buckets.keys())
+
         out = []
         for mod, fns in buckets.items():
             n      = len(fns)
@@ -358,11 +366,17 @@ class SmellDetector:
                 "medium"
             )
             entity = "Class" if is_class_level else "Module"
+
+            has_child_modules = not is_class_level and any(
+                other != mod and other.startswith(mod + "/") for other in module_keys
+            )
+            display_name = f"{target_name} (root files)" if has_child_modules else target_name
+
             out.append(Smell(
                 type=smell_type,
                 severity=sev,
                 target_file=fns[0].get("file", "") if fns else mod,
-                target_name=target_name,
+                target_name=display_name,
                 language=fns[0].get("language", "") if fns else "",
                 metrics={
                     "function_count":  n,
@@ -370,7 +384,7 @@ class SmellDetector:
                     "total_fan_out":   total_fo,
                 },
                 description=(
-                    f"{entity} '{target_name}' has {n} methods (avg CC={avg_cc:.1f}) — "
+                    f"{entity} '{display_name}' has {n} methods (avg CC={avg_cc:.1f}) — "
                     f"Single Responsibility Principle violated"
                 ),
                 refactor_suggestions=REFACTOR_CATALOG[smell_type],
