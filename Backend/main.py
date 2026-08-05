@@ -1878,36 +1878,19 @@ async def api_detect_patterns(session_id: str, service_id: str | None = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _tier_from_confidence(confidence: float) -> str:
-    """Matches the frontend's existing pconf-high/med/low badge thresholds
-    (GraphView.vue), so patterns sourced from the older confidence-only
-    ArchitecturePatternDetector land in the same visual tier a user would
-    already associate with that confidence number.
-    """
-    if confidence >= 0.8:
-        return "high"
-    if confidence >= 0.65:
-        return "medium"
-    return "low"
-
-
 @app.get("/api/gof-patterns/{session_id}")
 async def api_detect_gof_patterns(session_id: str):
     """
-    Detect GoF design patterns (Strategy, ... more added phase by phase) in a
-    previously uploaded project. Rule-based, no LLM — evaluates declarative
-    rule specs (patterns/specs/*.yaml) against the class/interface graph in
-    Neo4j (populated by store_class_graph() at upload time), not
-    SESSION_CACHE.
+    Detect GoF design patterns in a previously uploaded project. Rule-based,
+    no LLM — evaluates declarative rule specs (patterns/specs/*.yaml)
+    against the class/interface graph in Neo4j (populated by
+    store_class_graph() at upload time), not SESSION_CACHE.
 
-    Also surfaces Singleton/Observer/Factory/Facade here: these are GoF
-    patterns, not architecture patterns, so ArchitecturePatternDetector.
-    detect_all() (used by /api/patterns) no longer lists them — they're
-    called directly from here instead, reusing the exact same detection
-    logic/confidence, just relocated to the panel that actually matches
-    what they are. Everything else in ArchitecturePatternDetector (MVC,
-    Layered, Clean Architecture, Hexagonal, Repository) is untouched and
-    stays exclusively in /api/patterns.
+    Singleton/Observer/Factory/Facade are structural specs here too (see
+    patterns/specs/singleton.yaml etc.) — no naming/keyword heuristics
+    anywhere in this endpoint. ArchitecturePatternDetector (MVC, Layered,
+    Clean Architecture, Hexagonal, Repository) is a separate, untouched
+    system exclusive to /api/patterns.
 
     Also merges in Go/Rust Singleton language-idiom matches (sync.Once,
     lazy_static!, OnceCell/OnceLock — computed at upload time and cached,
@@ -1951,53 +1934,7 @@ async def api_detect_gof_patterns(session_id: str):
                 for m in matches
             ]
 
-        # Singleton/Observer/Factory/Facade — same session_data construction
-        # /api/patterns uses, calling only these 4 detect_* methods directly
-        # rather than detect_all() (which no longer includes them at all).
-        legacy_gof_patterns = []
-        raw_functions = cache.get("functions", [])
-        all_files_cache = cache.get("all_files", [])
-        if raw_functions or all_files_cache:
-            fn_name_to_file = {fn["name"]: fn.get("file", "") for fn in raw_functions}
-            call_edges = [
-                {
-                    "caller_file":     fn.get("file", ""),
-                    "caller_function": fn.get("name", ""),
-                    "callee_function": callee_name,
-                    "callee_file":     fn_name_to_file.get(callee_name, ""),
-                }
-                for fn in raw_functions
-                for callee_name in fn.get("calls", [])
-            ]
-            session_data = {
-                "files":      [f["path"] for f in all_files_cache],
-                "functions":  raw_functions,
-                "call_edges": call_edges,
-            }
-            legacy_detector = ArchitecturePatternDetector(session_data)
-            for detect_fn in (
-                legacy_detector.detect_singleton, legacy_detector.detect_observer,
-                legacy_detector.detect_factory, legacy_detector.detect_facade,
-            ):
-                try:
-                    result = detect_fn()
-                except Exception:
-                    continue
-                if result is None or result.confidence < 0.55:
-                    continue
-                legacy_gof_patterns.append({
-                    "pattern":    result.pattern,
-                    "tier":       _tier_from_confidence(result.confidence),
-                    "confidence": result.confidence,
-                    "bindings": {
-                        role: ", ".join(files[:3]) + (f" +{len(files) - 3} more" if len(files) > 3 else "")
-                        for role, files in result.components.items() if files
-                    },
-                    "evidence":   result.evidence,
-                    "heuristic":  False,
-                })
-
-        patterns = structural_patterns + legacy_gof_patterns + idiom_patterns
+        patterns = structural_patterns + idiom_patterns
         return {
             "session_id":     session_id,
             "patterns_found": len(patterns),

@@ -148,14 +148,15 @@ def _load_fixture_files(root: Path) -> list[dict]:
     return files
 
 
-def test_legacy_gof_patterns_moved_out_of_architecture_panel(client, session_id):
-    """Confirms the requested move: Singleton/Observer/Factory/Facade no
-    longer appear in /api/patterns (ArchitecturePatternDetector.detect_all()
-    dropped them), and instead appear in /api/gof-patterns — same detection
-    logic/confidence, reused directly rather than duplicated, moved not
-    copied. Uses the legacy_mixed fixture, deliberately shaped to trigger
-    all of MVC/Layered/Clean Architecture/Hexagonal/Repository AND
-    Singleton/Observer/Factory/Facade (see test_regression_existing_detectors.py).
+def test_legacy_gof_patterns_no_longer_in_architecture_panel(client, session_id):
+    """Confirms Singleton/Observer/Factory/Facade no longer appear in
+    /api/patterns — ArchitecturePatternDetector.detect_all() dropped them
+    entirely (the naming-heuristic detect_singleton/_observer/_factory/
+    _facade methods were deleted, not just excluded from the list) since
+    they're now detected structurally instead, in patterns/specs/*.yaml
+    (see test_phase4_fixtures.py for their true-positive verification).
+    Still uses the legacy_mixed fixture since it's the one place that
+    deliberately triggers all 5 remaining architecture detectors together.
     """
     import main
     from analyzer.pipeline import analyze_files
@@ -174,12 +175,3 @@ def test_legacy_gof_patterns_moved_out_of_architecture_panel(client, session_id)
     assert not arch_found & {"Singleton", "Observer", "Factory", "Facade"}
     assert {"MVC", "Layered/N-Tier", "Clean Architecture", "Hexagonal Architecture",
             "Repository Pattern"} <= arch_found
-
-    gof_resp = client.get(f"/api/gof-patterns/{session_id}")
-    assert gof_resp.status_code == 200
-    gof_patterns = {p["pattern"]: p for p in gof_resp.json()["patterns"]}
-    for name in ("Singleton", "Observer", "Factory", "Facade"):
-        assert name in gof_patterns, f"{name} missing from /api/gof-patterns"
-        assert gof_patterns[name]["heuristic"] is False
-        assert gof_patterns[name]["tier"] in ("high", "medium", "low")
-        assert gof_patterns[name]["confidence"] >= 0.55

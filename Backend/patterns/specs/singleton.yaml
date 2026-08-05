@@ -1,0 +1,18 @@
+# Singleton — a class holds a field of its own type (the private/static
+# "instance" slot) and has a method that constructs a new instance of
+# itself (the lazily-initializing accessor). Structural replacement for
+# the old getInstance-naming heuristic — needs no such naming.
+#
+# tier: medium, not high — a private constructor and a null-check guard
+# before constructing are both part of Singleton's real definition, and
+# neither is visible in this graph (no access-modifier tracking, no
+# control-flow analysis), so this is closer to "co-occurrence of two
+# signals" than a verified enforcement of single-instance-ness.
+pattern: Singleton
+tier: medium
+requires:
+  - predicate: singleton_candidates
+    role: singleton_class
+confidence_weights:
+  singleton_candidates: 0.65
+min_confidence_to_report: 0.6

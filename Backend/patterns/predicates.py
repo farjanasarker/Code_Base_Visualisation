@@ -160,6 +160,25 @@ def composition_field_of_type(view: SessionGraphView, type_name: str) -> List[Ca
     return out
 
 
+def collection_composition_field_of_type(view: SessionGraphView, type_name: str) -> List[Candidate]:
+    """Like composition_field_of_type, but only the collection-cardinality
+    fields — Observer's differentiator from Strategy: a Subject holds a
+    *list* of observers, not a single one. Same list-vs-single distinction
+    that already separates Composite from Decorator/Proxy/Chain of
+    Responsibility elsewhere in this library.
+    """
+    out = []
+    for owner, edges in view.fields_of.items():
+        for e in edges:
+            if e.target == type_name and e.is_collection:
+                out.append(Candidate(
+                    binding=owner,
+                    evidence=[f"{_loc(view, owner)} has collection field '{e.field_name}: {type_name}[]'"],
+                    extra={"field_name": e.field_name, "is_collection": True},
+                ))
+    return out
+
+
 def delegates_to_field(view: SessionGraphView, class_name: str, field_name: str) -> PredicateResult:
     """Does some method on `class_name` call a method that also exists on
     the field's target class?
@@ -793,4 +812,99 @@ def interpreter_candidates(view: SessionGraphView) -> List[Candidate]:
                     extra={"field_name": e.field_name},
                 ))
                 break
+    return out
+
+
+# ── Structural replacements for the old naming-heuristic Singleton/
+# Observer/Factory/Facade detectors (ArchitecturePatternDetector) — same
+# vocabulary and evidence discipline as the rest of this library, no
+# file/class/method naming keywords required. ─────────────────────────────
+
+def singleton_candidates(view: SessionGraphView) -> List[Candidate]:
+    """Singleton: a class holds a field of its own type (the private/static
+    "instance" slot) AND has a method that constructs an instance of itself
+    (the lazily-initializing accessor) — co-occurrence, not a verified
+    assignment from the method into that field (same approximation
+    delegates_to_field already documents elsewhere: the parser doesn't
+    trace assignment targets that precisely). Doesn't require a private
+    constructor or a null-check guard — neither is visible in this graph —
+    so tier: medium in singleton.yaml, not high.
+    """
+    out = []
+    for name, c in view.classes.items():
+        self_types = view.self_referential_types(name)
+        has_self_field = any(
+            e.target in self_types and not e.is_collection
+            for e in view.fields_of.get(name, [])
+        )
+        if not has_self_field:
+            continue
+        self_instantiating = next(
+            (m for m in view.methods_of.get(name, []) if name in m.instantiates), None)
+        if self_instantiating is None:
+            continue
+        out.append(Candidate(
+            binding=name,
+            evidence=[
+                f"{_loc(view, name)} holds a field of its own type and "
+                f"{self_instantiating.fn_name}() constructs a new {name} instance"
+            ],
+        ))
+    return out
+
+
+def factory_candidates(view: SessionGraphView) -> List[Candidate]:
+    """Simple Factory: a class with 2+ methods, each constructing a
+    DIFFERENT product class (not itself) — the class's role is
+    manufacturing objects. Weaker than Factory Method (no abstract Creator/
+    subclass-override requirement) or Abstract Factory (no shared-interface
+    requirement across implementers) — this is the plain "factory class"
+    shape the old create/build/make-naming heuristic approximated by
+    keyword, needing no such naming at all.
+    """
+    out = []
+    for name, methods in view.methods_of.items():
+        products = {}
+        for m in methods:
+            targets = [p for p in m.instantiates if p != name]
+            if targets:
+                products[m.fn_name] = targets[0]
+        if len(products) >= 2 and len(set(products.values())) >= 2:
+            out.append(Candidate(
+                binding=name,
+                evidence=[f"{_loc(view, name)} has {len(products)} methods each constructing a distinct product: {products}"],
+                extra={"products": products},
+            ))
+    return out
+
+
+def facade_candidates(view: SessionGraphView) -> List[Candidate]:
+    """Facade: a class that calls into 5+ distinct other classes, while
+    itself being called by relatively few (<=40% of its own fan-out) — a
+    simplified entry point in front of a larger subsystem. Direct class-
+    level translation of the old detector's already-structural fan-out/
+    fan-in candidate path (it also had a `facade`-named-file shortcut this
+    version deliberately drops).
+    """
+    callees_of: dict = defaultdict(set)
+    callers_of: dict = defaultdict(set)
+    for name, methods in view.methods_of.items():
+        for m in methods:
+            for _callee_name, callee_class in m.calls:
+                if callee_class and callee_class != name:
+                    callees_of[name].add(callee_class)
+                    callers_of[callee_class].add(name)
+
+    out = []
+    for name, callees in callees_of.items():
+        callers = callers_of.get(name, set())
+        if len(callees) >= 5 and len(callers) <= len(callees) * 0.4:
+            out.append(Candidate(
+                binding=name,
+                evidence=[
+                    f"{_loc(view, name)} calls {len(callees)} distinct classes "
+                    f"({sorted(callees)}) while being called by only {len(callers)}"
+                ],
+                extra={"subsystem_classes": sorted(callees)},
+            ))
     return out

@@ -336,11 +336,17 @@ def _core_type_name(type_text: str) -> str:
     explicitly, both wrapped and bare), `List[Foo]` -> `Foo` (Python's
     typing module uses square brackets, not angle brackets, for generics —
     only single-argument square-bracket generics resolve; `Dict[K, V]`'s
-    two-argument form is left alone, nothing needs it yet).
+    two-argument form is left alone, nothing needs it yet), `'Foo'` -> `Foo`
+    (Python's quoted forward-reference style for self-referencing type
+    hints, e.g. `_instance: "Foo" = None` inside `class Foo:` — ast.unparse
+    renders the annotation's string-literal node back with its quotes
+    included, since that's what valid re-parseable Python source looks like).
     """
     t = (type_text or "").strip()
     if not t:
         return ""
+    if len(t) >= 2 and t[0] == t[-1] and t[0] in ("'", '"'):
+        t = t[1:-1].strip()
     if t.endswith("[]"):
         t = t[:-2].strip()
     if t.startswith("dyn "):
@@ -398,7 +404,15 @@ def store_class_graph(
                 implements_rows.append({"child": c["name"], "file": c["file"], "parent": iface})
         for f in c.get("fields", []):
             target = _core_type_name(f.get("type", ""))
-            if target and target in known_names and target != c["name"]:
+            # Literal self-type fields (target == c["name"], e.g. Singleton's
+            # `_instance: "Config"` inside `class Config`) are a real,
+            # intentional shape, not excluded — a HAS_FIELD self-loop is
+            # exactly what singleton_candidates (patterns/predicates.py)
+            # looks for. Every prior use of self-referential fields in this
+            # codebase (Composite, Decorator, ...) happened to go through an
+            # inherited interface name instead of the class's own literal
+            # name, so this exclusion went untested until Singleton needed it.
+            if target and target in known_names:
                 field_rows.append({
                     "owner": c["name"], "file": c["file"], "type": target,
                     "field_name": f["name"], "is_collection": bool(f.get("is_collection", False)),

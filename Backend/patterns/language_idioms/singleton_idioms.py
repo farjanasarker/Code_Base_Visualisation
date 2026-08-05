@@ -1,7 +1,9 @@
 """Language-idiom Singleton detection — Go's `sync.Once` and Rust's
-`lazy_static!`/`OnceCell`/`OnceLock` express Singleton without ever using a
-`getInstance()`-style function name, which is all the existing keyword-based
-Singleton detector (`pattern_detector.py`'s `detect_singleton`) looks for.
+`lazy_static!`/`OnceCell`/`OnceLock` express Singleton without a self-typed
+field + self-instantiating method anywhere in the graph (no field holds the
+instance at all — the runtime/macro owns it), which is what
+patterns/specs/singleton.yaml's structural predicate (singleton_candidates)
+looks for.
 
 This is the one case in the whole GoF engine that genuinely can't be
 structural — `sync.Once`/`lazy_static!` are language keywords/macros, not a
@@ -13,8 +15,8 @@ idiom-specific exception the design brief calls out explicitly.
 
 Results from this module are never blended into the core rule-engine
 confidence scores — they're surfaced as a separately-tagged, explicitly
-"heuristic match — verify manually" addition to the existing Singleton
-detector's output (see main.py's `/api/gof-patterns` wiring).
+"heuristic match — verify manually" addition alongside the structural
+Singleton spec's output (see main.py's `/api/gof-patterns` wiring).
 """
 
 import re

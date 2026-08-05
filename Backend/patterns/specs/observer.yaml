@@ -1,0 +1,26 @@
+# Observer — Strategy's exact shape, but the composing class ('Subject')
+# holds a COLLECTION field of the interface type instead of a single one
+# (a Subject tracks a *list* of observers, not one strategy) — the same
+# list-vs-single distinction that already separates Composite from
+# Decorator/Proxy/Chain of Responsibility. Structural replacement for the
+# old notify/subscribe-naming heuristic detector — needs no such naming.
+pattern: Observer
+tier: high
+requires:
+  - predicate: interface_with_single_method
+    role: observer_interface
+  - predicate: min_implementers
+    of: observer_interface
+    count: 2
+  - predicate: collection_composition_field_of_type
+    type: observer_interface
+    role: subject
+  - predicate: delegates_to_field
+    class: subject
+    field: observer_interface
+confidence_weights:
+  interface_with_single_method: 0.2
+  min_implementers: 0.3
+  collection_composition_field_of_type: 0.2
+  delegates_to_field: 0.3
+min_confidence_to_report: 0.6
