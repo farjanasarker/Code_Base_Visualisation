@@ -1,0 +1,14 @@
+# Adapter — implements/inherits some Target abstraction, holds a field
+# typed as something UNRELATED to that abstraction (the Adaptee — doesn't
+# implement/inherit Target itself), and delegates to it. The structural
+# opposite of Decorator/Chain of Responsibility's shape (see decorator.yaml
+# and chain_of_responsibility.yaml): those wrap a field typed as the SAME
+# abstraction they implement; Adapter deliberately wraps something else.
+pattern: Adapter
+tier: high
+requires:
+  - predicate: adapter_candidates
+    role: adapter
+confidence_weights:
+  adapter_candidates: 0.8
+min_confidence_to_report: 0.6

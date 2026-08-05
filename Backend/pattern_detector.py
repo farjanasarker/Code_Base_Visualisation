@@ -424,16 +424,17 @@ class ArchitecturePatternDetector:
     # ── Run All ───────────────────────────────────────────────────────────────
 
     def detect_all(self, min_confidence: float = 0.55) -> list[dict]:
+        # Singleton/Observer/Factory/Facade are GoF patterns, not architecture
+        # patterns — detected here (kept, still callable directly) but no
+        # longer listed in Architecture Patterns' output; main.py's
+        # /api/gof-patterns calls them individually and surfaces them there
+        # instead, alongside the new structural GoF rule-engine matches.
         detectors = [
             self.detect_mvc_mvp,
             self.detect_layered,
             self.detect_clean_architecture,
             self.detect_hexagonal,
             self.detect_repository,
-            self.detect_singleton,
-            self.detect_observer,
-            self.detect_factory,
-            self.detect_facade,
         ]
 
         results = []

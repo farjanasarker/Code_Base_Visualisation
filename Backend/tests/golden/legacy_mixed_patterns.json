@@ -1,0 +1,22 @@
+[
+  {
+    "pattern": "Clean Architecture",
+    "confidence": 0.95
+  },
+  {
+    "pattern": "Hexagonal Architecture",
+    "confidence": 0.9
+  },
+  {
+    "pattern": "Layered/N-Tier",
+    "confidence": 0.95
+  },
+  {
+    "pattern": "MVC",
+    "confidence": 1.0
+  },
+  {
+    "pattern": "Repository Pattern",
+    "confidence": 1.0
+  }
+]

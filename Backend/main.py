@@ -12,7 +12,10 @@ from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions
+from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions, ensure_schema, store_class_graph, get_class_graph
+from patterns.graph_view import SessionGraphView
+from patterns.rule_engine import evaluate_all
+from patterns.language_idioms.singleton_idioms import scan_files as scan_singleton_idioms
 from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
 from smell_detector import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS
 from smell_graph import build_smell_graph
@@ -299,7 +302,11 @@ async def startup_event():
     
     # Create uploads directory
     UPLOADS_BASE_DIR.mkdir(parents=True, exist_ok=True)
-    
+
+    # Idempotent Neo4j schema setup for the GoF pattern engine's Class nodes
+    # (best-effort — logs and continues if the constraint can't be created)
+    ensure_schema()
+
     # Start background cleanup
     asyncio.create_task(cleanup_orphan_sessions())
 
@@ -785,6 +792,7 @@ async def upload(
 
         if is_multi_service:
             functions = []
+            classes = []
             unused_imports: dict = {}
             all_violations: list = []
             for svc in services:
@@ -795,15 +803,21 @@ async def upload(
                 bucket_files = [f for f in all_files if f.get("path", "").startswith(prefix)]
                 if not bucket_files:
                     continue
-                bucket_functions, bucket_unused, bucket_layer = analyze_files(bucket_files)
+                bucket_functions, bucket_classes, bucket_unused, bucket_layer = analyze_files(bucket_files)
                 for fn in bucket_functions:
                     fn["service"] = sid
+                for c in bucket_classes:
+                    c["service"] = sid
                 for f in bucket_files:
                     f["service"] = sid
                 functions.extend(bucket_functions)
+                classes.extend(bucket_classes)
                 unused_imports.update(bucket_unused)
                 all_violations.extend(bucket_layer.get("all_violations", []))
-                service_buckets.append({"service_id": sid, "files": bucket_files, "functions": bucket_functions})
+                service_buckets.append({
+                    "service_id": sid, "files": bucket_files,
+                    "functions": bucket_functions, "classes": bucket_classes,
+                })
 
             # Automatic inter-service call detection (HTTP/REST + message-queue
             # pub/sub) from source text — no manual service-map.json needed.
@@ -825,7 +839,7 @@ async def upload(
                 "all_violations": all_violations,
             }
         else:
-            functions, unused_imports, layer_violations = analyze_files(all_files)
+            functions, classes, unused_imports, layer_violations = analyze_files(all_files)
 
         # Compute aggregate metrics (needs file content — do it before all_files is gc'd)
         try:
@@ -837,11 +851,21 @@ async def upload(
         # Update session's file list
         session_info["files"] = [f["path"] for f in all_files]
 
+        # Go/Rust Singleton idiom scan (sync.Once, lazy_static!, OnceCell/
+        # OnceLock) — must run here, while all_files still has `content`;
+        # the cached all_files below strips it out to save memory.
+        try:
+            singleton_idiom_matches = scan_singleton_idioms(all_files)
+        except Exception:
+            logger.exception(f"Failed to scan language-idiom singletons for session {session_id}")
+            singleton_idiom_matches = []
+
         # cache parsed functions and raw file list for this session
         try:
             tier1 = build_module_graph(functions)
             SESSION_CACHE[session_id] = {
                 "functions": functions,
+                "classes": classes,
                 "tier1": tier1,
                 "all_files": [{"path": f["path"], "language": f["language"], "service": f.get("service")} for f in all_files],
                 "unused_imports": unused_imports,
@@ -850,6 +874,7 @@ async def upload(
                 "git_history": git_history,
                 "services": services if is_multi_service else [],
                 "service_connections": service_connections,
+                "singleton_idiom_matches": singleton_idiom_matches,
             }
 
             # Also update global cache for fallback
@@ -872,6 +897,20 @@ async def upload(
             logger.info(f"✅ Stored graph to Neo4j for session {session_id}")
         except Exception:
             logger.exception(f"⚠️ Failed to store graph to Neo4j for session {session_id}")
+
+        # Persist the GoF pattern engine's class graph — a separate write from
+        # store_all() above (see store_class_graph's docstring for why): a bug
+        # here must only degrade the new GoF feature, not the Function/File/
+        # Calls data store_all() already persisted successfully.
+        try:
+            if is_multi_service:
+                for bucket in service_buckets:
+                    store_class_graph(bucket["classes"], bucket["functions"], session_id, service_id=bucket["service_id"])
+            else:
+                store_class_graph(classes, functions, session_id)
+            logger.info(f"✅ Stored class graph to Neo4j for session {session_id}")
+        except Exception:
+            logger.exception(f"⚠️ Failed to store class graph to Neo4j for session {session_id}")
 
         tier1 = SESSION_CACHE.get(session_id, {}).get("tier1") or PARSED_CACHE.get("tier1") or build_module_graph(functions)
         render = decide_render_strategy(len(tier1["nodes"]))
@@ -1836,4 +1875,137 @@ async def api_detect_patterns(session_id: str, service_id: str | None = None):
         raise
     except Exception as e:
         logger.error(f"Pattern detection error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _tier_from_confidence(confidence: float) -> str:
+    """Matches the frontend's existing pconf-high/med/low badge thresholds
+    (GraphView.vue), so patterns sourced from the older confidence-only
+    ArchitecturePatternDetector land in the same visual tier a user would
+    already associate with that confidence number.
+    """
+    if confidence >= 0.8:
+        return "high"
+    if confidence >= 0.65:
+        return "medium"
+    return "low"
+
+
+@app.get("/api/gof-patterns/{session_id}")
+async def api_detect_gof_patterns(session_id: str):
+    """
+    Detect GoF design patterns (Strategy, ... more added phase by phase) in a
+    previously uploaded project. Rule-based, no LLM — evaluates declarative
+    rule specs (patterns/specs/*.yaml) against the class/interface graph in
+    Neo4j (populated by store_class_graph() at upload time), not
+    SESSION_CACHE.
+
+    Also surfaces Singleton/Observer/Factory/Facade here: these are GoF
+    patterns, not architecture patterns, so ArchitecturePatternDetector.
+    detect_all() (used by /api/patterns) no longer lists them — they're
+    called directly from here instead, reusing the exact same detection
+    logic/confidence, just relocated to the panel that actually matches
+    what they are. Everything else in ArchitecturePatternDetector (MVC,
+    Layered, Clean Architecture, Hexagonal, Repository) is untouched and
+    stays exclusively in /api/patterns.
+
+    Also merges in Go/Rust Singleton language-idiom matches (sync.Once,
+    lazy_static!, OnceCell/OnceLock — computed at upload time and cached,
+    see patterns/language_idioms/singleton_idioms.py) as a separate,
+    explicitly `"heuristic": true`-flagged addition. These never blend into
+    the structural rule engine's tier/confidence scoring — they're a
+    genuinely different kind of evidence (a language keyword/macro match,
+    not a graph shape) and the UI should render them distinctly.
+    """
+    try:
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        cache = SESSION_CACHE.get(session_id, {})
+        idiom_patterns = [
+            {
+                "pattern":    "Singleton (language idiom)",
+                "tier":       "heuristic",
+                "confidence": None,
+                "bindings":   {"file": m["file"]},
+                "evidence":   [f"{m['idiom']} found in {m['file']}:{m['line']}"],
+                "heuristic":  True,
+            }
+            for m in cache.get("singleton_idiom_matches", [])
+        ]
+
+        raw_graph = get_class_graph(session_id)
+        structural_patterns = []
+        if raw_graph.get("classes"):
+            view = SessionGraphView.from_raw(raw_graph)
+            matches = evaluate_all(view)
+            structural_patterns = [
+                {
+                    "pattern":    m.pattern,
+                    "tier":       m.tier,
+                    "confidence": m.confidence,
+                    "bindings":   m.bindings,
+                    "evidence":   m.evidence,
+                    "heuristic":  False,
+                }
+                for m in matches
+            ]
+
+        # Singleton/Observer/Factory/Facade — same session_data construction
+        # /api/patterns uses, calling only these 4 detect_* methods directly
+        # rather than detect_all() (which no longer includes them at all).
+        legacy_gof_patterns = []
+        raw_functions = cache.get("functions", [])
+        all_files_cache = cache.get("all_files", [])
+        if raw_functions or all_files_cache:
+            fn_name_to_file = {fn["name"]: fn.get("file", "") for fn in raw_functions}
+            call_edges = [
+                {
+                    "caller_file":     fn.get("file", ""),
+                    "caller_function": fn.get("name", ""),
+                    "callee_function": callee_name,
+                    "callee_file":     fn_name_to_file.get(callee_name, ""),
+                }
+                for fn in raw_functions
+                for callee_name in fn.get("calls", [])
+            ]
+            session_data = {
+                "files":      [f["path"] for f in all_files_cache],
+                "functions":  raw_functions,
+                "call_edges": call_edges,
+            }
+            legacy_detector = ArchitecturePatternDetector(session_data)
+            for detect_fn in (
+                legacy_detector.detect_singleton, legacy_detector.detect_observer,
+                legacy_detector.detect_factory, legacy_detector.detect_facade,
+            ):
+                try:
+                    result = detect_fn()
+                except Exception:
+                    continue
+                if result is None or result.confidence < 0.55:
+                    continue
+                legacy_gof_patterns.append({
+                    "pattern":    result.pattern,
+                    "tier":       _tier_from_confidence(result.confidence),
+                    "confidence": result.confidence,
+                    "bindings": {
+                        role: ", ".join(files[:3]) + (f" +{len(files) - 3} more" if len(files) > 3 else "")
+                        for role, files in result.components.items() if files
+                    },
+                    "evidence":   result.evidence,
+                    "heuristic":  False,
+                })
+
+        patterns = structural_patterns + legacy_gof_patterns + idiom_patterns
+        return {
+            "session_id":     session_id,
+            "patterns_found": len(patterns),
+            "patterns":       patterns,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"GoF pattern detection error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

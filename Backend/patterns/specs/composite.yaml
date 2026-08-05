@@ -1,0 +1,15 @@
+# Composite — a class holds a collection field typed as itself (or its own
+# interface), and delegates to it (the "for child in children: child.op()"
+# shape, approximated per delegates_to_field's documented limitation).
+pattern: Composite
+tier: high
+requires:
+  - predicate: list_of_own_type_field_candidates
+    role: component
+  - predicate: delegates_to_field
+    class: component
+    field: component
+confidence_weights:
+  list_of_own_type_field_candidates: 0.6
+  delegates_to_field: 0.4
+min_confidence_to_report: 0.6

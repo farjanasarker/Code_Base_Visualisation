@@ -1,0 +1,15 @@
+# Visitor — double dispatch: an Element class calls a method on some other
+# class (the Visitor), and that callee method calls back into the Element.
+# Uses double_dispatch_candidates rather than the stricter
+# double_dispatch_pair (which requires the exact same method name to be
+# the one called back — rare in real code, since Visitor.visitX() calling
+# Element.accept() again would just recurse; it typically calls a
+# different method, e.g. a getter).
+pattern: Visitor
+tier: high
+requires:
+  - predicate: double_dispatch_candidates
+    role: element
+confidence_weights:
+  double_dispatch_candidates: 0.8
+min_confidence_to_report: 0.6

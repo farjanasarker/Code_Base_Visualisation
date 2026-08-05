@@ -1,0 +1,20 @@
+# Proxy — same shape as Decorator (is-a + has-a the same abstraction), but
+# the wrapping method is a near-pure passthrough (no extra work) rather
+# than adding behavior. See decorator.yaml for the Chain of Responsibility
+# ambiguity note, which applies here too.
+pattern: Proxy
+tier: high
+requires:
+  - predicate: single_field_of_own_type_candidates
+    role: wrapper
+  - predicate: field_typed_as_own_interface
+    class: wrapper
+    field: wrapper
+  - predicate: is_proxy_wrapping
+    class: wrapper
+    field: wrapper
+confidence_weights:
+  single_field_of_own_type_candidates: 0.15
+  field_typed_as_own_interface: 0.35
+  is_proxy_wrapping: 0.5
+min_confidence_to_report: 0.6

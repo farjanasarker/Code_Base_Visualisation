@@ -1,0 +1,28 @@
+# Decorator — a class holds a field typed as an interface/base it ALSO
+# implements (is-a *and* has-a the same abstraction), and the wrapping
+# method does more than forward the call.
+#
+# Known ambiguity, documented rather than hidden: Chain of Responsibility's
+# "next handler" field is frequently the exact same shape (self-typed field
+# + shared base class). Nothing in a pure structural/composition-graph view
+# distinguishes "decorate then forward unconditionally" from "handle or
+# forward conditionally" — that needs control-flow data (is the forwarding
+# call inside an if-guard?) this engine doesn't have in Phase 1. Where both
+# decorator.yaml and chain_of_responsibility.yaml fire on the same classes,
+# report both with their own evidence rather than picking one.
+pattern: Decorator
+tier: high
+requires:
+  - predicate: single_field_of_own_type_candidates
+    role: wrapper
+  - predicate: field_typed_as_own_interface
+    class: wrapper
+    field: wrapper
+  - predicate: is_decorator_wrapping
+    class: wrapper
+    field: wrapper
+confidence_weights:
+  single_field_of_own_type_candidates: 0.15
+  field_typed_as_own_interface: 0.35
+  is_decorator_wrapping: 0.5
+min_confidence_to_report: 0.6

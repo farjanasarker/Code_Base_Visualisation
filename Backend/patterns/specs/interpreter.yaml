@@ -1,0 +1,16 @@
+# Interpreter — deliberately low tier and explicitly documented overlap
+# with Composite (composite.yaml): a self-referential field whose
+# interpret()-role method delegates to that field's own interpret()-role
+# method. Structurally the same shape as Composite otherwise — nothing in
+# a pure composition-graph view without grammar-specific data separates
+# "AST node interpreting its children" from "composite node operating on
+# its children". Expect both to legitimately co-fire; see
+# interpreter_candidates' docstring.
+pattern: Interpreter
+tier: low
+requires:
+  - predicate: interpreter_candidates
+    role: expression
+confidence_weights:
+  interpreter_candidates: 0.5
+min_confidence_to_report: 0.5

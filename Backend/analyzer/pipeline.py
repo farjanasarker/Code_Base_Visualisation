@@ -16,18 +16,20 @@ from .imports_resolution import (
     detect_unused_imports,
 )
 from .layers import _compute_layer_violations
-from .parser import ParsedFunction, UniversalParser
+from .parser import ParsedClass, ParsedFunction, UniversalParser
 
 
-def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], Dict]:
+def analyze_files(files: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict[str, List[str]], Dict]:
     """Parse all supported files, apply file strategies, and chunk god files.
 
-    Returns (functions_list, unused_import_map, layer_violations) where:
-    • unused_import_map  → {file_path: [unused_import_names]}
-    • layer_violations   → {by_module, summary, all_violations}
+    Returns (functions_list, classes_list, unused_import_map, layer_violations) where:
+    • classes_list        → flat list of class/interface/struct/trait dicts (GoF pattern engine)
+    • unused_import_map   → {file_path: [unused_import_names]}
+    • layer_violations    → {by_module, summary, all_violations}
     """
     parser = UniversalParser()
     all_functions: List[ParsedFunction] = []
+    all_classes: List[ParsedClass] = []
 
     # Detect module structure
     module_map = _detect_module_structure(files)
@@ -60,12 +62,14 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
         if strategy == "data_file":
             continue
 
-        parsed = parser.parse_file(file_path, content, lang)
+        parsed, file_classes = parser.parse_file(file_path, content, lang)
 
         # Override module based on detected structure
         detected_module = module_map.get(file_info.get("path", ""), "root")
         for p in parsed:
             p.module = detected_module
+        for c in file_classes:
+            c.module = detected_module
 
         # convert ParsedFunction objects to dicts for chunking convenience
         parsed_dicts = [p.__dict__ for p in parsed]
@@ -83,6 +87,7 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
                     f["is_god_file"] = True
 
         all_functions.extend(parsed)
+        all_classes.extend(file_classes)
 
     # compute fan-in, risk scores, dead code
     all_functions = parser.compute_fan_in(all_functions)
@@ -162,6 +167,28 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], Dict[str, List[str]], 
             "max_nesting_depth": fn.max_nesting_depth,
             "literal_count":     fn.literal_count,
             "imports": file_import_map.get(fn.file, []),
+            "class_name": fn.class_name,
+            "is_method": fn.is_method,
+            "is_abstract": fn.is_abstract,
+            "instantiates": fn.instantiates,
         }
         for fn in all_functions
-    ] + file_sentinels, file_unused_import_map, _compute_layer_violations(files, module_map, file_import_map)
+    ] + file_sentinels, [
+        {
+            "name": cls.name,
+            "file": cls.file,
+            "language": cls.language,
+            "module": cls.module,
+            "kind": cls.kind,
+            "bases": cls.bases,
+            "interfaces": cls.interfaces,
+            "fields": [
+                {"name": f.name, "type": f.type, "is_collection": f.is_collection}
+                for f in cls.fields
+            ],
+            "method_names": cls.method_names,
+            "line_start": cls.line_start,
+            "line_end": cls.line_end,
+        }
+        for cls in all_classes
+    ], file_unused_import_map, _compute_layer_violations(files, module_map, file_import_map)

@@ -1,0 +1,30 @@
+# State — Strategy's exact shape (interface, 2+ implementers, a context
+# composing and delegating to it) plus the one disambiguator that actually
+# separates it from Strategy: a bidirectional context<->state composition
+# edge. A pure Strategy implementation has no reason to know its Context;
+# a State implementation typically holds a back-reference to trigger
+# `context.set_state(...)` on transition.
+pattern: State
+tier: high
+requires:
+  - predicate: interface_with_single_method
+    role: state_interface
+  - predicate: min_implementers
+    of: state_interface
+    count: 2
+  - predicate: composition_field_of_type
+    type: state_interface
+    role: context
+  - predicate: delegates_to_field
+    class: context
+    field: state_interface
+  - predicate: any_implementer_has_field_of_type
+    of: state_interface
+    type: context
+confidence_weights:
+  interface_with_single_method: 0.1
+  min_implementers: 0.15
+  composition_field_of_type: 0.1
+  delegates_to_field: 0.15
+  any_implementer_has_field_of_type: 0.4
+min_confidence_to_report: 0.6

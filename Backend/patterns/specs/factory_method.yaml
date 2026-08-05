@@ -1,0 +1,13 @@
+# Factory Method — GoF-strict, stronger than the existing simple Factory
+# heuristic (create/build/make naming): an abstract/interface Creator
+# declares an abstract method, and 2+ concrete subclasses each override it
+# to construct a DIFFERENT product class. factory_method_candidates does
+# all the work as a single self-contained generator — no chaining needed.
+pattern: Factory Method
+tier: high
+requires:
+  - predicate: factory_method_candidates
+    role: creator
+confidence_weights:
+  factory_method_candidates: 0.85
+min_confidence_to_report: 0.6

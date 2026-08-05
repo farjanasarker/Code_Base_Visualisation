@@ -1,0 +1,14 @@
+# Template Method — a class declares an abstract method, and a concrete
+# (has-a-body) sibling method on the SAME class calls it. `every_class`
+# offers every class as a candidate; the real signal is entirely carried by
+# abstract_method_called_from_concrete_sibling_method.
+pattern: Template Method
+tier: high
+requires:
+  - predicate: every_class
+    role: template_class
+  - predicate: abstract_method_called_from_concrete_sibling_method
+    class: template_class
+confidence_weights:
+  abstract_method_called_from_concrete_sibling_method: 0.9
+min_confidence_to_report: 0.6

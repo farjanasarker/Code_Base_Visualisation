@@ -1,0 +1,12 @@
+# Builder — a class with a build()-role method (method_roles.yaml's
+# BUILDER_BUILD: build/Build/construct/Construct) that constructs a
+# different product, alongside 2+ configuration methods that don't
+# themselves construct anything.
+pattern: Builder
+tier: high
+requires:
+  - predicate: builder_candidates
+    role: builder
+confidence_weights:
+  builder_candidates: 0.8
+min_confidence_to_report: 0.6
