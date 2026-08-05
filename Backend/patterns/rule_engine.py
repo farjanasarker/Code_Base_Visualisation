@@ -61,6 +61,11 @@ GENERATORS = {
     "mediator_candidates": lambda view, **kw: P.mediator_candidates(view),
     "memento_candidates": lambda view, **kw: P.memento_candidates(view),
     "interpreter_candidates": lambda view, **kw: P.interpreter_candidates(view),
+    "collection_composition_field_of_type": lambda view, **kw: P.collection_composition_field_of_type(
+        view, kw["type"]),
+    "singleton_candidates": lambda view, **kw: P.singleton_candidates(view),
+    "factory_candidates": lambda view, **kw: P.factory_candidates(view),
+    "facade_candidates": lambda view, **kw: P.facade_candidates(view),
 }
 
 # predicate name -> (view, **resolved_params) -> PredicateResult

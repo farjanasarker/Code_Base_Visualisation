@@ -1,0 +1,15 @@
+# Factory (simple) — a class with 2+ methods, each constructing a
+# different product class. Weaker than factory_method.yaml (no abstract
+# Creator/subclass-override requirement) or abstract_factory.yaml (no
+# shared-interface requirement across implementers) — this is the plain
+# "this class's job is making objects" shape the old create/build/make-
+# naming heuristic approximated by keyword. Structural replacement,
+# needs no such naming.
+pattern: Factory
+tier: medium
+requires:
+  - predicate: factory_candidates
+    role: factory_class
+confidence_weights:
+  factory_candidates: 0.6
+min_confidence_to_report: 0.55

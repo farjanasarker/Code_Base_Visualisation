@@ -1,0 +1,14 @@
+# Facade — a class that calls into 5+ distinct other classes while itself
+# being called by relatively few (<=40% of its own fan-out) — a
+# simplified entry point in front of a larger subsystem. Direct class-
+# level translation of the old detector's already-structural fan-out/
+# fan-in heuristic (which also had a `facade`-named-file shortcut this
+# version deliberately drops, since it's naming, not structure).
+pattern: Facade
+tier: medium
+requires:
+  - predicate: facade_candidates
+    role: facade_class
+confidence_weights:
+  facade_candidates: 0.65
+min_confidence_to_report: 0.6
