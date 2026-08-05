@@ -1,0 +1,34 @@
+# Bridge — Strategy's exact composition chain (interface, 2+ implementers,
+# a composing class delegating to it) plus the one disambiguator that
+# actually separates it from Strategy: the composing class ('Abstraction')
+# has its own subclass hierarchy (2+ subclasses) — two independently
+# varying hierarchies connected by composition, not a plain context.
+#
+# tier: medium, not high — reuses interface_with_single_method like
+# state.yaml, which under-detects real Bridge Implementor interfaces that
+# expose several operations rather than exactly one; documented the same
+# way as state.yaml's equivalent limitation.
+pattern: Bridge
+tier: medium
+requires:
+  - predicate: interface_with_single_method
+    role: implementor
+  - predicate: min_implementers
+    of: implementor
+    count: 2
+  - predicate: composition_field_of_type
+    type: implementor
+    role: abstraction
+  - predicate: delegates_to_field
+    class: abstraction
+    field: implementor
+  - predicate: has_min_subclasses
+    class: abstraction
+    count: 2
+confidence_weights:
+  interface_with_single_method: 0.1
+  min_implementers: 0.15
+  composition_field_of_type: 0.15
+  delegates_to_field: 0.2
+  has_min_subclasses: 0.4
+min_confidence_to_report: 0.55

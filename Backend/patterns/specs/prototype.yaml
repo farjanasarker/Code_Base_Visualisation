@@ -1,0 +1,12 @@
+# Prototype — a class with a clone()-role method (method_roles.yaml's
+# PROTOTYPE_CLONE: clone/Clone/__copy__/__deepcopy__) that constructs a NEW
+# instance of its OWN class — self-instantiation, the inverse signal from
+# Factory Method's "constructs a different class".
+pattern: Prototype
+tier: high
+requires:
+  - predicate: prototype_candidates
+    role: prototype
+confidence_weights:
+  prototype_candidates: 0.8
+min_confidence_to_report: 0.6

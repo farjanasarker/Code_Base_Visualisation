@@ -10,7 +10,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .heuristics import (
     _compute_nesting_depth,
@@ -22,7 +22,9 @@ from .heuristics import (
 )
 from .tree_sitter_runtime import (
     CALL_QUERIES,
+    CLASS_QUERIES,
     FUNCTION_QUERIES,
+    INSTANTIATION_QUERIES,
     TREE_SITTER_LANGUAGES,
     get_parser,
     run_query,
@@ -54,68 +56,305 @@ class ParsedFunction:
     max_nesting_depth: int = 0     # max block-nesting depth inside the function
     literal_count: int = 0         # count of non-trivial numeric literals (magic numbers)
     is_god_file: bool = False      # True → file classified as god_file and actually chunked
+    # class this function is a method of, independent of `virtual_module` (which is also
+    # reused as a god-file chunk id and shouldn't be overloaded further) — None for free functions
+    class_name: Optional[str] = None
+    is_method: bool = False
+    # True only for Python's @abstractmethod (the one case where an abstract
+    # declaration still gets a real ParsedFunction — see visit_FunctionDef).
+    # Always False elsewhere; those languages' bodyless signatures never
+    # produce a ParsedFunction at all, so there's nothing to flag.
+    is_abstract: bool = False
+    # Class names this function constructs an instance of (`new Foo()`,
+    # `Foo{}`, `Foo::new()`, ...) — a genuinely different AST shape from a
+    # call in every language but Python, see INSTANTIATION_QUERIES.
+    instantiates: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ParsedField:
+    name: str
+    type: str = ""
+    is_collection: bool = False
+
+
+@dataclass
+class ParsedClass:
+    name: str
+    file: str
+    language: str
+    module: str
+    kind: str  # class | abstract_class | interface | struct | trait
+    bases: List[str] = field(default_factory=list)
+    interfaces: List[str] = field(default_factory=list)
+    fields: List[ParsedField] = field(default_factory=list)
+    # Every method *declared* on this class/interface/trait, by name —
+    # deliberately independent of whether a Function/METHOD_OF node exists
+    # for it: interface method signatures and abstract-method declarations
+    # have no body, so they're never emitted as a ParsedFunction (nothing to
+    # parse a call graph out of), but predicates like Strategy's
+    # "interface with a single method" still need to count them.
+    method_names: List[str] = field(default_factory=list)
+    line_start: int = 0
+    line_end: int = 0
+
+
+# Which class/struct-body child node types represent a field declaration, per
+# language — bodies mix fields and methods (JS/TS class_body, Java class_body),
+# so this filters the walk. Go/Rust struct bodies (field_declaration_list)
+# contain nothing but fields, so no filter is needed for those (absent here).
+_FIELD_NODE_TYPES = {
+    "javascript": {"field_definition"},
+    "typescript": {"public_field_definition"},
+    "java": {"field_declaration"},
+}
+
+_COLLECTION_TYPE_HINTS = ("list<", "vec<", "array<", "set<", "hashset<",
+                           "hashmap<", "map<", "dict<", "dict[",
+                           # Python's typing module uses square brackets, not
+                           # angle brackets, for generics (`List[Component]`).
+                           "list[", "set[", "frozenset[", "sequence[")
+
+# Method-shaped body children per language, deliberately including bodyless
+# signatures (TS `method_signature`, Rust `function_signature_item`) so
+# interface/trait method counts don't depend on a body existing. Go's
+# `method_elem` only ever appears inside an `interface_type` body — struct
+# bodies never contain it, so this naturally yields [] for structs (Go
+# methods live outside the type declaration, linked via receiver instead).
+_METHOD_NODE_TYPES = {
+    "javascript": {"method_definition"},
+    "typescript": {"method_signature", "method_definition"},
+    "java": {"method_declaration"},
+    "go": {"method_elem"},
+    "rust": {"function_signature_item", "function_item"},
+}
+
+
+def _is_collection_type(type_text: str) -> bool:
+    t = type_text.lower().strip()
+    if t.endswith("[]"):
+        return True
+    return any(hint in t for hint in _COLLECTION_TYPE_HINTS)
+
+
+def _field_name_node(child):
+    """A field's name is under `name:` (Rust/Go/TS) or `property:` (plain JS)
+    directly, or nested one level under `declarator:` (Java's
+    `field_declaration -> variable_declarator -> name`).
+    """
+    for fname in ("name", "property"):
+        n = child.child_by_field_name(fname)
+        if n is not None:
+            return n
+    declarator = child.child_by_field_name("declarator")
+    if declarator is not None:
+        return declarator.child_by_field_name("name")
+    return None
+
+
+def _walk_fields(body_node, content: str, language: str) -> List[ParsedField]:
+    if body_node is None:
+        return []
+    allowed_types = _FIELD_NODE_TYPES.get(language)
+    fields: List[ParsedField] = []
+    for child in body_node.named_children:
+        if allowed_types is not None and child.type not in allowed_types:
+            continue
+        name_node = _field_name_node(child)
+        if name_node is None:
+            continue
+        name = content[name_node.start_byte:name_node.end_byte]
+        type_node = child.child_by_field_name("type")
+        # TS's `type:` field is the whole `type_annotation` node, whose text
+        # includes the leading `: ` (e.g. `: number`) — strip it so field
+        # types are comparable to plain type names elsewhere (Go/Rust/Java's
+        # `type:` field has no such wrapper).
+        type_text = content[type_node.start_byte:type_node.end_byte].lstrip(":").strip() if type_node else ""
+        fields.append(ParsedField(name=name, type=type_text, is_collection=_is_collection_type(type_text)))
+    return fields
+
+
+def _walk_method_names(body_node, content: str, language: str) -> List[str]:
+    if body_node is None:
+        return []
+    allowed_types = _METHOD_NODE_TYPES.get(language)
+    if not allowed_types:
+        return []
+    names: List[str] = []
+    for child in body_node.named_children:
+        if child.type not in allowed_types:
+            continue
+        name_node = _field_name_node(child)
+        if name_node is None:
+            continue
+        names.append(content[name_node.start_byte:name_node.end_byte])
+    return names
+
+
+def _walk_type_names(container_node, content: str) -> List[str]:
+    """Extract every listed type name out of a heterogeneous container node
+    (Java `super_interfaces`/`extends_interfaces` — wraps a `type_list`; TS
+    `implements_clause`/`extends_type_clause` — lists `type_identifier`s
+    directly) by descending into any non-identifier wrapper children.
+    """
+    if container_node is None:
+        return []
+    names: List[str] = []
+
+    def _walk(node):
+        for child in node.named_children:
+            if child.type.endswith("identifier"):
+                names.append(content[child.start_byte:child.end_byte])
+            elif child.named_child_count > 0:
+                _walk(child)
+
+    _walk(container_node)
+    return names
+
+
+def _parse_class_heritage(heritage_node, content: str, language: str) -> Tuple[List[str], List[str]]:
+    """Extract (bases, interfaces) from a TS/JS `class_heritage` node's own
+    children in Python, rather than via nested query captures — see the
+    `(class_heritage)? @heritage` comment in tree_sitter_runtime.py for why.
+
+    Plain JS `class_heritage` wraps a bare `(identifier)` superclass directly
+    (JS has no `implements`). TS `class_heritage` wraps an optional
+    `extends_clause` (`value:` field) and/or `implements_clause`.
+    """
+    bases: List[str] = []
+    interfaces: List[str] = []
+    if heritage_node is None:
+        return bases, interfaces
+    if language == "javascript":
+        for child in heritage_node.named_children:
+            if child.type == "identifier":
+                bases.append(content[child.start_byte:child.end_byte])
+        return bases, interfaces
+    for child in heritage_node.named_children:
+        if child.type == "extends_clause":
+            value_node = child.child_by_field_name("value")
+            if value_node is not None:
+                bases.append(content[value_node.start_byte:value_node.end_byte])
+        elif child.type == "implements_clause":
+            interfaces.extend(_walk_type_names(child, content))
+    return bases, interfaces
+
+
+def _find_enclosing_class(
+    class_ranges: List[Tuple[int, int, str]], start_byte: int, end_byte: int
+) -> Optional[str]:
+    """Smallest range fully containing [start_byte, end_byte) — smallest, not
+    first, in case ranges ever nest (they don't for any language handled
+    today, but this keeps the lookup correct if that changes).
+    """
+    best_name = None
+    best_size = None
+    for r_start, r_end, name in class_ranges:
+        if r_start <= start_byte and end_byte <= r_end:
+            size = r_end - r_start
+            if best_size is None or size < best_size:
+                best_name = name
+                best_size = size
+    return best_name
 
 
 class UniversalParser:
-    def parse_file(self, filepath: str, content: str, language: str) -> List[ParsedFunction]:
+    def parse_file(
+        self, filepath: str, content: str, language: str
+    ) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
         if language == "python":
             parsed = self._parse_python_ast(filepath, content)
-            if parsed:
+            if parsed[0]:
                 return parsed
 
         try:
             parser = get_parser(language)
         except Exception:
-            if language == "python":
-                return self._parse_python_ast(filepath, content)
-            if language == "java":
-                return self._parse_java_regex(filepath, content)
-            if language in ("javascript", "typescript"):
-                return self._parse_js_ts_regex(filepath, content, language)
-            if language == "go":
-                return self._parse_go_regex(filepath, content)
-            if language == "rust":
-                return self._parse_rust_regex(filepath, content)
-            return []
+            return self._fallback_parse(filepath, content, language)
 
         try:
             tree = parser.parse(bytes(content, "utf8"))
         except Exception:
-            if language == "python":
-                return self._parse_python_ast(filepath, content)
-            if language == "java":
-                return self._parse_java_regex(filepath, content)
-            if language in ("javascript", "typescript"):
-                return self._parse_js_ts_regex(filepath, content, language)
-            if language == "go":
-                return self._parse_go_regex(filepath, content)
-            if language == "rust":
-                return self._parse_rust_regex(filepath, content)
-            return []
+            return self._fallback_parse(filepath, content, language)
 
         try:
-            functions = self._extract_functions(tree, content, filepath, language)
+            classes, class_ranges = self._extract_classes(tree, content, filepath, language)
+            functions = self._extract_functions(tree, content, filepath, language, class_ranges)
         except Exception:
-            functions = []
+            functions, classes = [], []
 
-        if not functions:
-            if language == "python":
-                return self._parse_python_ast(filepath, content)
-            if language == "java":
-                return self._parse_java_regex(filepath, content)
-            if language in ("javascript", "typescript"):
-                return self._parse_js_ts_regex(filepath, content, language)
-            if language == "go":
-                return self._parse_go_regex(filepath, content)
-            if language == "rust":
-                return self._parse_rust_regex(filepath, content)
+        # An interface/trait-only file legitimately produces zero
+        # ParsedFunctions (method *signatures* have no body to extract a
+        # function from) while still having real ParsedClasses — falling
+        # back to regex here would discard those correctly-extracted
+        # classes. Only fall back when tree-sitter found nothing at all.
+        if not functions and not classes:
+            return self._fallback_parse(filepath, content, language)
 
-        return functions
+        return functions, classes
 
-    def _parse_java_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
+    def _fallback_parse(
+        self, filepath: str, content: str, language: str
+    ) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
+        if language == "python":
+            return self._parse_python_ast(filepath, content)
+        if language == "java":
+            return self._parse_java_regex(filepath, content)
+        if language in ("javascript", "typescript"):
+            return self._parse_js_ts_regex(filepath, content, language)
+        if language == "go":
+            return self._parse_go_regex(filepath, content)
+        if language == "rust":
+            return self._parse_rust_regex(filepath, content)
+        return [], []
+
+    def _parse_java_regex(self, filepath: str, content: str) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
-        class_match = re.search(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)", content)
-        class_name = class_match.group(1) if class_match else None
+
+        # Multi-class scoping: find EVERY class/interface header and brace-match
+        # its body, then attribute each method only to the (smallest) range that
+        # contains it. A single `re.search` for the first `class` keyword (the
+        # previous behavior) silently collapsed every method in a multi-class
+        # file onto whichever class happened to appear first in the file.
+        type_header_pattern = re.compile(
+            r"(?P<mods>(?:public|protected|private|abstract|final|static|strictfp|\s)*)"
+            r"\b(?P<decl_kind>class|interface)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+            r"(?:\s+extends\s+(?P<extends>[A-Za-z_][\w.<>,\s]*?))?"
+            r"(?:\s+implements\s+(?P<implements>[A-Za-z_][\w.<>,\s]*?))?"
+            r"\s*\{"
+        )
+
+        classes: List[ParsedClass] = []
+        class_ranges: List[Tuple[int, int, str]] = []
+        for header in type_header_pattern.finditer(content):
+            name = header.group("name")
+            brace_start = header.end() - 1
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+
+            kind = "interface" if header.group("decl_kind") == "interface" else (
+                "abstract_class" if "abstract" in header.group("mods") else "class")
+            extends_raw = header.group("extends")
+            implements_raw = header.group("implements")
+            bases = [extends_raw.strip()] if extends_raw else []
+            interfaces = [s.strip() for s in implements_raw.split(",")] if implements_raw else []
+
+            classes.append(ParsedClass(
+                name=name, file=filepath, language="java", module=module, kind=kind,
+                bases=bases, interfaces=interfaces, fields=[],
+                line_start=content.count("\n", 0, header.start()) + 1,
+                line_end=content.count("\n", 0, end_idx) + 1,
+            ))
+            class_ranges.append((header.start(), end_idx, name))
 
         # Match Java methods and constructors with bodies.
         method_pattern = re.compile(
@@ -168,6 +407,7 @@ class UniversalParser:
             for kw in ["if", "for", "while", "case", "catch", "&&", "||"]:
                 complexity += method_body.count(kw)
 
+            class_name = _find_enclosing_class(class_ranges, match.start(), end_idx)
             functions.append(ParsedFunction(
                 name=fn_name,
                 file=filepath,
@@ -181,11 +421,15 @@ class UniversalParser:
                 fan_out=len(set(calls)),
                 max_nesting_depth=_compute_nesting_depth(method_body),
                 literal_count=_count_magic_literals(method_body),
+                class_name=class_name,
+                is_method=class_name is not None,
             ))
 
-        return functions
+        return functions, classes
 
-    def _parse_js_ts_regex(self, filepath: str, content: str, language: str) -> List[ParsedFunction]:
+    def _parse_js_ts_regex(
+        self, filepath: str, content: str, language: str
+    ) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
 
         fn_patterns = [
@@ -200,9 +444,40 @@ class UniversalParser:
             re.compile(r"\b(?:module\.exports|exports)\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{", re.MULTILINE),
         ]
 
-        # class Foo { bar(...) { ... } }
-        class_pattern = re.compile(r"\bclass\s+([A-Za-z_$][\w$]*)\s*\{", re.MULTILINE)
+        # class Foo extends Bar implements Baz, Qux { ... }
+        class_pattern = re.compile(
+            r"\bclass\s+([A-Za-z_$][\w$]*)"
+            r"(?:\s+extends\s+([A-Za-z_$][\w$.]*))?"
+            r"(?:\s+implements\s+([A-Za-z_$][\w$.,\s]*?))?"
+            r"\s*\{",
+            re.MULTILINE,
+        )
         method_pattern = re.compile(r"\n\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{", re.MULTILINE)
+        # TS typed field: `name: Type;` / `name: Type = ...;` at the top of a class body.
+        typed_field_pattern = re.compile(
+            r"^\s*(?:public|private|protected|readonly|static)*\s*"
+            r"([A-Za-z_$][\w$]*)\s*:\s*([\w<>\[\].,\s]+?)\s*[=;]",
+            re.MULTILINE,
+        )
+        # Untyped JS field: `this.name = ...` anywhere in the class body (constructor
+        # or otherwise) — best-effort, may pick up a method-local `this.x =` write.
+        this_field_pattern = re.compile(r"\bthis\.([A-Za-z_$][\w$]*)\s*=\s*(\[|\{|new\s+Map|new\s+Set)?")
+
+        def _scan_class_fields(body: str) -> List[ParsedField]:
+            field_map: Dict[str, ParsedField] = {}
+            for m in typed_field_pattern.finditer(body):
+                name, type_text = m.group(1), m.group(2).strip()
+                if name in keywords or name == "constructor":
+                    continue
+                field_map[name] = ParsedField(name=name, type=type_text, is_collection=_is_collection_type(type_text))
+            for m in this_field_pattern.finditer(body):
+                name = m.group(1)
+                if name in field_map:
+                    continue
+                hint = m.group(2) or ""
+                field_map[name] = ParsedField(
+                    name=name, type="", is_collection=hint.startswith("[") or "Map" in hint or "Set" in hint)
+            return list(field_map.values())
 
         functions: List[ParsedFunction] = []
         seen = set()
@@ -270,11 +545,25 @@ class UniversalParser:
                 ))
 
         # class methods (best-effort)
+        classes: List[ParsedClass] = []
         for class_match in class_pattern.finditer(content):
             class_name = class_match.group(1)
+            extends_raw = class_match.group(2)
+            implements_raw = class_match.group(3)
             brace_start, end_idx, body = _extract_body(class_match.end() - 1)
             if brace_start < 0:
                 continue
+
+            classes.append(ParsedClass(
+                name=class_name, file=filepath, language=language, module=module,
+                kind="class",
+                bases=[extends_raw] if extends_raw else [],
+                interfaces=[s.strip() for s in implements_raw.split(",")] if implements_raw else [],
+                fields=_scan_class_fields(body),
+                line_start=content.count("\n", 0, class_match.start()) + 1,
+                line_end=content.count("\n", 0, end_idx) + 1,
+            ))
+
             for method_match in method_pattern.finditer(body):
                 method_name = method_match.group(1)
                 if method_name in ("constructor",) or method_name in keywords:
@@ -328,11 +617,13 @@ class UniversalParser:
                     fan_out=len(set(calls)),
                     max_nesting_depth=_compute_nesting_depth(method_body),
                     literal_count=_count_magic_literals(method_body),
+                    class_name=class_name,
+                    is_method=True,
                 ))
 
-        return functions
+        return functions, classes
 
-    def _parse_go_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
+    def _parse_go_regex(self, filepath: str, content: str) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
 
         # group(1) = receiver contents (optional), group(2) = function name
@@ -353,10 +644,17 @@ class UniversalParser:
             if fn_name_raw in keywords:
                 continue
 
-            # Prefix method name with receiver type for uniqueness
+            # Prefix method name with receiver type for uniqueness, and use the
+            # receiver type as this method's class_name — Go methods live outside
+            # any type declaration, so the receiver is the only source of linkage.
+            class_name = None
             if receiver_raw:
                 rec_type = re.search(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*$', receiver_raw.strip())
-                fn_name = f"{rec_type.group(1)}.{fn_name_raw}" if rec_type else fn_name_raw
+                if rec_type:
+                    class_name = rec_type.group(1)
+                    fn_name = f"{class_name}.{fn_name_raw}"
+                else:
+                    fn_name = fn_name_raw
             else:
                 fn_name = fn_name_raw
 
@@ -412,7 +710,7 @@ class UniversalParser:
                 file=filepath,
                 language="go",
                 module=module,
-                virtual_module=filepath,
+                virtual_module=class_name or filepath,
                 line_start=start_line,
                 line_end=end_line,
                 complexity=complexity,
@@ -420,19 +718,82 @@ class UniversalParser:
                 fan_out=len(set(calls)),
                 max_nesting_depth=_compute_nesting_depth(body),
                 literal_count=_count_magic_literals(body),
+                class_name=class_name,
+                is_method=class_name is not None,
             ))
 
-        return functions
+        classes = self._scan_go_types(filepath, content, module)
+        return functions, classes
 
-    def _parse_rust_regex(self, filepath: str, content: str) -> List[ParsedFunction]:
+    def _scan_go_types(self, filepath: str, content: str, module: str) -> List[ParsedClass]:
+        """Best-effort `type X struct {...}` / `type X interface {...}` regex
+        scan, used only when tree-sitter's Go grammar isn't available — the
+        common case (grammar installed) goes through `_extract_classes` instead.
+        """
+        classes: List[ParsedClass] = []
+        type_header = re.compile(r"\btype\s+([A-Za-z_][A-Za-z0-9_]*)\s+(struct|interface)\s*\{")
+        for header in type_header.finditer(content):
+            name, decl_kind = header.group(1), header.group(2)
+            brace_start = header.end() - 1
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+            body = content[brace_start + 1:end_idx]
+
+            fields = []
+            if decl_kind == "struct":
+                for line in body.splitlines():
+                    field_match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s+([\[\]*\w.]+)", line)
+                    if field_match:
+                        f_name, f_type = field_match.group(1), field_match.group(2)
+                        fields.append(ParsedField(name=f_name, type=f_type, is_collection=f_type.startswith("[]")))
+
+            classes.append(ParsedClass(
+                name=name, file=filepath, language="go", module=module,
+                kind="interface" if decl_kind == "interface" else "struct",
+                bases=[], interfaces=[], fields=fields,
+                line_start=content.count("\n", 0, header.start()) + 1,
+                line_end=content.count("\n", 0, end_idx) + 1,
+            ))
+        return classes
+
+    def _parse_rust_regex(self, filepath: str, content: str) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
 
-        # impl block থেকে struct name বের করো (virtual_module-এর জন্য)
-        impl_pattern = re.compile(r'\bimpl(?:<[^>]*>)?\s+([A-Za-z_][A-Za-z0-9_]*)')
-        current_impl = None
-        impl_match = impl_pattern.search(content)
-        if impl_match:
-            current_impl = impl_match.group(1)
+        # Every `impl (Trait for)? Type { ... }` block, brace-matched, so methods
+        # are attributed to the impl block that actually contains them — a
+        # single `.search()` for the first `impl` in the file (the previous
+        # behavior) collapsed every function in a multi-impl file onto whichever
+        # impl happened to appear first, and additionally mislabeled `impl Trait
+        # for Type` blocks with the trait's name instead of the type's.
+        impl_pattern = re.compile(
+            r'\bimpl(?:<[^>]*>)?\s+(?:([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?\s+for\s+)?'
+            r'([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?[^{;]*\{'
+        )
+        impl_ranges: List[Tuple[int, int, str]] = []
+        for impl_match in impl_pattern.finditer(content):
+            type_name = impl_match.group(2)
+            brace_start = impl_match.end() - 1
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+            impl_ranges.append((impl_match.start(), end_idx, type_name))
 
         fn_pattern = re.compile(
             r'(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]*"\s+)?'
@@ -502,12 +863,13 @@ class UniversalParser:
                 'if ', 'else if', 'for ', 'while ', 'match ', '&&', '||', '?', 'unwrap()'
             ])
 
+            class_name = _find_enclosing_class(impl_ranges, match.start(), end_idx)
             functions.append(ParsedFunction(
                 name=fn_name,
                 file=filepath,
                 language='rust',
                 module=module,
-                virtual_module=current_impl or filepath,
+                virtual_module=class_name or filepath,
                 line_start=start_line,
                 line_end=end_line,
                 complexity=complexity,
@@ -515,15 +877,63 @@ class UniversalParser:
                 fan_out=len(calls),
                 max_nesting_depth=_compute_nesting_depth(body),
                 literal_count=_count_magic_literals(body),
+                class_name=class_name,
+                is_method=class_name is not None,
             ))
 
-        return functions
+        classes = self._scan_rust_types(filepath, content, module)
+        return functions, classes
 
-    def _parse_python_ast(self, filepath: str, content: str) -> List[ParsedFunction]:
+    def _scan_rust_types(self, filepath: str, content: str, module: str) -> List[ParsedClass]:
+        """Best-effort `struct X {...}` / `trait X {...}` regex scan, used only
+        when tree-sitter's Rust grammar isn't available — the common case
+        (grammar installed) goes through `_extract_classes` instead.
+        """
+        classes: List[ParsedClass] = []
+        type_header = re.compile(
+            r'\b(struct|trait)\s+([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?[^{;]*\{'
+        )
+        for header in type_header.finditer(content):
+            decl_kind, name = header.group(1), header.group(2)
+            brace_start = header.end() - 1
+            depth = 0
+            end_idx = brace_start
+            for i in range(brace_start, len(content)):
+                ch = content[i]
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+            body = content[brace_start + 1:end_idx]
+
+            fields = []
+            if decl_kind == "struct":
+                for field_match in re.finditer(
+                    r'(?:pub(?:\([^)]*\))?\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([\w<>\[\]:, ]+?)\s*[,\n]',
+                    body,
+                ):
+                    f_name, f_type = field_match.group(1), field_match.group(2).strip()
+                    fields.append(ParsedField(name=f_name, type=f_type, is_collection=_is_collection_type(f_type)))
+
+            classes.append(ParsedClass(
+                name=name, file=filepath, language="rust", module=module,
+                kind="trait" if decl_kind == "trait" else "struct",
+                bases=[], interfaces=[], fields=fields,
+                line_start=content.count("\n", 0, header.start()) + 1,
+                line_end=content.count("\n", 0, end_idx) + 1,
+            ))
+        return classes
+
+    def _parse_python_ast(
+        self, filepath: str, content: str
+    ) -> Tuple[List[ParsedFunction], List[ParsedClass]]:
         try:
             tree = ast.parse(content)
         except SyntaxError:
-            return []
+            return [], []
 
         module = Path(filepath).parts[0] if Path(filepath).parts else "root"
         functions: List[ParsedFunction] = []
@@ -550,6 +960,9 @@ class UniversalParser:
                         attr_map[tgt.attr] = target_class
             self_attr_map[cls_node.name] = attr_map
 
+        classes = [self._build_parsed_class(cls_node, filepath, module, class_names)
+                   for cls_node in class_defs]
+
         class PythonVisitor(ast.NodeVisitor):
             def __init__(self):
                 self.current_class = None
@@ -566,7 +979,19 @@ class UniversalParser:
                     return
                 seen.add(key)
                 line_end = getattr(node, "end_lineno", node.lineno)
-                calls, call_targets = self._extract_python_calls(node)
+                calls, call_targets, instantiates = self._extract_python_calls(node)
+                # `@abstractmethod` methods still have a syntactic body
+                # (`...`/`pass`), so they get a real ParsedFunction here
+                # unlike TS/Java/Go/Rust's genuinely bodyless interface
+                # signatures — is_abstract lets predicates that need
+                # "concrete methods only" (e.g. Template Method's
+                # abstract_method_called_from_concrete_sibling_method)
+                # exclude them despite that.
+                is_abstract = any(
+                    (d.id if isinstance(d, ast.Name) else
+                     d.attr if isinstance(d, ast.Attribute) else "") == "abstractmethod"
+                    for d in node.decorator_list
+                )
                 functions.append(ParsedFunction(
                     name=node.name,
                     file=filepath,
@@ -580,6 +1005,10 @@ class UniversalParser:
                     call_targets=call_targets,
                     max_nesting_depth=self._estimate_python_nesting(node),
                     literal_count=self._estimate_python_literals(node),
+                    class_name=self.current_class,
+                    is_method=self.current_class is not None,
+                    is_abstract=is_abstract,
+                    instantiates=instantiates,
                 ))
 
             def visit_AsyncFunctionDef(self, node):
@@ -618,12 +1047,19 @@ class UniversalParser:
             def _extract_python_calls(self, node):
                 calls = set()
                 call_targets: Dict[str, str] = {}
+                instantiates = set()
                 attr_map = self_attr_map.get(self.current_class, {})
                 for child in ast.walk(node):
                     if isinstance(child, ast.Call):
                         callee = None
                         if isinstance(child.func, ast.Name):
                             callee = child.func.id
+                            # Python has no separate `new` syntax — a
+                            # constructor call is syntactically identical to
+                            # a plain function call, so instantiation is
+                            # just "a call whose bare name is a known class".
+                            if callee in class_names:
+                                instantiates.add(callee)
                         elif isinstance(child.func, ast.Attribute):
                             callee = child.func.attr
                             value = child.func.value
@@ -639,15 +1075,255 @@ class UniversalParser:
                                     call_targets[callee] = target_class
                         if callee:
                             calls.add(callee)
-                return list(calls), call_targets
+                return list(calls), call_targets, list(instantiates)
 
         visitor = PythonVisitor()
         visitor.visit(tree)
         for fn in functions:
             fn.fan_out = len(fn.calls)
-        return functions
+        return functions, classes
 
-    def _extract_functions(self, tree, content: str, filepath: str, language: str) -> List[ParsedFunction]:
+    def _build_parsed_class(
+        self, cls_node: ast.ClassDef, filepath: str, module: str, class_names: set,
+    ) -> ParsedClass:
+        def _base_name(node) -> str:
+            if isinstance(node, ast.Name):
+                return node.id
+            if isinstance(node, ast.Attribute):
+                return node.attr
+            try:
+                return ast.unparse(node)
+            except Exception:
+                return "?"
+
+        def _annotation_text(node) -> str:
+            try:
+                return ast.unparse(node)
+            except Exception:
+                return ""
+
+        def _value_is_collection(value) -> bool:
+            if isinstance(value, (ast.List, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp)):
+                return True
+            if isinstance(value, ast.Call):
+                callee = value.func
+                name = (callee.id if isinstance(callee, ast.Name)
+                        else callee.attr if isinstance(callee, ast.Attribute) else None)
+                return name in ("list", "set", "dict", "List", "Set", "Dict", "defaultdict", "OrderedDict")
+            return False
+
+        bases = [_base_name(b) for b in cls_node.bases]
+        kind = "class"
+        if "Protocol" in bases:
+            kind = "interface"
+        elif "ABC" in bases:
+            kind = "abstract_class"
+        else:
+            for kw in cls_node.keywords:
+                if kw.arg == "metaclass" and _base_name(kw.value) == "ABCMeta":
+                    kind = "abstract_class"
+            if kind == "class":
+                for stmt in cls_node.body:
+                    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                        (_base_name(d) if not isinstance(d, ast.Name) else d.id) == "abstractmethod"
+                        for d in stmt.decorator_list
+                    ):
+                        kind = "abstract_class"
+                        break
+
+        field_map: Dict[str, ParsedField] = {}
+
+        # Class-level attributes: direct statements in the class body only
+        # (not nested in a method) — the common dataclass/attrs-style shape.
+        for stmt in cls_node.body:
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                type_text = _annotation_text(stmt.annotation)
+                field_map[stmt.target.id] = ParsedField(
+                    name=stmt.target.id, type=type_text, is_collection=_is_collection_type(type_text))
+            elif isinstance(stmt, ast.Assign):
+                for tgt in stmt.targets:
+                    if isinstance(tgt, ast.Name):
+                        field_map.setdefault(tgt.id, ParsedField(
+                            name=tgt.id, type="", is_collection=_value_is_collection(stmt.value)))
+
+        # Constructor-injection is the idiomatic Python shape for holding a
+        # collaborator (`def __init__(self, strategy: PaymentStrategy):
+        # self.strategy = strategy`) — the assignment's RHS is a bare Name,
+        # not a `ClassName(...)` call, so its type has to come from the
+        # parameter's own annotation. Collect every method's parameter
+        # annotations up front so the self.attr walk below can resolve it.
+        param_annotations: Dict[str, str] = {}
+        for stmt in cls_node.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for arg in stmt.args.args:
+                    if arg.annotation is not None:
+                        param_annotations.setdefault(arg.arg, _annotation_text(arg.annotation))
+
+        # Instance attributes: `self.<attr>` assignments anywhere in the class
+        # (typically __init__), which is where most fields actually live.
+        for child in ast.walk(cls_node):
+            if isinstance(child, ast.AnnAssign):
+                target = child.target
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
+                    type_text = _annotation_text(child.annotation)
+                    is_coll = _is_collection_type(type_text) or (
+                        child.value is not None and _value_is_collection(child.value))
+                    field_map[target.attr] = ParsedField(name=target.attr, type=type_text, is_collection=is_coll)
+            elif isinstance(child, ast.Assign):
+                for tgt in child.targets:
+                    if isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name) and tgt.value.id == "self":
+                        if tgt.attr in field_map and field_map[tgt.attr].type:
+                            continue  # keep the richer (annotated) version already found
+                        type_text = ""
+                        if (isinstance(child.value, ast.Call) and isinstance(child.value.func, ast.Name)
+                                and child.value.func.id in class_names):
+                            type_text = child.value.func.id
+                        elif isinstance(child.value, ast.Name):
+                            type_text = param_annotations.get(child.value.id, "")
+                        field_map[tgt.attr] = ParsedField(
+                            name=tgt.attr, type=type_text, is_collection=_value_is_collection(child.value))
+
+        method_names = [
+            stmt.name for stmt in cls_node.body
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+
+        return ParsedClass(
+            name=cls_node.name, file=filepath, language="python", module=module, kind=kind,
+            bases=bases, interfaces=[], fields=list(field_map.values()), method_names=method_names,
+            line_start=cls_node.lineno, line_end=getattr(cls_node, "end_lineno", cls_node.lineno),
+        )
+
+    def _extract_classes(
+        self, tree, content: str, filepath: str, language: str
+    ) -> Tuple[List[ParsedClass], List[Tuple[int, int, str]]]:
+        """Returns (classes, class_ranges).
+
+        `class_ranges` is [(start_byte, end_byte, class_name)] for every
+        class/interface/struct/trait body AND every Rust impl-block body —
+        used by `_extract_functions` to link a method back to its containing
+        class via byte-span containment. Impl blocks contribute a range but
+        no `ParsedClass` of their own (the struct/trait they extend already
+        has one, possibly parsed from a different match in the same file).
+        """
+        lang_obj = TREE_SITTER_LANGUAGES.get(language)
+        query = CLASS_QUERIES.get(language)
+        if not lang_obj or not query:
+            return [], []
+
+        try:
+            matches = run_query_matches(lang_obj, query, tree.root_node)
+        except Exception:
+            return [], []
+
+        def _first(v):
+            return v[0] if isinstance(v, list) else v
+
+        module = Path(filepath).parts[0] if Path(filepath).parts else "root"
+        classes: List[ParsedClass] = []
+        class_ranges: List[Tuple[int, int, str]] = []
+        seen_spans = set()
+        # Rust `impl Trait for Type` blocks: (type_name, trait_name) pairs to
+        # merge into the matching struct's `interfaces` list after the main
+        # loop, since impl and struct/trait declarations can appear in any
+        # order and aren't guaranteed to share a single query match.
+        rust_trait_impls: List[Tuple[str, str]] = []
+
+        for _, cap in matches:
+            decl = None
+            kind = None
+            for cap_key, resolved_kind in (
+                ("class_decl", "class"),
+                ("abstract_class_decl", "abstract_class"),
+                ("interface_decl", "interface"),
+                ("struct_decl", "struct"),
+                ("trait_decl", "trait"),
+                ("impl_decl", None),
+            ):
+                if cap_key in cap:
+                    decl = _first(cap[cap_key])
+                    kind = resolved_kind
+                    break
+            if decl is None:
+                continue
+
+            span = (decl.start_byte, decl.end_byte)
+            if span in seen_spans:
+                continue
+            seen_spans.add(span)
+
+            if kind is None:
+                # Rust impl block: method->class linkage only, no ParsedClass of its own.
+                impl_type_cap = cap.get("impl_type")
+                if impl_type_cap is not None:
+                    type_node = _first(impl_type_cap)
+                    type_name = content[type_node.start_byte:type_node.end_byte]
+                    class_ranges.append((decl.start_byte, decl.end_byte, type_name))
+
+                    impl_trait_cap = cap.get("impl_trait")
+                    if impl_trait_cap is not None:
+                        trait_node = _first(impl_trait_cap)
+                        trait_name = content[trait_node.start_byte:trait_node.end_byte]
+                        rust_trait_impls.append((type_name, trait_name))
+                continue
+
+            name_cap = (cap.get("class_name") or cap.get("interface_name")
+                        or cap.get("struct_name") or cap.get("trait_name"))
+            if name_cap is None:
+                continue
+            name_node = _first(name_cap)
+            name = content[name_node.start_byte:name_node.end_byte]
+
+            if kind == "class" and language == "java":
+                modifiers_cap = cap.get("modifiers")
+                if modifiers_cap is not None:
+                    mod_node = _first(modifiers_cap)
+                    if "abstract" in content[mod_node.start_byte:mod_node.end_byte]:
+                        kind = "abstract_class"
+
+            if language in ("javascript", "typescript") and kind != "interface":
+                heritage_cap = cap.get("heritage")
+                heritage_node = _first(heritage_cap) if heritage_cap is not None else None
+                bases, interfaces = _parse_class_heritage(heritage_node, content, language)
+            else:
+                superclass_cap = cap.get("superclass")
+                bases = []
+                if superclass_cap is not None:
+                    sc_node = _first(superclass_cap)
+                    bases.append(content[sc_node.start_byte:sc_node.end_byte])
+
+                implements_container = cap.get("implements_list") or cap.get("interface_extends_list")
+                interfaces = (
+                    _walk_type_names(_first(implements_container), content)
+                    if implements_container is not None else []
+                )
+
+            body_cap = (cap.get("class_body") or cap.get("struct_body")
+                        or cap.get("trait_body") or cap.get("interface_body"))
+            body_node = _first(body_cap) if body_cap is not None else None
+            fields = _walk_fields(body_node, content, language)
+            method_names = _walk_method_names(body_node, content, language)
+
+            classes.append(ParsedClass(
+                name=name, file=filepath, language=language, module=module, kind=kind,
+                bases=bases, interfaces=interfaces, fields=fields, method_names=method_names,
+                line_start=decl.start_point[0] + 1, line_end=decl.end_point[0] + 1,
+            ))
+            class_ranges.append((decl.start_byte, decl.end_byte, name))
+
+        if rust_trait_impls:
+            by_name = {c.name: c for c in classes}
+            for type_name, trait_name in rust_trait_impls:
+                c = by_name.get(type_name)
+                if c is not None and trait_name not in c.interfaces:
+                    c.interfaces.append(trait_name)
+
+        return classes, class_ranges
+
+    def _extract_functions(
+        self, tree, content: str, filepath: str, language: str,
+        class_ranges: List[Tuple[int, int, str]] = (),
+    ) -> List[ParsedFunction]:
         lang_obj = TREE_SITTER_LANGUAGES.get(language)
         if not lang_obj:
             return []
@@ -696,14 +1372,21 @@ class UniversalParser:
             else:
                 fn_name = f"anonymous_{node.start_point[0]}"
 
-            # For Go method_declarations, prefix with receiver type for uniqueness
+            # For Go method_declarations, prefix with receiver type for uniqueness.
+            # Go methods live outside any type declaration (no enclosing struct
+            # body span to match against class_ranges), so the receiver is the
+            # only source of class linkage for this language.
+            class_name = None
             if language == "go":
                 recv_node = node.child_by_field_name("receiver")
                 if recv_node:
                     recv_text = content[recv_node.start_byte:recv_node.end_byte]
                     rec_match = re.search(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\)', recv_text)
                     if rec_match:
-                        fn_name = f"{rec_match.group(1)}.{fn_name}"
+                        class_name = rec_match.group(1)
+                        fn_name = f"{class_name}.{fn_name}"
+            else:
+                class_name = _find_enclosing_class(class_ranges, node.start_byte, node.end_byte)
 
             key = (fn_name, node.start_point[0])
             if key in seen:
@@ -714,6 +1397,7 @@ class UniversalParser:
             # tree.root_node instead would collect every call in the whole
             # file for every function.
             calls = self._extract_calls(node, content, language, fn_name)
+            instantiates = self._extract_instantiations(node, content, language)
 
             module = Path(filepath).parts[0] if Path(filepath).parts else "root"
             functions.append(ParsedFunction(
@@ -721,12 +1405,15 @@ class UniversalParser:
                 file=filepath,
                 language=language,
                 module=module,
-                virtual_module=filepath,
+                virtual_module=class_name or filepath,
                 line_start=node.start_point[0] + 1,
                 line_end=node.end_point[0] + 1,
                 complexity=self._estimate_complexity(node, content),
                 calls=calls,
                 fan_out=len(calls),
+                class_name=class_name,
+                is_method=class_name is not None,
+                instantiates=instantiates,
             ))
         return functions
 
@@ -749,6 +1436,26 @@ class UniversalParser:
                 if called and called != current_fn_name:
                     calls.add(called)
         return list(calls)
+
+    def _extract_instantiations(self, scope_node, content: str, language: str) -> List[str]:
+        lang_obj = TREE_SITTER_LANGUAGES.get(language)
+        query = INSTANTIATION_QUERIES.get(language)
+        if not lang_obj or not query:
+            return []
+        try:
+            raw_captures = run_query(lang_obj, query, scope_node)
+        except Exception:
+            return []
+
+        instantiated = set()
+        if isinstance(raw_captures, dict):
+            for nodes in raw_captures.values():
+                for node in nodes:
+                    instantiated.add(content[node.start_byte:node.end_byte])
+        else:
+            for node, _ in raw_captures:
+                instantiated.add(content[node.start_byte:node.end_byte])
+        return list(instantiated)
 
     def _estimate_complexity(self, node, content: str) -> int:
         body_text = content[node.start_byte:node.end_byte]

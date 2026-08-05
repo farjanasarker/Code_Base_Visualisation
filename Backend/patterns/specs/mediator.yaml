@@ -1,0 +1,12 @@
+# Mediator — 2+ classes ('colleagues') all call into a common hub class,
+# and none of the colleagues call each other directly. mediator_candidates
+# auto-discovers the hub and colleague group rather than requiring the
+# spec to name specific classes.
+pattern: Mediator
+tier: medium
+requires:
+  - predicate: mediator_candidates
+    role: hub
+confidence_weights:
+  mediator_candidates: 0.7
+min_confidence_to_report: 0.55

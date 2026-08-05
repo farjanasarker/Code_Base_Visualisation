@@ -717,6 +717,59 @@
         <div class="section-title">Architecture Patterns</div>
         <div class="patterns-empty">No recognisable patterns detected in this codebase.</div>
       </div>
+
+      <!-- ── GoF Design Patterns Panel ────────────────────────── -->
+      <div v-if="gofPatternsData && gofPatternsData.patterns_found > 0" class="sidebar-section patterns-panel">
+        <div class="section-title">GoF Design Patterns</div>
+        <div class="patterns-summary-chip">
+          {{ gofPatternsData.patterns_found }} pattern{{ gofPatternsData.patterns_found !== 1 ? 's' : '' }} detected
+        </div>
+        <div class="patterns-list">
+          <div v-for="(p, idx) in gofPatternsData.patterns" :key="p.pattern + '-' + idx" class="pattern-card">
+            <div class="pattern-card-head">
+              <div class="pattern-name-group">
+                <span class="pattern-name">{{ p.pattern }}</span>
+                <span v-if="p.bindings && Object.values(p.bindings).length" class="pattern-subtitle">
+                  {{ Object.values(p.bindings).join(' · ') }}
+                </span>
+              </div>
+              <span
+                v-if="p.heuristic"
+                class="pattern-conf-badge pconf-heuristic"
+                title="Heuristic match — not from structural analysis, verify manually"
+              >
+                ⚠ heuristic
+              </span>
+              <span
+                v-else
+                class="pattern-conf-badge"
+                :class="p.tier === 'high' ? 'pconf-high' : p.tier === 'medium' ? 'pconf-med' : 'pconf-low'"
+                :title="`tier: ${p.tier}`"
+              >
+                {{ Math.round(p.confidence * 100) }}%
+              </span>
+            </div>
+            <div v-if="p.evidence?.length" class="pattern-evidence">
+              <div v-for="e in p.evidence" :key="e" class="pattern-evidence-item">· {{ e }}</div>
+            </div>
+            <div v-if="p.bindings && Object.keys(p.bindings).length" class="pattern-components">
+              <div class="pattern-components-label">Roles</div>
+              <template v-for="(value, role) in p.bindings" :key="role">
+                <div class="pattern-layer-row">
+                  <span class="ptree-prefix">├──</span>
+                  <span class="pattern-layer-name">{{ role }}:</span>
+                  <span class="pattern-layer-files" :title="value">{{ value }}</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="gofPatternsData && gofPatternsData.patterns_found === 0" class="sidebar-section patterns-panel">
+        <div class="section-title">GoF Design Patterns</div>
+        <div class="patterns-empty">No GoF design patterns detected in this codebase.</div>
+      </div>
+
       <!-- Layer Analysis Panel (folder / ZIP only) -->
       <div v-if="layerViolations" class="sidebar-section layer-panel">
         <div class="section-title">Layer Analysis</div>
@@ -882,6 +935,7 @@ const llmPlan = ref(null);          // LLM architectural reasoning result
 const llmLoading = ref(false);      // LLM request in progress
 const selectedSmellFile = ref(null);
 const patternsData = ref(null);
+const gofPatternsData = ref(null);  // GoF design patterns from /api/gof-patterns
 const smellViewMode = ref('files'); // 'files' | 'plan' | 'layers' | 'tree'
 const expandedLayers = ref({});     // { [layerName]: bool }
 const expandedPreviews = ref({});   // { [smell_id]: bool } — code_preview toggle in ROI plan
@@ -1594,6 +1648,7 @@ const resetGraphState = () => {
   expandedLayers.value = {};
   expandedPreviews.value = {};
   patternsData.value = null;
+  gofPatternsData.value = null;
   impactCache.clear();
   hoveredImpact.value = { visible: false, loading: false, fnName: '', data: null };
 };
@@ -1628,6 +1683,11 @@ const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
       sessionManager.apiCall('/git-history',                         { method: 'GET' }),
       sessionManager.apiCall(`/smell-analysis${svcQuery}`,           { method: 'GET' }),
       sessionManager.apiCall(`/api/patterns/${sid}${svcQuery}`,      { method: 'GET' }),
+      // No service_id filtering here yet — /api/gof-patterns scans the
+      // whole session's class graph regardless of the active monorepo
+      // service, unlike the panels above. Fine for single-project uploads;
+      // worth revisiting if per-service GoF scoping turns out to matter.
+      sessionManager.apiCall(`/api/gof-patterns/${sid}`,             { method: 'GET' }),
     ];
     if (isFolder) {
       requests.push(sessionManager.apiCall(`/layer-violations${svcQuery}`, { method: 'GET' }));
@@ -1640,8 +1700,9 @@ const fetchAnalysisPanels = async (isSingleFile, sourceName) => {
     gitHistory.value   = gh?.available ? gh : null;
     smellData.value    = await results[4].json();
     patternsData.value = await results[5].json();
-    if (isFolder && results[6]) {
-      layerViolations.value = await results[6].json();
+    gofPatternsData.value = await results[6].json();
+    if (isFolder && results[7]) {
+      layerViolations.value = await results[7].json();
     }
   } catch (_) { /* non-critical — panels stay hidden */ }
 };
@@ -3899,6 +3960,19 @@ const collapseOthers = (nodeType, keepId) => {
   font-weight: 700;
   color: #e2e8f0;
 }
+.pattern-name-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pattern-subtitle {
+  font-size: 10px;
+  color: #7dd3fc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pattern-conf-badge {
   font-size: 10px;
   font-weight: 700;
@@ -3909,6 +3983,7 @@ const collapseOthers = (nodeType, keepId) => {
 .pconf-high { background: #14532d; color: #4ade80; }
 .pconf-med  { background: #422006; color: #fbbf24; }
 .pconf-low  { background: #1e1b4b; color: #a5b4fc; }
+.pconf-heuristic { background: #422006; color: #fb923c; border: 1px dashed #fb923c66; }
 .pattern-evidence {
   display: flex;
   flex-direction: column;

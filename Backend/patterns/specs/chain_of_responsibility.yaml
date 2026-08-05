@@ -1,0 +1,23 @@
+# Chain of Responsibility — a class holds a field typed as a shared handler
+# abstraction and delegates to it (the "if I can't handle it, pass to
+# next" shape). Deliberately looser than decorator.yaml/proxy.yaml (no
+# field_typed_as_own_interface requirement) and tier: medium, not high —
+# this is genuinely, structurally the same shape as Proxy (single field of
+# a shared type + delegation) whenever the forwarding call happens to be a
+# near-passthrough; nothing in a pure composition-graph view can tell
+# "conditionally forward if I can't handle it" apart from "always forward"
+# without control-flow data this engine doesn't have in Phase 1. Expect
+# chain_of_responsibility and proxy (or decorator) to co-fire on the same
+# classes — that's a documented, expected outcome, not a bug to chase.
+pattern: Chain of Responsibility
+tier: medium
+requires:
+  - predicate: single_field_of_own_type_candidates
+    role: handler
+  - predicate: delegates_to_field
+    class: handler
+    field: handler
+confidence_weights:
+  single_field_of_own_type_candidates: 0.4
+  delegates_to_field: 0.6
+min_confidence_to_report: 0.55

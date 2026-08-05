@@ -1,0 +1,45 @@
+# Canonical method-role alias map for the GoF pattern engine's normalization
+# layer. Lets a rule spec ask "does this class have an ITERATOR_NEXT-role
+# method?" instead of hardcoding `next`/`__next__`/`Next`/`hasNext` per
+# language everywhere a pattern cares about that role.
+#
+# Loaded by patterns/normalization.py via `load_method_roles()`, matched
+# case-insensitively by patterns/predicates.py's has_role_method.
+
+roles:
+  ITERATOR_NEXT:
+    - next
+    - __next__
+    - Next
+  ITERATOR_HAS_NEXT:
+    - hasNext
+    - has_next
+    - HasNext
+  BUILDER_BUILD:
+    - build
+    - Build
+    - construct
+    - Construct
+  PROTOTYPE_CLONE:
+    - clone
+    - Clone
+    - __copy__
+    - __deepcopy__
+  COMMAND_EXECUTE:
+    - execute
+    - Execute
+    - run
+    - Run
+  MEMENTO_SAVE:
+    - save
+    - Save
+    - create_memento
+    - createMemento
+  MEMENTO_RESTORE:
+    - restore
+    - Restore
+    - set_memento
+    - setMemento
+  INTERPRETER_INTERPRET:
+    - interpret
+    - Interpret

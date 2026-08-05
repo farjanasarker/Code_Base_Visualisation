@@ -1,0 +1,25 @@
+# Strategy — Phase 0 proof of concept for the rule-spec engine.
+#
+# Shape: an interface with exactly one method (the "strategy" role), at
+# least 2 classes implementing it, a "context" class holding a field typed
+# as that interface, and the context delegating to that field.
+pattern: Strategy
+tier: high
+requires:
+  - predicate: interface_with_single_method
+    role: strategy_interface
+  - predicate: min_implementers
+    of: strategy_interface
+    count: 2
+  - predicate: composition_field_of_type
+    type: strategy_interface
+    role: context
+  - predicate: delegates_to_field
+    class: context
+    field: strategy_interface
+confidence_weights:
+  interface_with_single_method: 0.2
+  min_implementers: 0.3
+  composition_field_of_type: 0.2
+  delegates_to_field: 0.3
+min_confidence_to_report: 0.6

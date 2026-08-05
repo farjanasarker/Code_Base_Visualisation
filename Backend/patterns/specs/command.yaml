@@ -1,0 +1,17 @@
+# Command — Strategy's shape (interface, 2+ implementers), but the single
+# method must specifically be execute()-role (method_roles.yaml's
+# COMMAND_EXECUTE: execute/Execute/run/Run), not any arbitrary name — the
+# differentiator from a generic single-method Strategy interface.
+pattern: Command
+tier: high
+requires:
+  - predicate: interface_with_single_role_method
+    role_name: COMMAND_EXECUTE
+    role: command_interface
+  - predicate: min_implementers
+    of: command_interface
+    count: 2
+confidence_weights:
+  interface_with_single_role_method: 0.5
+  min_implementers: 0.5
+min_confidence_to_report: 0.6

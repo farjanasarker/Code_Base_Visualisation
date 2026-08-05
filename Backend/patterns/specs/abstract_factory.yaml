@@ -1,0 +1,12 @@
+# Abstract Factory — Factory Method's shape extended across a whole family:
+# an interface with 2+ creation methods, and 2+ concrete implementers where
+# each implementer's own methods each construct a distinct product, and the
+# product family varies together per implementer.
+pattern: Abstract Factory
+tier: high
+requires:
+  - predicate: abstract_factory_candidates
+    role: factory
+confidence_weights:
+  abstract_factory_candidates: 0.85
+min_confidence_to_report: 0.6

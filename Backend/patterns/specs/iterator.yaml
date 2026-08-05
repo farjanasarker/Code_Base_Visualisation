@@ -1,0 +1,28 @@
+# Iterator — a class declaring BOTH a next()-role method and a hasNext()-
+# role method (the pairing is the real signal; a next()-named method alone
+# is too common to mean anything on its own). Uses the normalization
+# layer's method-role config (patterns/config/method_roles.yaml) instead of
+# hardcoding next/__next__/hasNext/has_next per language.
+#
+# Known engine limitation, not a detection bug: confidence_weights is keyed
+# by predicate name, and this spec uses has_role_method twice (once per
+# role) — both requirements are still mandatory (a match needs both), but
+# they share one weight entry, so the reported confidence undercounts
+# relative to how many independent signals actually fired. Worth revisiting
+# (e.g. keying weights by requirement label instead of predicate name) if a
+# later pattern needs the same predicate more than once and the understated
+# confidence turns out to matter in practice.
+pattern: Iterator
+tier: high
+requires:
+  - predicate: every_class
+    role: iterator_class
+  - predicate: has_role_method
+    class: iterator_class
+    role_name: ITERATOR_NEXT
+  - predicate: has_role_method
+    class: iterator_class
+    role_name: ITERATOR_HAS_NEXT
+confidence_weights:
+  has_role_method: 0.9
+min_confidence_to_report: 0.6

@@ -1,0 +1,12 @@
+# Memento — deliberately low tier: an Originator with a save()-role method
+# constructing a different (Memento) class, plus a restore()-role method's
+# mere presence (no parameter-type data exists in this graph to verify the
+# restore method actually takes that Memento class as its argument).
+pattern: Memento
+tier: low
+requires:
+  - predicate: memento_candidates
+    role: originator
+confidence_weights:
+  memento_candidates: 0.5
+min_confidence_to_report: 0.5

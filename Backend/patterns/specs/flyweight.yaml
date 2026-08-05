@@ -1,0 +1,14 @@
+# Flyweight — deliberately low tier: approximates "returns a cached
+# instance" via "constructs a product AND holds a collection field of that
+# product's type" (see cache_keyed_return/flyweight_candidates docstrings
+# for why this is a List-based proxy for what's really a Dict/Map cache —
+# per-field type text was never persisted to the graph, only names and
+# resolved-class edges, so List vs Dict can't be told apart here).
+pattern: Flyweight
+tier: low
+requires:
+  - predicate: flyweight_candidates
+    role: factory
+confidence_weights:
+  flyweight_candidates: 0.5
+min_confidence_to_report: 0.5

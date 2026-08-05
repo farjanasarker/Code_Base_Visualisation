@@ -240,6 +240,102 @@ FUNCTION_QUERIES = {
     """,
 }
 
+
+# Tree-sitter queries for class/interface/struct/trait extraction. Each query
+# captures the declaration node as a whole (@*_decl) plus its name, an optional
+# single superclass, an optional container node for one-or-more implemented
+# interfaces, and the body node — field/method lists are then read by walking
+# the body node's children directly in Python (see UniversalParser._extract_classes)
+# rather than trying to capture repeated children in the query itself: tree-sitter's
+# `*`-quantified captures were found (via probing against the installed grammars)
+# to unreliably return only the first repetition through matches(), so every
+# multi-item list (fields, multiple implemented interfaces) is walked in Python
+# instead of captured in Cypher-query-style S-expressions.
+#
+# JS and TS are NOT interchangeable here despite similar syntax: they're
+# different grammar packages with different node type names for the same
+# concept (JS: `class_heritage (identifier)` / `field_definition` / `property`
+# field; TS: `class_heritage (extends_clause value: ...)` / `implements_clause`
+# / `public_field_definition` / `name` field). Plain JS has no interfaces or
+# abstract classes at all — a query referencing `interface_declaration` or
+# `extends_clause` against the plain JS grammar fails to even compile.
+CLASS_QUERIES = {
+    # NOTE on `(class_heritage)? @heritage`: capturing the whole heritage node
+    # and walking its children in Python (see `_parse_class_heritage` in
+    # parser.py) rather than decomposing extends_clause/implements_clause
+    # directly in the query is deliberate — capturing an entire *optional*
+    # child node (e.g. `(implements_clause) @implements_list`) was observed to
+    # silently drop a sibling optional capture (`@superclass`) on this grammar
+    # whenever the captured-whole-node child is itself absent (e.g. a class
+    # with `extends` but no `implements`). Capturing the parent node whole
+    # sidesteps that quirk entirely.
+    "javascript": """
+        (class_declaration
+          name: (identifier) @class_name
+          (class_heritage)? @heritage
+          body: (class_body) @class_body) @class_decl
+    """,
+
+    "typescript": """
+        (class_declaration
+          name: (type_identifier) @class_name
+          (class_heritage)? @heritage
+          body: (class_body) @class_body) @class_decl
+
+        (abstract_class_declaration
+          name: (type_identifier) @class_name
+          (class_heritage)? @heritage
+          body: (class_body) @class_body) @abstract_class_decl
+
+        (interface_declaration
+          name: (type_identifier) @interface_name
+          (extends_type_clause)? @interface_extends_list
+          body: (interface_body) @interface_body) @interface_decl
+    """,
+
+    "java": """
+        (class_declaration
+          (modifiers)? @modifiers
+          name: (identifier) @class_name
+          superclass: (superclass (type_identifier) @superclass)?
+          interfaces: (super_interfaces)? @implements_list
+          body: (class_body) @class_body) @class_decl
+
+        (interface_declaration
+          name: (identifier) @interface_name
+          (extends_interfaces)? @interface_extends_list
+          body: (interface_body) @interface_body) @interface_decl
+    """,
+
+    "go": """
+        (type_declaration
+          (type_spec
+            name: (type_identifier) @struct_name
+            type: (struct_type
+              (field_declaration_list) @struct_body))) @struct_decl
+
+        (type_declaration
+          (type_spec
+            name: (type_identifier) @interface_name
+            type: (interface_type) @interface_body)) @interface_decl
+    """,
+
+    "rust": """
+        (struct_item
+          name: (type_identifier) @struct_name
+          body: (field_declaration_list) @struct_body) @struct_decl
+
+        (trait_item
+          name: (type_identifier) @trait_name
+          body: (declaration_list) @trait_body) @trait_decl
+
+        (impl_item
+          trait: (type_identifier)? @impl_trait
+          type: (type_identifier) @impl_type
+          body: (declaration_list) @impl_body) @impl_decl
+    """,
+}
+
 CALL_QUERIES = {
     "python": """
         (call (identifier) @called_fn)
@@ -267,5 +363,35 @@ CALL_QUERIES = {
         (call_expression function: (identifier) @called_fn)
         (call_expression function: (field_expression
           field: (field_identifier) @called_fn))
+    """,
+}
+
+# Instantiation ("does this method construct class X") is a genuinely
+# different AST shape from a call in every language except Python — `new
+# Foo()` (TS/JS), `new Foo()` (Java's object_creation_expression), and
+# `Foo{}`/`&Foo{}` (Go's composite_literal) are none of them a
+# call_expression at all, so CALL_QUERIES above never captures them. Needed
+# for Factory Method/Abstract Factory/Builder/Prototype, which are
+# fundamentally about "this method creates and returns an instance".
+#
+# No Python entry: `ClassName(...)` is syntactically identical to a plain
+# function call in Python (`ast.Call`), so it already flows through the
+# existing call-extraction path — see parser.py's Python instantiation
+# handling, which filters `calls` down to names matching a known class.
+INSTANTIATION_QUERIES = {
+    "javascript": """
+        (new_expression constructor: (identifier) @instantiated)
+    """,
+    "typescript": """
+        (new_expression constructor: (identifier) @instantiated)
+    """,
+    "java": """
+        (object_creation_expression type: (type_identifier) @instantiated)
+    """,
+    "go": """
+        (composite_literal type: (type_identifier) @instantiated)
+    """,
+    "rust": """
+        (call_expression function: (scoped_identifier path: (identifier) @instantiated))
     """,
 }
