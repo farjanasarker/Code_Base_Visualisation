@@ -634,21 +634,29 @@ def prototype_candidates(view: SessionGraphView) -> List[Candidate]:
 
 
 def interface_with_single_role_method(view: SessionGraphView, role_name: str) -> List[Candidate]:
-    """Like interface_with_single_method, but also requires that one method
-    match a canonical role — Command's differentiator from generic Strategy:
-    the single method must specifically be execute()-role, not any name.
+    """Interface-like class declaring a method matching a canonical role —
+    Command's differentiator from generic Strategy: one of its methods must
+    specifically be execute()-role, not any name.
+
+    Deliberately does NOT require the role method to be the interface's
+    ONLY method: real Command interfaces routinely pair execute() with
+    undo() (the classic remote-control example), and rejecting those would
+    make this predicate nearly unmatchable while leaving adapter_candidates
+    (which has no method-count restriction at all) to claim every Command
+    implementer as an Adapter instead.
     """
     out = []
     for name, c in view.classes.items():
-        if not c.is_interface_like or len(c.method_names) != 1:
+        if not c.is_interface_like:
             continue
-        method = c.method_names[0]
-        if _ROLE_LOOKUP.get(method.lower()) == role_name:
-            out.append(Candidate(
-                binding=name,
-                evidence=[f"{_loc(view, name)} declares exactly one method: {method}() (role: {role_name})"],
-                extra={"method": method},
-            ))
+        for method in c.method_names:
+            if _ROLE_LOOKUP.get(method.lower()) == role_name:
+                out.append(Candidate(
+                    binding=name,
+                    evidence=[f"{_loc(view, name)} declares {role_name}-role method: {method}()"],
+                    extra={"method": method},
+                ))
+                break
     return out
 
 
