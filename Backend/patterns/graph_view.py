@@ -95,18 +95,38 @@ class SessionGraphView:
         self.fields_by_owner_and_name = fields_by_owner_and_name
         self.methods_of = methods_of
 
-        # class -> every type it implements/inherits (inverted index over
-        # implementers_of/subclasses_of) — used to test "is this field typed
-        # as one of my own interfaces/bases", which is Decorator/Proxy/Chain
-        # of Responsibility's actual shape (a field typed as the *shared*
-        # interface the class also implements, not literally its own name).
-        self.interfaces_of: Dict[str, Set[str]] = defaultdict(set)
+        # class -> every type it implements/inherits, TRANSITIVELY —
+        # computed as the closure over implementers_of/subclasses_of's
+        # direct edges, not just one level. GoF's is-a-and-has-a patterns
+        # (Decorator/Proxy/Chain of Responsibility) very commonly implement
+        # the shared interface on an ABSTRACT BASE class, with concrete
+        # subclasses only extending that base and never naming the
+        # interface themselves (`MilkDecorator extends BeverageDecorator`,
+        # where only `BeverageDecorator implements Beverage`) — a one-level
+        # index would say MilkDecorator doesn't implement Beverage at all,
+        # same as Java itself wouldn't. Used to test "is this field typed as
+        # one of my own interfaces/bases" (field_typed_as_own_interface,
+        # self_referential_types) and to find inherited fields
+        # (effective_fields_of/effective_field, below).
+        direct_parents: Dict[str, Set[str]] = defaultdict(set)
         for parent, children in implementers_of.items():
             for child in children:
-                self.interfaces_of[child].add(parent)
+                direct_parents[child].add(parent)
         for parent, children in subclasses_of.items():
             for child in children:
-                self.interfaces_of[child].add(parent)
+                direct_parents[child].add(parent)
+
+        self.interfaces_of: Dict[str, Set[str]] = defaultdict(set)
+        for child in direct_parents:
+            seen: Set[str] = set()
+            frontier = list(direct_parents[child])
+            while frontier:
+                parent = frontier.pop()
+                if parent in seen or parent == child:
+                    continue
+                seen.add(parent)
+                frontier.extend(direct_parents.get(parent, ()))
+            self.interfaces_of[child] = seen
 
     @classmethod
     def from_raw(cls, raw: dict) -> "SessionGraphView":
@@ -237,3 +257,42 @@ class SessionGraphView:
         if c is None:
             return {class_name}
         return {class_name} | self.interfaces_of.get(class_name, set()) | set(c.unresolved_interfaces)
+
+    def effective_fields_of(self, class_name: str) -> List[FieldEdge]:
+        """class_name's own fields, plus any it INHERITS from an ancestor
+        (implemented interface or base class) but doesn't redeclare itself
+        — own fields shadow an inherited one of the same name. Needed
+        because the field predicates otherwise only see `fields_of`'s
+        directly-declared-on-this-class edges: Decorator/Proxy/Chain of
+        Responsibility's canonical shape declares the shared wrapped/next
+        field ONCE on an abstract base class, with every concrete
+        subclass inheriting it rather than redeclaring it — a lookup
+        scoped to the subclass alone would find no field there at all.
+        """
+        own = list(self.fields_of.get(class_name, []))
+        seen_names = {e.field_name for e in own}
+        result = list(own)
+        for ancestor in sorted(self.interfaces_of.get(class_name, ())):
+            for e in self.fields_of.get(ancestor, []):
+                if e.field_name in seen_names:
+                    continue
+                seen_names.add(e.field_name)
+                result.append(e)
+        return result
+
+    def effective_field(self, class_name: str, field_name: str) -> Optional[FieldEdge]:
+        """The FieldEdge for `field_name` as seen from `class_name`: its
+        own declaration if present, else the nearest ancestor's — see
+        effective_fields_of. Used wherever a caller already knows the
+        field name it's looking for (a `field:` param resolved by a prior
+        role binding) and just needs that field's edge, without building
+        the whole effective field list.
+        """
+        edge = self.fields_by_owner_and_name.get((class_name, field_name))
+        if edge is not None:
+            return edge
+        for ancestor in sorted(self.interfaces_of.get(class_name, ())):
+            edge = self.fields_by_owner_and_name.get((ancestor, field_name))
+            if edge is not None:
+                return edge
+        return None

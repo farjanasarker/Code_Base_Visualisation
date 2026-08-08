@@ -725,16 +725,20 @@
           {{ gofPatternsData.patterns_found }} pattern{{ gofPatternsData.patterns_found !== 1 ? 's' : '' }} detected
         </div>
         <div class="patterns-list">
-          <div v-for="(p, idx) in gofPatternsData.patterns" :key="p.pattern + '-' + idx" class="pattern-card">
+          <div v-for="grp in groupedGofPatterns" :key="grp.pattern" class="pattern-card">
             <div class="pattern-card-head">
               <div class="pattern-name-group">
-                <span class="pattern-name">{{ p.pattern }}</span>
-                <span v-if="p.bindings && Object.values(p.bindings).length" class="pattern-subtitle">
-                  {{ Object.values(p.bindings).join(' · ') }}
-                </span>
+                <div class="pattern-name-row">
+                  <span class="pattern-name">{{ grp.pattern }}</span>
+                  <span v-if="grp.category" class="pattern-category-badge">{{ grp.category }}</span>
+                  <span v-if="grp.instances.length > 1" class="pattern-instance-count" :title="`${grp.instances.length} separate instances of this pattern`">
+                    ×{{ grp.instances.length }}
+                  </span>
+                </div>
+                <span v-if="!grp.heuristic" class="pattern-tier-label">tier: {{ grp.tier }}</span>
               </div>
               <span
-                v-if="p.heuristic"
+                v-if="grp.heuristic"
                 class="pattern-conf-badge pconf-heuristic"
                 title="Heuristic match — not from structural analysis, verify manually"
               >
@@ -743,25 +747,64 @@
               <span
                 v-else
                 class="pattern-conf-badge"
-                :class="p.tier === 'high' ? 'pconf-high' : p.tier === 'medium' ? 'pconf-med' : 'pconf-low'"
-                :title="`tier: ${p.tier}`"
+                :class="grp.tier === 'high' ? 'pconf-high' : grp.tier === 'medium' ? 'pconf-med' : 'pconf-low'"
+                :title="grp.instances.length > 1 ? 'highest-confidence instance' : `tier: ${grp.tier}`"
               >
-                {{ Math.round(p.confidence * 100) }}%
+                {{ Math.round(grp.instances[0].confidence * 100) }}%
               </span>
             </div>
-            <div v-if="p.evidence?.length" class="pattern-evidence">
-              <div v-for="e in p.evidence" :key="e" class="pattern-evidence-item">· {{ e }}</div>
-            </div>
-            <div v-if="p.bindings && Object.keys(p.bindings).length" class="pattern-components">
-              <div class="pattern-components-label">Roles</div>
-              <template v-for="(value, role) in p.bindings" :key="role">
-                <div class="pattern-layer-row">
-                  <span class="ptree-prefix">├──</span>
-                  <span class="pattern-layer-name">{{ role }}:</span>
-                  <span class="pattern-layer-files" :title="value">{{ value }}</span>
+
+            <!-- One collapsible entry per matched instance (e.g. per class,
+                 for patterns like Adapter that can match several
+                 independently) — auto-open when there's only one, since
+                 there's nothing to disambiguate by collapsing it. -->
+            <details
+              v-for="(p, idx) in grp.instances" :key="idx"
+              class="pattern-instance" :open="grp.instances.length === 1"
+            >
+              <summary class="pattern-instance-summary">
+                <span class="pattern-instance-binding">
+                  {{ (p.bindings && Object.values(p.bindings).join(' · ')) || `instance ${idx + 1}` }}
+                </span>
+                <span v-if="!p.heuristic" class="pattern-instance-conf">{{ Math.round(p.confidence * 100) }}%</span>
+              </summary>
+
+              <!-- Evidence grouped per structural requirement (why it
+                   matched, requirement by requirement) — falls back to the
+                   flat list if an older cached response has no
+                   evidence_detail. -->
+              <div v-if="p.evidence_detail?.length" class="pattern-evidence-groups">
+                <div v-for="(eg, gi) in p.evidence_detail" :key="gi" class="pattern-evidence-group">
+                  <div class="pattern-evidence-group-head">
+                    <span class="pattern-evidence-label">{{ eg.label }}</span>
+                    <span
+                      v-if="eg.role"
+                      class="pattern-evidence-role"
+                      :title="`bound as '${eg.role}'`"
+                    >→ {{ eg.role }}</span>
+                    <span
+                      v-if="eg.strength !== null && eg.strength !== undefined && eg.strength < 1"
+                      class="pattern-evidence-weak"
+                      title="Weaker evidence — matched, but not as certainly as a full-strength requirement"
+                    >~ approximate</span>
+                  </div>
+                  <div v-for="(line, li) in eg.evidence" :key="li" class="pattern-evidence-item">· {{ line }}</div>
                 </div>
-              </template>
-            </div>
+              </div>
+              <div v-else-if="p.evidence?.length" class="pattern-evidence">
+                <div v-for="e in p.evidence" :key="e" class="pattern-evidence-item">· {{ e }}</div>
+              </div>
+              <div v-if="p.bindings && Object.keys(p.bindings).length" class="pattern-components">
+                <div class="pattern-components-label">Roles</div>
+                <template v-for="(value, role) in p.bindings" :key="role">
+                  <div class="pattern-layer-row">
+                    <span class="ptree-prefix">├──</span>
+                    <span class="pattern-layer-name">{{ role }}:</span>
+                    <span class="pattern-layer-files" :title="value">{{ value }}</span>
+                  </div>
+                </template>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -936,6 +979,30 @@ const llmLoading = ref(false);      // LLM request in progress
 const selectedSmellFile = ref(null);
 const patternsData = ref(null);
 const gofPatternsData = ref(null);  // GoF design patterns from /api/gof-patterns
+
+// /api/gof-patterns reports one entry per matched instance — e.g. Adapter
+// matches FanOffCommand, FanOnCommand, LightOffCommand and LightOnCommand
+// as four separate, independently-valid instances of the same pattern.
+// That's correct detection, but four near-identical cards is noisy — group
+// same-named patterns into one card with one instance per class inside it.
+// `patterns` is already confidence-sorted server-side, so both the group
+// order (by first-seen = highest-confidence instance) and each group's
+// instance order fall out of that for free.
+const groupedGofPatterns = computed(() => {
+  const patterns = gofPatternsData.value?.patterns;
+  if (!patterns) return [];
+  const groups = new Map();
+  for (const p of patterns) {
+    if (!groups.has(p.pattern)) {
+      groups.set(p.pattern, {
+        pattern: p.pattern, category: p.category, tier: p.tier,
+        heuristic: p.heuristic, instances: [],
+      });
+    }
+    groups.get(p.pattern).instances.push(p);
+  }
+  return Array.from(groups.values());
+});
 const smellViewMode = ref('files'); // 'files' | 'plan' | 'layers' | 'tree'
 const expandedLayers = ref({});     // { [layerName]: bool }
 const expandedPreviews = ref({});   // { [smell_id]: bool } — code_preview toggle in ROI plan
@@ -3972,6 +4039,112 @@ const collapseOthers = (nodeType, keepId) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pattern-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pattern-category-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a78bfa;
+  background: #2e1065;
+  border-radius: 6px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+.pattern-tier-label {
+  font-size: 9px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pattern-instance-count {
+  font-size: 9px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+.pattern-instance {
+  border-top: 1px solid #334155;
+  padding-top: 6px;
+  margin-top: 6px;
+}
+.pattern-instance:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 4px;
+}
+.pattern-instance-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+}
+.pattern-instance-summary::-webkit-details-marker {
+  display: none;
+}
+.pattern-instance-summary::before {
+  content: "▸";
+  color: #64748b;
+  font-size: 9px;
+  margin-right: 4px;
+}
+details[open] > .pattern-instance-summary::before {
+  content: "▾";
+}
+.pattern-instance-binding {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pattern-instance-conf {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+.pattern-evidence-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.pattern-evidence-group {
+  border-left: 2px solid #334155;
+  padding-left: 6px;
+}
+.pattern-evidence-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 1px;
+}
+.pattern-evidence-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #7dd3fc;
+}
+.pattern-evidence-role {
+  font-size: 9px;
+  color: #64748b;
+}
+.pattern-evidence-weak {
+  font-size: 9px;
+  color: #fb923c;
 }
 .pattern-conf-badge {
   font-size: 10px;

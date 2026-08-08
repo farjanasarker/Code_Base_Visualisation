@@ -39,6 +39,15 @@ class PredicateResult:
     matched: bool
     evidence: List[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
+    # Multiplier applied to this requirement's confidence_weights entry —
+    # 1.0 (default) for an ordinary pass, <1.0 when a predicate matched on
+    # weaker evidence than its strongest case (e.g. delegates_to_field's
+    # name-only fallback), >1.0 when it matched on stronger-than-baseline
+    # evidence (e.g. min_implementers clearing its threshold with room to
+    # spare). The final confidence sum is still capped at 1.0, so a >1.0
+    # strength only matters when other requirements didn't reach full
+    # strength — see rule_engine.evaluate_spec.
+    strength: float = 1.0
 
 
 @dataclass
@@ -122,7 +131,13 @@ def min_implementers(view: SessionGraphView, interface_name: str, count: int) ->
     implementers = view.implementers_of.get(interface_name, set())
     matched = len(implementers) >= count
     evidence = [f"{len(implementers)} implementer(s) of {interface_name}: {', '.join(sorted(implementers)) or '(none)'}"]
-    return PredicateResult(matched=matched, evidence=evidence)
+    # Clearing the threshold with room to spare is stronger evidence than
+    # just barely meeting it (a 2-implementer minimum matched by exactly 2
+    # implementers is the weakest passing case) — graded via `strength`
+    # rather than a second mandatory requirement, since the threshold itself
+    # must stay a hard cutoff (Strategy's whole point breaks below it).
+    strength = 1.15 if len(implementers) > count else 1.0
+    return PredicateResult(matched=matched, evidence=evidence, strength=strength)
 
 
 def any_implementer_has_field_of_type(view: SessionGraphView, of: str, type_name: str) -> PredicateResult:
@@ -135,7 +150,7 @@ def any_implementer_has_field_of_type(view: SessionGraphView, of: str, type_name
     """
     implementers = view.implementers_of.get(of, set())
     for impl in implementers:
-        for e in view.fields_of.get(impl, []):
+        for e in view.effective_fields_of(impl):
             if e.target == type_name:
                 return PredicateResult(matched=True, evidence=[
                     f"{_loc(view, impl)} (implementer of {of}) has field '{e.field_name}: {type_name}' "
@@ -147,10 +162,11 @@ def any_implementer_has_field_of_type(view: SessionGraphView, of: str, type_name
 
 
 def composition_field_of_type(view: SessionGraphView, type_name: str) -> List[Candidate]:
-    """Every class holding a field (any cardinality) typed as `type_name`."""
+    """Every class holding a field (any cardinality) typed as `type_name`
+    — own or inherited (see effective_fields_of)."""
     out = []
-    for owner, edges in view.fields_of.items():
-        for e in edges:
+    for owner in view.classes:
+        for e in view.effective_fields_of(owner):
             if e.target == type_name:
                 out.append(Candidate(
                     binding=owner,
@@ -168,8 +184,8 @@ def collection_composition_field_of_type(view: SessionGraphView, type_name: str)
     Responsibility elsewhere in this library.
     """
     out = []
-    for owner, edges in view.fields_of.items():
-        for e in edges:
+    for owner in view.classes:
+        for e in view.effective_fields_of(owner):
             if e.target == type_name and e.is_collection:
                 out.append(Candidate(
                     binding=owner,
@@ -186,14 +202,22 @@ def delegates_to_field(view: SessionGraphView, class_name: str, field_name: str)
     Known Phase-0 approximation: the parser doesn't track *how* a call was
     made (`self.field.method()` vs. an unrelated bare call to a same-named
     method elsewhere), only that function A calls function B — so this
-    checks "class has the field, and some method on the class calls a
-    method that also exists on the field's target type", not a verified
-    call-through-that-specific-field. Confidence weighting in the rule spec
-    is expected to offset the false-positive risk this introduces; a
-    precise fix means threading call-site receiver-expression info through
-    the parser (candidate Phase 1 enhancement if false positives show up).
+    can't verify a call-through-that-specific-field directly. It leans on
+    `MethodInfo.calls`' own callee-class resolution (see graph_view.py's
+    `_resolve_callee_class`) to cut the obvious false positive instead of
+    ignoring it: if the call site's callee resolved unambiguously to some
+    OTHER concrete class (not this field's target), it is not evidence of
+    delegation through this field — some unrelated class just happens to
+    declare a same-named method, and that call is provably going there
+    instead. Only two shapes count as a match:
+      - resolved exactly to the field's target class -> full-strength match.
+      - unresolved/ambiguous (2+ classes share the callee name, which
+        `edge.target` is always one of, since it declares that method too)
+        -> still plausible delegation, but weaker evidence, at reduced
+        `strength` so the rule spec's confidence reflects the uncertainty
+        instead of hiding it behind a flat pass/fail.
     """
-    edge = view.fields_by_owner_and_name.get((class_name, field_name))
+    edge = view.effective_field(class_name, field_name)
     if edge is None:
         return PredicateResult(matched=False, evidence=[f"{class_name} has no field '{field_name}'"])
 
@@ -201,16 +225,34 @@ def delegates_to_field(view: SessionGraphView, class_name: str, field_name: str)
     if not target_methods:
         return PredicateResult(matched=False, evidence=[f"{edge.target} has no known methods to delegate to"])
 
+    weak_match = None
     for m in view.methods_of.get(class_name, []):
-        for callee_name, _callee_class in m.calls:
-            if callee_name in target_methods:
+        for callee_name, callee_class in m.calls:
+            if callee_name not in target_methods:
+                continue
+            if callee_class == edge.target:
                 return PredicateResult(matched=True, evidence=[
-                    f"{class_name}.{m.fn_name}() calls {callee_name}(), also defined on "
-                    f"{edge.target} (field '{field_name}') — approximate: not verified as a "
-                    f"call through that specific field"
+                    f"{class_name}.{m.fn_name}() calls {callee_name}(), resolved to "
+                    f"{edge.target} (field '{field_name}') — exact class match"
                 ])
+            if callee_class is None and weak_match is None:
+                weak_match = (m.fn_name, callee_name)
+            # callee_class resolved to a different, unrelated class: not
+            # evidence of delegation through this field — keep looking.
+
+    if weak_match is not None:
+        fn_name, callee_name = weak_match
+        return PredicateResult(
+            matched=True,
+            evidence=[
+                f"{class_name}.{fn_name}() calls {callee_name}(), also defined on "
+                f"{edge.target} (field '{field_name}') — name-only match: the call's target class "
+                f"couldn't be resolved unambiguously, not verified as a call through this specific field"
+            ],
+            strength=0.8,
+        )
     return PredicateResult(matched=False, evidence=[
-        f"no method on {class_name} calls a method also defined on {edge.target}"
+        f"no method on {class_name} calls a method resolvable to {edge.target}"
     ])
 
 
@@ -224,7 +266,7 @@ def has_self_referential_field(view: SessionGraphView, class_name: str) -> Predi
     if class_name not in view.classes:
         return PredicateResult(matched=False, evidence=[f"{class_name} not found"])
     self_types = view.self_referential_types(class_name)
-    for e in view.fields_of.get(class_name, []):
+    for e in view.effective_fields_of(class_name):
         if e.target in self_types:
             qualifier = "its own class" if e.target == class_name else f"its own interface {e.target}"
             return PredicateResult(matched=True, evidence=[
@@ -234,7 +276,7 @@ def has_self_referential_field(view: SessionGraphView, class_name: str) -> Predi
 
 def has_list_of_own_type_field(view: SessionGraphView, class_name: str) -> PredicateResult:
     self_types = view.self_referential_types(class_name)
-    for e in view.fields_of.get(class_name, []):
+    for e in view.effective_fields_of(class_name):
         if e.target in self_types and e.is_collection:
             return PredicateResult(matched=True, evidence=[
                 f"{_loc(view, class_name)} has collection field '{e.field_name}' of its own type — Composite signal"])
@@ -243,7 +285,7 @@ def has_list_of_own_type_field(view: SessionGraphView, class_name: str) -> Predi
 
 def has_single_field_of_own_type(view: SessionGraphView, class_name: str) -> PredicateResult:
     self_types = view.self_referential_types(class_name)
-    for e in view.fields_of.get(class_name, []):
+    for e in view.effective_fields_of(class_name):
         if e.target in self_types and not e.is_collection:
             return PredicateResult(matched=True, evidence=[
                 f"{_loc(view, class_name)} has single field '{e.field_name}' of its own type — "
@@ -258,7 +300,7 @@ def list_of_own_type_field_candidates(view: SessionGraphView) -> List[Candidate]
     out = []
     for name in view.classes:
         self_types = view.self_referential_types(name)
-        for e in view.fields_of.get(name, []):
+        for e in view.effective_fields_of(name):
             if e.target in self_types and e.is_collection:
                 out.append(Candidate(
                     binding=name,
@@ -273,7 +315,7 @@ def single_field_of_own_type_candidates(view: SessionGraphView) -> List[Candidat
     out = []
     for name in view.classes:
         self_types = view.self_referential_types(name)
-        for e in view.fields_of.get(name, []):
+        for e in view.effective_fields_of(name):
             if e.target in self_types and not e.is_collection:
                 out.append(Candidate(
                     binding=name,
@@ -292,7 +334,7 @@ def wraps_and_extends(view: SessionGraphView, class_name: str, field_name: str) 
     if not delegate_result.matched:
         return PredicateResult(matched=False, evidence=delegate_result.evidence)
 
-    edge = view.fields_by_owner_and_name.get((class_name, field_name))
+    edge = view.effective_field(class_name, field_name)
     target_methods = view.methods_named(edge.target) if edge else set()
     for m in view.methods_of.get(class_name, []):
         delegating_calls = [c for c in m.calls if c[0] in target_methods]
@@ -305,6 +347,7 @@ def wraps_and_extends(view: SessionGraphView, class_name: str, field_name: str) 
                     f"through '{field_name}' -> {classification} signal"
                 ],
                 extra={"classification": classification},
+                strength=delegate_result.strength,
             )
     return PredicateResult(matched=False, evidence=["no delegating method found to classify"])
 
@@ -318,7 +361,7 @@ def field_typed_as_own_interface(view: SessionGraphView, class_name: str, field_
     chain_of_responsibility.yaml's tier notes on why this alone doesn't
     fully separate the two.)
     """
-    edge = view.fields_by_owner_and_name.get((class_name, field_name))
+    edge = view.effective_field(class_name, field_name)
     if edge is None:
         return PredicateResult(matched=False, evidence=[f"{class_name} has no field '{field_name}'"])
     matched = edge.target in view.interfaces_of.get(class_name, set())
@@ -337,7 +380,7 @@ def is_decorator_wrapping(view: SessionGraphView, class_name: str, field_name: s
     """
     result = wraps_and_extends(view, class_name, field_name)
     matched = result.matched and result.extra.get("classification") == "decorator"
-    return PredicateResult(matched=matched, evidence=result.evidence)
+    return PredicateResult(matched=matched, evidence=result.evidence, strength=result.strength)
 
 
 def is_proxy_wrapping(view: SessionGraphView, class_name: str, field_name: str) -> PredicateResult:
@@ -345,7 +388,7 @@ def is_proxy_wrapping(view: SessionGraphView, class_name: str, field_name: str) 
     is_decorator_wrapping's docstring."""
     result = wraps_and_extends(view, class_name, field_name)
     matched = result.matched and result.extra.get("classification") == "proxy"
-    return PredicateResult(matched=matched, evidence=result.evidence)
+    return PredicateResult(matched=matched, evidence=result.evidence, strength=result.strength)
 
 
 def fluent_return_self(view: SessionGraphView, class_name: str, method_name: str) -> PredicateResult:
@@ -500,7 +543,7 @@ def cache_keyed_return(view: SessionGraphView, class_name: str, method_name: str
     if m is None or not m.instantiates:
         return PredicateResult(matched=False, evidence=[f"{class_name}.{method_name}() does not construct anything"])
     for product in m.instantiates:
-        for e in view.fields_of.get(class_name, []):
+        for e in view.effective_fields_of(class_name):
             if e.target == product and e.is_collection:
                 return PredicateResult(matched=True, evidence=[
                     f"{class_name}.{method_name}() constructs {product}, and {class_name} holds a "
@@ -669,11 +712,11 @@ def adapter_candidates(view: SessionGraphView) -> List[Candidate]:
     Adapter's is deliberately typed as something else entirely.
     """
     out = []
-    for name, edges in view.fields_of.items():
+    for name in view.classes:
         implemented = view.interfaces_of.get(name, set())
         if not implemented:
             continue
-        for e in edges:
+        for e in view.effective_fields_of(name):
             if e.target in implemented or e.target == name:
                 continue
             target_methods = view.methods_named(e.target)
@@ -797,7 +840,7 @@ def interpreter_candidates(view: SessionGraphView) -> List[Candidate]:
     out = []
     for name in view.classes:
         self_types = view.self_referential_types(name)
-        for e in view.fields_of.get(name, []):
+        for e in view.effective_fields_of(name):
             if e.target not in self_types:
                 continue
             interpret_method = next(
@@ -843,7 +886,7 @@ def singleton_candidates(view: SessionGraphView) -> List[Candidate]:
         self_types = view.self_referential_types(name)
         has_self_field = any(
             e.target in self_types and not e.is_collection
-            for e in view.fields_of.get(name, [])
+            for e in view.effective_fields_of(name)
         )
         if not has_self_field:
             continue
@@ -862,16 +905,49 @@ def singleton_candidates(view: SessionGraphView) -> List[Candidate]:
 
 
 def factory_candidates(view: SessionGraphView) -> List[Candidate]:
-    """Simple Factory: a class with 2+ methods, each constructing a
-    DIFFERENT product class (not itself) — the class's role is
-    manufacturing objects. Weaker than Factory Method (no abstract Creator/
-    subclass-override requirement) or Abstract Factory (no shared-interface
-    requirement across implementers) — this is the plain "factory class"
-    shape the old create/build/make-naming heuristic approximated by
-    keyword, needing no such naming at all.
+    """Simple Factory: a class whose role is manufacturing objects, in
+    either of the two shapes that idiom actually shows up in:
+
+      - one branching method (if/elif/switch on a type parameter)
+        constructing 2+ DIFFERENT product classes depending on the branch
+        taken — e.g. `ShapeFactory.get_shape(shape_type)` returning
+        `Circle()`/`Square()`/`Rectangle()`. This is the far more common
+        real-world/textbook shape, and the one a first Phase-2 cut of this
+        predicate missed entirely: it only looked at each method's FIRST
+        instantiated class (`m.instantiates[0]`), so a single branching
+        method's other products were silently dropped, and requiring 2+
+        such *methods* meant a one-method factory could never match at all.
+      - 2+ separate methods, each constructing a DIFFERENT single product
+        (`create_car()` / `create_truck()`) — the "one method per product"
+        shape, checked as a fallback so it isn't lost now that the
+        branching shape is checked first.
+
+    Weaker than Factory Method (no abstract Creator/subclass-override
+    requirement) or Abstract Factory (no shared-interface requirement
+    across implementers) — this is the plain "factory class" shape the old
+    create/build/make-naming heuristic approximated by keyword, needing no
+    such naming at all.
     """
     out = []
     for name, methods in view.methods_of.items():
+        branching = None
+        for m in methods:
+            distinct_products = sorted({p for p in m.instantiates if p != name})
+            if len(distinct_products) >= 2:
+                branching = (m, distinct_products)
+                break
+        if branching is not None:
+            m, distinct_products = branching
+            out.append(Candidate(
+                binding=name,
+                evidence=[
+                    f"{_loc(view, name)}.{m.fn_name}() constructs {len(distinct_products)} distinct "
+                    f"products depending on the branch taken: {distinct_products}"
+                ],
+                extra={"method": m.fn_name, "products": distinct_products},
+            ))
+            continue
+
         products = {}
         for m in methods:
             targets = [p for p in m.instantiates if p != name]
@@ -886,13 +962,21 @@ def factory_candidates(view: SessionGraphView) -> List[Candidate]:
     return out
 
 
-def facade_candidates(view: SessionGraphView) -> List[Candidate]:
-    """Facade: a class that calls into 5+ distinct other classes, while
-    itself being called by relatively few (<=40% of its own fan-out) — a
-    simplified entry point in front of a larger subsystem. Direct class-
-    level translation of the old detector's already-structural fan-out/
-    fan-in candidate path (it also had a `facade`-named-file shortcut this
-    version deliberately drops).
+def facade_candidates(
+    view: SessionGraphView, min_fan_out: int = 5, max_caller_ratio: float = 0.4
+) -> List[Candidate]:
+    """Facade: a class that calls into `min_fan_out`+ distinct other classes,
+    while itself being called by relatively few (<= `max_caller_ratio` of its
+    own fan-out) — a simplified entry point in front of a larger subsystem.
+    Direct class-level translation of the old detector's already-structural
+    fan-out/fan-in candidate path (it also had a `facade`-named-file
+    shortcut this version deliberately drops).
+
+    Thresholds are parameters (defaulted here, overridable from
+    facade.yaml's `requires` block) rather than baked-in literals — every
+    other generator in this library takes its tunable knobs the same way
+    (e.g. `min_implementers`' `count`), so a project that finds these too
+    strict/loose can retune via the spec file, no code change needed.
     """
     callees_of: dict = defaultdict(set)
     callers_of: dict = defaultdict(set)
@@ -906,7 +990,7 @@ def facade_candidates(view: SessionGraphView) -> List[Candidate]:
     out = []
     for name, callees in callees_of.items():
         callers = callers_of.get(name, set())
-        if len(callees) >= 5 and len(callers) <= len(callees) * 0.4:
+        if len(callees) >= min_fan_out and len(callers) <= len(callees) * max_caller_ratio:
             out.append(Candidate(
                 binding=name,
                 evidence=[

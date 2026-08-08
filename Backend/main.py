@@ -887,6 +887,20 @@ async def upload(
         except Exception:
             logger.exception(f"Failed to cache parsed functions for session {session_id}")
 
+        # Each /upload replaces this session's project — session_id persists in
+        # the browser across uploads (sessionStorage, only cleared on tab
+        # close/end-session), but Neo4j writes below are MERGE-based and would
+        # otherwise just layer the new project's nodes on top of whatever a
+        # previous upload in this same session already stored. Wipe the old
+        # graph first so a second upload doesn't leave stale classes/functions
+        # around for get_class_graph()/GoF pattern detection to pick up
+        # alongside the new ones.
+        try:
+            delete_session_data(session_id)
+            logger.info(f"✅ Cleared previous Neo4j data for session {session_id} before storing new upload")
+        except Exception:
+            logger.exception(f"⚠️ Failed to clear previous Neo4j data for session {session_id}")
+
         # Persist to Neo4j with session_id (best-effort)
         try:
             if is_multi_service:
@@ -1907,12 +1921,18 @@ async def api_detect_gof_patterns(session_id: str):
         cache = SESSION_CACHE.get(session_id, {})
         idiom_patterns = [
             {
-                "pattern":    "Singleton (language idiom)",
-                "tier":       "heuristic",
-                "confidence": None,
-                "bindings":   {"file": m["file"]},
-                "evidence":   [f"{m['idiom']} found in {m['file']}:{m['line']}"],
-                "heuristic":  True,
+                "pattern":         "Singleton (language idiom)",
+                "category":        "Creational",
+                "tier":            "heuristic",
+                "confidence":      None,
+                "bindings":        {"file": m["file"]},
+                "evidence":        [f"{m['idiom']} found in {m['file']}:{m['line']}"],
+                "evidence_detail": [{
+                    "predicate": "language_idiom", "label": "Language idiom",
+                    "role": None, "strength": None,
+                    "evidence": [f"{m['idiom']} found in {m['file']}:{m['line']}"],
+                }],
+                "heuristic":       True,
             }
             for m in cache.get("singleton_idiom_matches", [])
         ]
@@ -1924,17 +1944,27 @@ async def api_detect_gof_patterns(session_id: str):
             matches = evaluate_all(view)
             structural_patterns = [
                 {
-                    "pattern":    m.pattern,
-                    "tier":       m.tier,
-                    "confidence": m.confidence,
-                    "bindings":   m.bindings,
-                    "evidence":   m.evidence,
-                    "heuristic":  False,
+                    "pattern":         m.pattern,
+                    "category":        m.category,
+                    "tier":            m.tier,
+                    "confidence":      m.confidence,
+                    "bindings":        m.bindings,
+                    "evidence":        m.evidence,
+                    "evidence_detail": m.evidence_detail,
+                    "heuristic":       False,
                 }
                 for m in matches
             ]
 
-        patterns = structural_patterns + idiom_patterns
+        # evaluate_all() already returns structural_patterns sorted by
+        # confidence, but re-assert it explicitly at the API boundary once
+        # idiom_patterns (confidence: None, always heuristic) are merged in —
+        # highest-confidence structural match first, heuristic entries last.
+        patterns = sorted(
+            structural_patterns + idiom_patterns,
+            key=lambda p: p["confidence"] if p["confidence"] is not None else -1.0,
+            reverse=True,
+        )
         return {
             "session_id":     session_id,
             "patterns_found": len(patterns),

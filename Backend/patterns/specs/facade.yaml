@@ -9,6 +9,8 @@ tier: medium
 requires:
   - predicate: facade_candidates
     role: facade_class
+    min_fan_out: 5
+    max_caller_ratio: 0.4
 confidence_weights:
   facade_candidates: 0.65
 min_confidence_to_report: 0.6

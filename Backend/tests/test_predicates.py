@@ -95,6 +95,113 @@ def test_delegates_to_field_no_match_for_unrelated_field():
     assert result.matched is False
 
 
+def test_delegates_to_field_full_strength_on_unambiguous_resolution():
+    """When the callee name resolves to exactly one class in the whole
+    session — and it's the field's own target — that's the strongest
+    evidence delegates_to_field can produce: full strength.
+    """
+    raw = {
+        "classes": [
+            {"name": "Dep", "file": "dep.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": ["process_payment"],
+             "line_start": 1, "line_end": 2},
+            {"name": "Owner", "file": "owner.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": ["dep"], "method_names": ["run"],
+             "line_start": 3, "line_end": 5},
+        ],
+        "inherits": [], "implements": [],
+        "has_field": [
+            {"owner": "Owner", "owner_file": "owner.py", "target": "Dep",
+             "field_name": "dep", "is_collection": False},
+        ],
+        "methods": [
+            {"fn_name": "process_payment", "file": "dep.py", "class_name": "Dep", "raw_calls": []},
+            {"fn_name": "run", "file": "owner.py", "class_name": "Owner", "raw_calls": ["process_payment"]},
+        ],
+    }
+    view = SessionGraphView.from_raw(raw)
+    result = P.delegates_to_field(view, "Owner", "dep")
+    assert result.matched is True
+    assert result.strength == 1.0
+
+
+def test_delegates_to_field_weak_strength_on_ambiguous_resolution():
+    """False-positive guard: if an unrelated class happens to declare a
+    method with the same name as the field's target's method, the call
+    site's callee can no longer be resolved to one class — this must not
+    be treated as full-strength evidence of delegation through the field,
+    only a weaker name-only match (still reported, since it's genuinely
+    plausible, just not certain).
+    """
+    raw = {
+        "classes": [
+            {"name": "Logger", "file": "logger.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": ["close"],
+             "line_start": 1, "line_end": 2},
+            {"name": "UnrelatedResource", "file": "unrelated.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": ["close"],
+             "line_start": 1, "line_end": 2},
+            {"name": "Owner", "file": "owner.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": ["logger"], "method_names": ["run"],
+             "line_start": 3, "line_end": 5},
+        ],
+        "inherits": [], "implements": [],
+        "has_field": [
+            {"owner": "Owner", "owner_file": "owner.py", "target": "Logger",
+             "field_name": "logger", "is_collection": False},
+        ],
+        "methods": [
+            {"fn_name": "close", "file": "logger.py", "class_name": "Logger", "raw_calls": []},
+            {"fn_name": "close", "file": "unrelated.py", "class_name": "UnrelatedResource", "raw_calls": []},
+            {"fn_name": "run", "file": "owner.py", "class_name": "Owner", "raw_calls": ["close"]},
+        ],
+    }
+    view = SessionGraphView.from_raw(raw)
+    result = P.delegates_to_field(view, "Owner", "logger")
+    assert result.matched is True
+    assert result.strength < 1.0
+
+
+def test_delegates_to_field_rejects_call_resolved_to_a_different_class():
+    """The core false-positive fix: a call whose callee_class resolved
+    unambiguously to some OTHER class must not count as delegation through
+    a field typed as a different class, even though both classes happen to
+    declare a method of the same name.
+
+    Built by hand rather than via SessionGraphView.from_raw(): under
+    _resolve_callee_class's name-only resolution, a class that shares its
+    target's method name is always counted in that name's global candidate
+    set, so a real raw-graph fixture can never produce a call resolved to
+    one *other* single class while the field's target also declares that
+    method — the ambiguous branch (see the weak-strength test above) is
+    what actually fires in practice. This test exercises the predicate's
+    own logic directly against a hand-built MethodInfo, so the guard is
+    verified even though today's resolver can't yet produce the exact input
+    it defends against (e.g. a future file-scoped resolver could).
+    """
+    from patterns.graph_view import ClassInfo, FieldEdge, MethodInfo  # noqa: E402
+
+    dep = ClassInfo(name="Dep", file="dep.py", kind="class", language="python",
+                     method_names=["run_task"])
+    unrelated = ClassInfo(name="Unrelated", file="unrelated.py", kind="class", language="python",
+                           method_names=["run_task"])
+    owner = ClassInfo(name="Owner", file="owner.py", kind="class", language="python",
+                       field_names=["dep"], method_names=["run"])
+    edge = FieldEdge(owner="Owner", owner_file="owner.py", target="Dep",
+                      field_name="dep", is_collection=False)
+    owner_run = MethodInfo(fn_name="run", file="owner.py", class_name="Owner",
+                            calls=[("run_task", "Unrelated")])
+
+    view = SessionGraphView(
+        classes={"Dep": dep, "Unrelated": unrelated, "Owner": owner},
+        implementers_of={}, subclasses_of={},
+        fields_of={"Owner": [edge]}, fields_by_owner_and_name={("Owner", "dep"): edge},
+        methods_of={"Owner": [owner_run]},
+    )
+    result = P.delegates_to_field(view, "Owner", "dep")
+    assert result.matched is False
+
+
 def test_has_self_referential_field():
     raw = {
         "classes": [
@@ -287,3 +394,92 @@ def test_every_class_generator():
     view = SessionGraphView.from_raw(_raw_decorator_shape())
     candidates = P.every_class(view)
     assert {c.binding for c in candidates} == {"Component", "ConcreteComponent", "TextDecorator"}
+
+
+def test_factory_candidates_matches_single_branching_method():
+    """The common real-world/textbook Simple Factory shape: ONE method that
+    branches (if/elif on a type parameter) and constructs several different
+    products, e.g. ShapeFactory.get_shape(shape_type) returning Circle()/
+    Square()/Rectangle(). Regression test for the gap where this shape went
+    entirely undetected: the original implementation only looked at each
+    method's first instantiated class and required 2+ such methods, so a
+    single branching method could never match no matter how many distinct
+    products it constructed.
+    """
+    raw = {
+        "classes": [
+            {"name": "Circle", "file": "shapes.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": [], "line_start": 1, "line_end": 2},
+            {"name": "Square", "file": "shapes.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": [], "line_start": 3, "line_end": 4},
+            {"name": "Rectangle", "file": "shapes.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": [], "line_start": 5, "line_end": 6},
+            {"name": "ShapeFactory", "file": "shapes.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": ["get_shape"],
+             "line_start": 7, "line_end": 15},
+        ],
+        "inherits": [], "implements": [], "has_field": [],
+        "methods": [
+            {"fn_name": "get_shape", "file": "shapes.py", "class_name": "ShapeFactory",
+             "raw_calls": [], "raw_instantiates": ["Circle", "Square", "Rectangle"]},
+        ],
+    }
+    view = SessionGraphView.from_raw(raw)
+    candidates = P.factory_candidates(view)
+    by_binding = {c.binding: c for c in candidates}
+    assert "ShapeFactory" in by_binding
+    assert set(by_binding["ShapeFactory"].extra["products"]) == {"Circle", "Square", "Rectangle"}
+    # Products are plain data classes with no constructing methods of their
+    # own — must not themselves false-positive as factories.
+    assert not {"Circle", "Square", "Rectangle"} & set(by_binding)
+
+
+def test_factory_candidates_matches_one_method_per_product():
+    """The other shape: 2+ separate methods, each constructing a different
+    single product (create_car() / create_truck()) — must keep working now
+    that the branching shape above is checked first.
+    """
+    raw = {
+        "classes": [
+            {"name": "Car", "file": "vehicles.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": [], "line_start": 1, "line_end": 2},
+            {"name": "Truck", "file": "vehicles.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": [], "line_start": 3, "line_end": 4},
+            {"name": "VehicleFactory", "file": "vehicles.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": ["create_car", "create_truck"],
+             "line_start": 5, "line_end": 10},
+        ],
+        "inherits": [], "implements": [], "has_field": [],
+        "methods": [
+            {"fn_name": "create_car", "file": "vehicles.py", "class_name": "VehicleFactory",
+             "raw_calls": [], "raw_instantiates": ["Car"]},
+            {"fn_name": "create_truck", "file": "vehicles.py", "class_name": "VehicleFactory",
+             "raw_calls": [], "raw_instantiates": ["Truck"]},
+        ],
+    }
+    view = SessionGraphView.from_raw(raw)
+    candidates = P.factory_candidates(view)
+    by_binding = {c.binding: c for c in candidates}
+    assert "VehicleFactory" in by_binding
+    assert by_binding["VehicleFactory"].extra["products"] == {"create_car": "Car", "create_truck": "Truck"}
+
+
+def test_factory_candidates_no_match_for_single_product_method():
+    """One method constructing just one product class is not a factory —
+    that's a plain constructor/builder helper, not a manufacturing role."""
+    raw = {
+        "classes": [
+            {"name": "Widget", "file": "w.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": [], "line_start": 1, "line_end": 2},
+            {"name": "WidgetHolder", "file": "w.py", "kind": "class", "language": "python",
+             "labels": ["Class"], "field_names": [], "method_names": ["make"], "line_start": 3, "line_end": 5},
+        ],
+        "inherits": [], "implements": [], "has_field": [],
+        "methods": [
+            {"fn_name": "make", "file": "w.py", "class_name": "WidgetHolder",
+             "raw_calls": [], "raw_instantiates": ["Widget"]},
+        ],
+    }
+    view = SessionGraphView.from_raw(raw)
+    candidates = P.factory_candidates(view)
+    assert not any(c.binding == "WidgetHolder" for c in candidates)

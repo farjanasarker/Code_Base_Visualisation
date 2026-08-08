@@ -79,9 +79,67 @@ class Checkout {
 
     strategy = next(p for p in body["patterns"] if p["pattern"] == "Strategy")
     assert strategy["tier"] == "high"
-    assert strategy["confidence"] == 1.0
+    # Not a perfect 1.0: Checkout.process()'s call to pay() resolves
+    # ambiguously (PaymentStrategy, CreditCardStrategy and PayPalStrategy
+    # all declare a "pay" method), so delegates_to_field matches on its
+    # weaker name-only fallback rather than an exact callee-class match —
+    # see predicates.delegates_to_field's strength grading.
+    assert strategy["confidence"] == 0.94
     assert strategy["bindings"] == {"strategy_interface": "PaymentStrategy", "context": "Checkout"}
     assert len(strategy["evidence"]) >= 4
+
+
+def test_second_upload_replaces_first_project_in_same_session(client, session_id):
+    """Regression test for the session-leak bug: session_id persists in the
+    browser (sessionStorage) across uploads, only cleared on tab close/
+    explicit end-session — so a second, unrelated /upload in the same
+    session must fully replace the first project's Neo4j graph, not layer
+    on top of it (the underlying writes are MERGE-based and would otherwise
+    accumulate both projects' classes under the same session_id forever).
+    """
+    strategy_src = """
+interface PaymentStrategy {
+  pay(amount: number): void;
+}
+class CreditCardStrategy implements PaymentStrategy {
+  pay(amount: number): void { this.charge(amount); }
+  charge(amount: number): void {}
+}
+class PayPalStrategy implements PaymentStrategy {
+  pay(amount: number): void { this.send(amount); }
+  send(amount: number): void {}
+}
+class Checkout {
+  strategy: PaymentStrategy;
+  process(amount: number): void { this.strategy.pay(amount); }
+}
+"""
+    resp1 = client.post(
+        "/upload",
+        headers={"X-Session-ID": session_id},
+        files={"file": ("checkout.ts", strategy_src, "text/plain")},
+    )
+    assert resp1.status_code == 200
+
+    unrelated_src = "class Widget {\n  render(): void {}\n}\n"
+    resp2 = client.post(
+        "/upload",
+        headers={"X-Session-ID": session_id},
+        files={"file": ("widget.ts", unrelated_src, "text/plain")},
+    )
+    assert resp2.status_code == 200
+
+    class_graph = db.get_class_graph(session_id)
+    class_names = {c["name"] for c in class_graph.get("classes", [])}
+    assert "Widget" in class_names
+    assert not class_names & {"Checkout", "PaymentStrategy", "CreditCardStrategy", "PayPalStrategy"}
+
+    gof_resp = client.get(f"/api/gof-patterns/{session_id}")
+    assert gof_resp.status_code == 200
+    body = gof_resp.json()
+    # Strategy only ever existed in the FIRST upload — it must not survive
+    # into pattern detection run against the second project.
+    assert not [p for p in body["patterns"] if p["pattern"] == "Strategy"]
 
 
 def test_gof_patterns_endpoint_empty_session_returns_no_patterns(client, session_id):
