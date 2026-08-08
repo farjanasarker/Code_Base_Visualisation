@@ -81,6 +81,47 @@ def test_template_method_detected(session_id):
     assert "Coffee" not in bindings
 
 
+def test_template_method_detected_java(session_id):
+    """Regression test: Java's `method_declaration` node is the SAME AST
+    node type for both a concrete method and a bodyless abstract method
+    (`abstract void step();`) — unlike Python's @abstractmethod (a real,
+    flagged body) or TS/Rust's bodyless forms (distinct node types that
+    never reach the parser's function-extraction path at all). Without
+    is_abstract being computed from body presence, an abstract Java method
+    got parsed as an ordinary concrete one, so abstract_method_called_
+    from_concrete_sibling_method could never find any abstract methods on
+    a Java Template Method class — this is THE textbook Java shape
+    (`abstract class Game { abstract void initialize(); ... void play() {
+    initialize(); ... } }`) and it went completely undetected before the
+    fix in analyzer/parser.py's _extract_functions.
+    """
+    matches = _detect_gof_patterns("template_method_java", session_id)
+    tm_matches = [m for m in matches if m.pattern == "Template Method"]
+    bindings = {m.bindings["template_class"] for m in tm_matches}
+    assert "Game" in bindings
+    # Football just overrides the abstract steps with no cross-method call
+    # of its own — must not false-positive.
+    assert "Football" not in bindings
+
+
+def test_template_method_detected_typescript(session_id):
+    """Regression test: TS's abstract-class abstract method (`abstract
+    initialize(): void;`) is node type `abstract_method_signature` — a
+    different node type from both interface members (`method_signature`)
+    and concrete class methods (`method_definition`), and easy to miss
+    since all three print identically as bodyless-looking signatures.
+    Without it in _METHOD_NODE_TYPES, an abstract class's abstract methods
+    vanished from ClassInfo.method_names entirely, so
+    abstract_method_called_from_concrete_sibling_method had no abstract
+    method to find at all.
+    """
+    matches = _detect_gof_patterns("template_method_ts", session_id)
+    tm_matches = [m for m in matches if m.pattern == "Template Method"]
+    bindings = {m.bindings["template_class"] for m in tm_matches}
+    assert "Game" in bindings
+    assert "Football" not in bindings
+
+
 def test_state_detected_via_bidirectional_edge(session_id):
     matches = _detect_gof_patterns("state_ts", session_id)
     state_matches = [m for m in matches if m.pattern == "State"]
@@ -127,6 +168,40 @@ def test_decorator_vs_proxy_classification(session_id):
     assert "MilkDecorator" not in proxy_wrappers
     # SimpleCoffee has no self-typed field at all — must not false-positive.
     assert "SimpleCoffee" not in decorator_wrappers | proxy_wrappers
+
+
+def test_decorator_detected_with_field_on_abstract_base_java(session_id):
+    """Regression test for two compounding bugs that together made GoF's
+    OWN textbook Decorator shape (not just a hypothetical) undetectable:
+
+    1. decorator_proxy_python's fixture (above) declares the wrapped field
+       directly on each concrete decorator — but the canonical shape
+       declares it ONCE on an abstract base class instead (`abstract class
+       BeverageDecorator implements Beverage { protected Beverage
+       beverage; }`), with concrete decorators (MilkDecorator,
+       SugarDecorator) only extending that base and inheriting the field.
+       Every field-lookup predicate used to check only a class's own
+       directly-declared fields, so the concrete decorators — which have
+       the delegating cost() method but not the field itself — were never
+       even considered as candidates. Fixed via
+       SessionGraphView.effective_fields_of/effective_field walking the
+       (now transitive) interfaces_of ancestor chain.
+    2. Once the field was found, cost() calling beverage.cost() (same
+       method name as the enclosing method — the single most common
+       Decorator/Proxy delegation shape there is) was being silently
+       dropped by analyzer/parser.py's _extract_calls, which excluded any
+       call whose bare name matched the enclosing function's own name on
+       a mistaken self-recursion assumption. Fixed by removing that
+       filter — class-aware resolution downstream is the right layer to
+       disambiguate same-name calls, not a bare string-equality guard
+       with no receiver context.
+    """
+    matches = _detect_gof_patterns("decorator_java", session_id)
+    decorator_wrappers = {m.bindings["wrapper"] for m in matches if m.pattern == "Decorator"}
+    assert decorator_wrappers == {"MilkDecorator", "SugarDecorator"}
+    # BeverageDecorator holds the field but has no cost() override of its
+    # own (abstract) — must not itself false-positive as the wrapper.
+    assert "BeverageDecorator" not in decorator_wrappers
 
 
 def test_chain_of_responsibility_overlaps_proxy_by_design(session_id):

@@ -25,10 +25,15 @@ than a fully generic constraint solver, because Strategy is the only Phase
 0 pattern that needs multi-role chaining at all; revisit if a later pattern
 needs a different shape.
 
-All requirements in Phase 0's schema are mandatory (no optional/soft
-signals yet), so a successful match's confidence is always the sum of every
-matched requirement's weight — `confidence_weights` becomes meaningful once
-a future pattern spec allows a requirement to be optional.
+All requirements are mandatory (no optional requirements — a failed checker
+still kills the branch outright, no partial credit for skipping one). What
+*is* graded is evidence quality within a passed requirement: a checker's
+`PredicateResult.strength` (see predicates.py) multiplies that
+requirement's `confidence_weights` entry — 1.0 for an ordinary pass, lower
+when a predicate matched on weaker evidence than its strongest case (e.g.
+delegates_to_field's name-only fallback), higher when it cleared its bar
+with room to spare (e.g. min_implementers matching well past its threshold).
+The summed, weighted confidence is still capped at 1.0.
 """
 
 from dataclasses import dataclass, field as dc_field
@@ -41,6 +46,69 @@ from . import predicates as P
 from .graph_view import SessionGraphView
 
 _SPECS_DIR = Path(__file__).parent / "specs"
+
+# Human-readable label for each predicate — surfaced per-requirement in
+# RuleMatch.evidence_detail so the UI can show *which structural check* each
+# bundle of evidence proves, not just a flat, unlabeled evidence dump.
+PREDICATE_LABELS: Dict[str, str] = {
+    # generators
+    "interface_with_single_method": "Interface shape",
+    "composition_field_of_type": "Composition",
+    "every_class": "Candidate class",
+    "list_of_own_type_field_candidates": "Self-referential list field",
+    "single_field_of_own_type_candidates": "Self-referential field",
+    "double_dispatch_candidates": "Double-dispatch pair",
+    "factory_method_candidates": "Factory Method shape",
+    "abstract_factory_candidates": "Abstract Factory shape",
+    "builder_candidates": "Builder shape",
+    "prototype_candidates": "Prototype shape",
+    "interface_with_single_role_method": "Role-method interface",
+    "adapter_candidates": "Adapter shape",
+    "flyweight_candidates": "Flyweight shape",
+    "mediator_candidates": "Mediator shape",
+    "memento_candidates": "Memento shape",
+    "interpreter_candidates": "Interpreter shape",
+    "collection_composition_field_of_type": "Collection composition",
+    "singleton_candidates": "Singleton shape",
+    "factory_candidates": "Factory shape",
+    "facade_candidates": "Facade shape",
+    # checkers
+    "min_implementers": "Implementer count",
+    "any_implementer_has_field_of_type": "Bidirectional context link",
+    "delegates_to_field": "Delegation",
+    "has_self_referential_field": "Self-referential field",
+    "has_list_of_own_type_field": "Self-referential list field",
+    "has_single_field_of_own_type": "Self-referential single field",
+    "wraps_and_extends": "Wrap-and-extend behavior",
+    "field_typed_as_own_interface": "Shared-interface field",
+    "is_decorator_wrapping": "Decorator classification",
+    "is_proxy_wrapping": "Proxy classification",
+    "fluent_return_self": "Fluent return",
+    "abstract_method_called_from_concrete_sibling_method": "Template call",
+    "double_dispatch_pair": "Double dispatch",
+    "fan_out_to_common_hub": "Common hub fan-out",
+    "no_direct_edges_between": "No direct peer calls",
+    "cache_keyed_return": "Cached construction",
+    "implements_or_inherits": "Type relationship",
+    "has_role_method": "Role method",
+    "has_min_subclasses": "Subclass count",
+}
+
+# GoF's own three-way grouping, keyed by each spec's `pattern:` value —
+# purely presentational (which section of the catalog this belongs to),
+# doesn't affect detection at all.
+PATTERN_CATEGORIES: Dict[str, str] = {
+    "Factory Method": "Creational", "Abstract Factory": "Creational",
+    "Builder": "Creational", "Prototype": "Creational", "Singleton": "Creational",
+    "Factory": "Creational",
+    "Adapter": "Structural", "Bridge": "Structural", "Composite": "Structural",
+    "Decorator": "Structural", "Facade": "Structural", "Flyweight": "Structural",
+    "Proxy": "Structural",
+    "Chain of Responsibility": "Behavioral", "Command": "Behavioral",
+    "Interpreter": "Behavioral", "Iterator": "Behavioral", "Mediator": "Behavioral",
+    "Memento": "Behavioral", "Observer": "Behavioral", "State": "Behavioral",
+    "Strategy": "Behavioral", "Template Method": "Behavioral", "Visitor": "Behavioral",
+}
 
 # predicate name -> (view, **resolved_params) -> List[Candidate]
 GENERATORS = {
@@ -65,7 +133,8 @@ GENERATORS = {
         view, kw["type"]),
     "singleton_candidates": lambda view, **kw: P.singleton_candidates(view),
     "factory_candidates": lambda view, **kw: P.factory_candidates(view),
-    "facade_candidates": lambda view, **kw: P.facade_candidates(view),
+    "facade_candidates": lambda view, **kw: P.facade_candidates(
+        view, min_fan_out=kw.get("min_fan_out", 5), max_caller_ratio=kw.get("max_caller_ratio", 0.4)),
 }
 
 # predicate name -> (view, **resolved_params) -> PredicateResult
@@ -113,6 +182,18 @@ class RuleMatch:
     confidence: float
     bindings: Dict[str, str]
     evidence: List[str] = dc_field(default_factory=list)
+    # Purely presentational, derived from `pattern` via PATTERN_CATEGORIES —
+    # "Creational"/"Structural"/"Behavioral", GoF's own grouping.
+    category: str = "Uncategorized"
+    # Same evidence as `evidence`, but grouped per requirement instead of
+    # flattened — each entry is one requirement's contribution: which
+    # structural check it was (`label`/`predicate`), how strong the match
+    # was (`strength` — see predicates.PredicateResult), and the raw
+    # evidence line(s) that check produced. `evidence` stays flat for
+    # existing consumers; this is the answer to "why did this match, per
+    # requirement" rather than "why did this match, as one undifferentiated
+    # blob".
+    evidence_detail: List[dict] = dc_field(default_factory=list)
 
 
 def load_spec(path: Path) -> RuleSpec:
@@ -153,10 +234,11 @@ def _resolve_params(raw_params: dict, context: dict) -> dict:
 
 def _search(
     view: SessionGraphView, requirements: List[dict], idx: int,
-    context: Dict[str, dict], evidence_acc: List[str],
+    context: Dict[str, dict], evidence_acc: List[str], strengths_acc: Dict[str, float],
+    detail_acc: List[dict],
 ) -> Iterator[tuple]:
     if idx == len(requirements):
-        yield dict(context), list(evidence_acc)
+        yield dict(context), list(evidence_acc), dict(strengths_acc), list(detail_acc)
         return
 
     req = requirements[idx]
@@ -170,27 +252,57 @@ def _search(
             new_context = dict(context)
             if role:
                 new_context[role] = {"binding": cand.binding, "extra": cand.extra}
-            yield from _search(view, requirements, idx + 1, new_context, evidence_acc + cand.evidence)
+            detail_entry = {
+                "predicate": pred_name,
+                "label": PREDICATE_LABELS.get(pred_name, pred_name),
+                "role": role,
+                "strength": 1.0,
+                "evidence": list(cand.evidence),
+            }
+            yield from _search(
+                view, requirements, idx + 1, new_context,
+                evidence_acc + cand.evidence, strengths_acc, detail_acc + [detail_entry])
     elif pred_name in CHECKERS:
         result = CHECKERS[pred_name](view, **resolved_params)
         if result.matched:
-            yield from _search(view, requirements, idx + 1, context, evidence_acc + result.evidence)
-        # else: this branch is dropped — no match, no partial credit (Phase 0
-        # has no optional requirements, so a failed checker kills the branch).
+            # A predicate used more than once in one spec (e.g. iterator.yaml's
+            # two has_role_method requirements sharing one confidence_weights
+            # key) combines conservatively via min() — the weakest of its
+            # occurrences sets the shared weight's multiplier.
+            new_strengths = dict(strengths_acc)
+            prior = new_strengths.get(pred_name)
+            new_strengths[pred_name] = result.strength if prior is None else min(prior, result.strength)
+            detail_entry = {
+                "predicate": pred_name,
+                "label": PREDICATE_LABELS.get(pred_name, pred_name),
+                "role": None,
+                "strength": result.strength,
+                "evidence": list(result.evidence),
+            }
+            yield from _search(
+                view, requirements, idx + 1, context,
+                evidence_acc + result.evidence, new_strengths, detail_acc + [detail_entry])
+        # else: this branch is dropped — no match, no partial credit (every
+        # requirement is mandatory; a failed checker kills the branch).
     else:
         raise ValueError(f"Unknown predicate '{pred_name}' — not registered in GENERATORS or CHECKERS")
 
 
 def evaluate_spec(view: SessionGraphView, spec: RuleSpec) -> List[RuleMatch]:
     matches = []
-    for context, evidence in _search(view, spec.requires, 0, {}, []):
-        confidence = round(min(sum(spec.confidence_weights.values()), 1.0), 2)
+    category = PATTERN_CATEGORIES.get(spec.pattern, "Uncategorized")
+    for context, evidence, strengths, detail in _search(view, spec.requires, 0, {}, [], {}, []):
+        weighted = sum(
+            weight * strengths.get(pred_name, 1.0)
+            for pred_name, weight in spec.confidence_weights.items()
+        )
+        confidence = round(min(weighted, 1.0), 2)
         if confidence < spec.min_confidence_to_report:
             continue
         bindings = {role: b["binding"] for role, b in context.items()}
         matches.append(RuleMatch(
             pattern=spec.pattern, tier=spec.tier, confidence=confidence,
-            bindings=bindings, evidence=evidence,
+            bindings=bindings, evidence=evidence, category=category, evidence_detail=detail,
         ))
     return matches
 

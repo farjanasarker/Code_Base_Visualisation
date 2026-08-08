@@ -123,7 +123,14 @@ _COLLECTION_TYPE_HINTS = ("list<", "vec<", "array<", "set<", "hashset<",
 # methods live outside the type declaration, linked via receiver instead).
 _METHOD_NODE_TYPES = {
     "javascript": {"method_definition"},
-    "typescript": {"method_signature", "method_definition"},
+    # abstract_method_signature is TS's bodyless abstract-class method decl
+    # (`abstract foo(): void;`) — a different node type from interface
+    # members' method_signature, easy to miss since both are bodyless and
+    # print identically. Without it here, an abstract class's abstract
+    # methods vanish from ClassInfo.method_names entirely (see
+    # abstract_method_called_from_concrete_sibling_method in predicates.py,
+    # which needs them to recognize Template Method).
+    "typescript": {"method_signature", "method_definition", "abstract_method_signature"},
     "java": {"method_declaration"},
     "go": {"method_elem"},
     "rust": {"function_signature_item", "function_item"},
@@ -1399,6 +1406,19 @@ class UniversalParser:
             calls = self._extract_calls(node, content, language, fn_name)
             instantiates = self._extract_instantiations(node, content, language)
 
+            # Java's method_declaration is the SAME node type for both a
+            # concrete method and a bodyless abstract-method declaration
+            # (`abstract void step();`) — unlike TS/Rust, which use distinct
+            # node types for their bodyless forms (abstract_method_signature/
+            # method_signature, function_signature_item) and so never reach
+            # this path at all. Without this, an abstract Java method got a
+            # real ParsedFunction with is_abstract defaulting to False,
+            # making it indistinguishable from a concrete sibling method —
+            # see abstract_method_called_from_concrete_sibling_method in
+            # predicates.py, which relies on this flag to find Template
+            # Method's abstract "step" methods.
+            is_abstract = node.child_by_field_name("body") is None
+
             module = Path(filepath).parts[0] if Path(filepath).parts else "root"
             functions.append(ParsedFunction(
                 name=fn_name,
@@ -1413,11 +1433,28 @@ class UniversalParser:
                 fan_out=len(calls),
                 class_name=class_name,
                 is_method=class_name is not None,
+                is_abstract=is_abstract,
                 instantiates=instantiates,
             ))
         return functions
 
     def _extract_calls(self, scope_node, content: str, language: str, current_fn_name: str) -> List[str]:
+        """`current_fn_name` is unused for filtering — kept in the signature
+        since callers already pass it and other extractors in this file take
+        the same parameter shape. It USED to exclude any call whose bare
+        name matched the enclosing method's own name, on the assumption that
+        meant self-recursion. That's wrong for the single most common
+        Decorator/Proxy/Chain of Responsibility shape there is: a wrapping
+        method delegating to a SAME-NAMED method on a *different* object
+        (`cost()` calling `wrapped.cost()`) — bare-name call extraction has
+        no receiver info to tell that apart from true recursion, so the old
+        filter silently dropped the delegation call entirely, not just
+        mis-resolved it. Discarding the call was strictly worse than keeping
+        it: genuine recursion is legitimate call-graph data too, and the
+        class-aware resolution downstream (graph_view._resolve_callee_class)
+        is the right layer to disambiguate same-name calls, not a blunt
+        string-equality filter here that has no receiver context at all.
+        """
         lang_obj = TREE_SITTER_LANGUAGES.get(language)
         if not lang_obj:
             return []
@@ -1428,12 +1465,12 @@ class UniversalParser:
             for nodes in raw_captures.values():
                 for node in nodes:
                     called = content[node.start_byte:node.end_byte]
-                    if called and called != current_fn_name:
+                    if called:
                         calls.add(called)
         else:
             for node, _ in raw_captures:
                 called = content[node.start_byte:node.end_byte]
-                if called and called != current_fn_name:
+                if called:
                     calls.add(called)
         return list(calls)
 

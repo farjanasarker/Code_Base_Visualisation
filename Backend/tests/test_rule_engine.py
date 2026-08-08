@@ -79,9 +79,24 @@ def test_strategy_matches_true_positive_shape():
     assert len(strategy_matches) == 1
     match = strategy_matches[0]
     assert match.bindings == {"strategy_interface": "PaymentStrategy", "context": "Checkout"}
-    assert match.confidence == 1.0
+    # Not a perfect 1.0: Checkout.process()'s call to pay() resolves
+    # ambiguously (PaymentStrategy, CreditCardStrategy and PayPalStrategy
+    # all declare a "pay" method), so delegates_to_field matches on its
+    # weaker name-only fallback rather than an exact callee-class match —
+    # see predicates.delegates_to_field's strength grading.
+    assert match.confidence == 0.94
     assert match.tier == "high"
     assert len(match.evidence) >= 4
+    assert match.category == "Behavioral"
+    # evidence_detail groups the same evidence per requirement, labeled with
+    # what structural check produced it — one entry per requirement in
+    # strategy.yaml's `requires` list (interface shape, implementer count,
+    # composition, delegation).
+    assert len(match.evidence_detail) == 4
+    labels = [d["label"] for d in match.evidence_detail]
+    assert labels == ["Interface shape", "Implementer count", "Composition", "Delegation"]
+    delegation_entry = next(d for d in match.evidence_detail if d["predicate"] == "delegates_to_field")
+    assert delegation_entry["strength"] < 1.0
 
 
 def test_strategy_does_not_match_single_implementer():
