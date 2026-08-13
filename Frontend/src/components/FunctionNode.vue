@@ -17,9 +17,6 @@ const riskTitle = computed(() => {
       : 'No detected callers in this codebase. May still be called dynamically, via reflection, polymorphism, or by external code.';
     return `${base}\n👻 Potentially Unreachable\n${conf}`;
   }
-  if (props.data.nodeType === 'function' && props.data.fanIn > 0) {
-    return `${base}\n⚠ Changing this will affect ${props.data.fanIn} caller(s)`;
-  }
   if (props.data.nodeType === 'service-unresolved') {
     return `${base}\n⚠ Referenced in service-map.json but no matching folder was found.\nCheck for a typo in the service name.`;
   }
