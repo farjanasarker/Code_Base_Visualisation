@@ -1228,7 +1228,17 @@ def api_tier3(request: Request, file_path: str, service_id: str | None = None):
         if functions:
             from analyzer import build_function_graph
             graph = build_function_graph(file_path, functions)
-            if graph.get("nodes"):
+            # An empty node list here isn't necessarily a cache miss — a file whose only
+            # functions are inline anonymous callbacks (build_function_graph filters those
+            # out as un-navigable) legitimately produces zero nodes. Falling through to the
+            # DB path in that case used to leak those same anonymous_<line> callbacks back
+            # in, since get_tier3's Cypher query has no such filter. Only fall back to DB
+            # when this file truly has no cached functions at all.
+            file_has_functions = any(
+                fn.get("file") == file_path or fn.get("virtual_module") == file_path
+                for fn in functions
+            )
+            if graph.get("nodes") or file_has_functions:
                 return graph
 
         return get_tier3(file_path, session_id, service_id)
@@ -1260,7 +1270,11 @@ def api_chunk(request: Request, file_path: str, chunk_name: str):
             from analyzer import build_function_graph
             # build_function_graph treats chunk_name as file_path → finds fns by virtual_module
             graph = build_function_graph(chunk_name, functions)
-            if graph.get("nodes"):
+            # See /graph/tier3's identical check: an empty node list can legitimately mean
+            # "this chunk's only functions are anonymous callbacks", not "not cached yet" —
+            # only fall back to the (unfiltered) DB path when nothing at all matched.
+            chunk_has_functions = any(fn.get("virtual_module") == chunk_name for fn in functions)
+            if graph.get("nodes") or chunk_has_functions:
                 return {**graph, "file": file_path, "chunk": chunk_name, "tier": 4, "chunked": False}
 
         # DB path

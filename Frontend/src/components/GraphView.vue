@@ -893,12 +893,19 @@
         />
       </VueFlow>
       <div v-else class="empty-state">
-        <div class="empty-icon">⬡</div>
-        <h2 class="empty-title">No graph loaded</h2>
-        <p class="empty-sub">Upload a source file, ZIP archive, or folder<br>using the panel on the left to get started.</p>
-        <div class="empty-badges">
-          <span>.py</span><span>.js</span><span>.ts</span><span>.java</span><span>.go</span><span>.zip</span>
-        </div>
+        <template v-if="emptyGraphReason">
+          <div class="empty-icon">∅</div>
+          <h2 class="empty-title">No navigable functions</h2>
+          <p class="empty-sub">{{ emptyGraphReason }}</p>
+        </template>
+        <template v-else>
+          <div class="empty-icon">⬡</div>
+          <h2 class="empty-title">No graph loaded</h2>
+          <p class="empty-sub">Upload a source file, ZIP archive, or folder<br>using the panel on the left to get started.</p>
+          <div class="empty-badges">
+            <span>.py</span><span>.js</span><span>.ts</span><span>.java</span><span>.go</span><span>.zip</span>
+          </div>
+        </template>
       </div>
 
       <!-- ── Change-Impact Overlay (reverse call graph on hover) ──────── -->
@@ -959,6 +966,10 @@ const uploading = ref(false);
 const uploadedFile = ref(null);
 const uploadError = ref(null);
 const uploadSuccess = ref(false);
+// Message shown in the canvas empty-state when a file/chunk was opened but had zero
+// navigable functions (e.g. only inline anonymous callbacks) — distinct from
+// uploadError, which is for actual failures reported in the sidebar.
+const emptyGraphReason = ref(null);
 const expandedNodes = ref(new Set());
 const nodeLevelMap = ref(new Map());
 const discoveredFunctions = ref([]);
@@ -1416,6 +1427,7 @@ const pushNav = (label) => {
 const goBack = async () => {
   const prev = navStack.value.pop();
   if (!prev) return;
+  emptyGraphReason.value = null;
   nodes.value = prev.nodes;
   edges.value = prev.edges;
   expandedNodes.value = prev.expandedNodes;
@@ -1690,6 +1702,7 @@ const renderModuleRoot = async (moduleNodes) => {
 
 const resetGraphState = () => {
   uploadError.value = null;
+  emptyGraphReason.value = null;
   uploadSuccess.value = false;
   uploading.value = true;
   uploadedFile.value = null;
@@ -1950,11 +1963,18 @@ const uploadWithFormData = async (formData, sourceName) => {
 
 const renderFunctionView = async (fileId, functionGraph) => {
   // functionGraph: { nodes: [...], edges: [...], chunked: bool }
-  if (!functionGraph || !functionGraph.nodes) {
+  if (!functionGraph || !functionGraph.nodes || functionGraph.nodes.length === 0) {
+    // A file/chunk can legitimately have zero navigable nodes — e.g. it only contains
+    // inline anonymous callbacks (db.query/.then/addEventListener arguments), which the
+    // backend excludes since there's no name to click through to. Show that plainly
+    // instead of falling into the BFS-layout code below, which assumes at least one
+    // node exists (functionGraph.nodes[0]) and throws when it doesn't.
     nodes.value = [];
     edges.value = [];
+    emptyGraphReason.value = 'No navigable functions in this file — it likely only contains inline/anonymous callbacks (e.g. route handlers passed directly as arguments).';
     return;
   }
+  emptyGraphReason.value = null;
 
   // Deduplicate node IDs (safety net against backend sending duplicate IDs)
   const seenIds = new Set();

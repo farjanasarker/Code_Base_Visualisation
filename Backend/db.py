@@ -4,6 +4,7 @@ import logging
 import re
 
 from patterns.normalization import is_abstract_like, is_interface_like, infer_go_structural_implements
+from analyzer.heuristics import _is_anonymous_callback
 
 logger = logging.getLogger(__name__)
 
@@ -800,9 +801,16 @@ def get_tier3(file_path: str, session_id: str, service_id: str = None):
         for r in result:
             src = r["source"]
             tgt = r.get("target")
+            # Un-clickable `anonymous_<line>` callbacks (db.query/.then/addEventListener
+            # arguments, IIFEs, ...) are filtered out of the in-memory function graph by
+            # build_function_graph — mirror that here so this DB-backed path (hit whenever
+            # a file's real functions are all anonymous, making build_function_graph's own
+            # result legitimately empty) doesn't leak them back in as un-navigable nodes.
+            if _is_anonymous_callback(src):
+                continue
             if src not in nodes:
                 nodes[src] = {"id": src, "type": "function", "line_start": int(r.get("line_start") or 0), "line_end": int(r.get("line_end") or 0), "complexity": int(r.get("complexity") or 0), "fan_in": int(r.get("fan_in") or 0), "fan_out": int(r.get("fan_out") or 0)}
-            if tgt:
+            if tgt and not _is_anonymous_callback(tgt):
                 edges.append({"source": src, "target": tgt})
 
         return {"nodes": list(nodes.values()), "edges": edges, "tier": 3, "file": file_path, "chunked": False}
@@ -839,6 +847,11 @@ def get_chunk_functions(file_path: str, chunk_name: str, session_id: str):
         for r in result:
             src = r["source"]
             tgt = r.get("target")
+            # Keep this in sync with get_tier3's anonymous-callback filtering above —
+            # chunk views hit the same DB fallback path when a chunk's real functions
+            # are all anonymous.
+            if src and _is_anonymous_callback(src):
+                continue
             if src and src not in nodes:
                 nodes[src] = {
                     "id": src, "label": src, "type": "function",
@@ -849,7 +862,7 @@ def get_chunk_functions(file_path: str, chunk_name: str, session_id: str):
                     "fan_out": int(r.get("fan_out") or 0),
                     "language": r.get("language"),
                 }
-            if tgt and src and tgt != src:
+            if tgt and src and tgt != src and not _is_anonymous_callback(tgt):
                 edges.append({"source": src, "target": tgt})
 
         return {"nodes": list(nodes.values()), "edges": edges,

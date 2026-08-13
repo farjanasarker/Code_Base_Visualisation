@@ -1368,6 +1368,20 @@ class UniversalParser:
         functions: List[ParsedFunction] = []
         seen = set()
 
+        # Every function's own span, used below to keep a call attributed to
+        # only its *innermost* enclosing function — without this, a call sitting
+        # inside a nested closure (e.g. a db.query callback) gets re-collected
+        # by every ancestor function's own scoped query too, since a child
+        # node's byte range is entirely inside its parent's range. That
+        # phantom fan-out/fan-in inflation is what let a callback like
+        # `anonymous_129` show up as a second "caller" of a function alongside
+        # the outer named function that actually contains it.
+        all_spans = [(n.start_byte, n.end_byte) for n in ordered_defs]
+
+        # node -> (start_byte, end_byte) of the ParsedFunction built for it,
+        # used by the anonymous-callback merge pass below.
+        node_span_by_fn: Dict[int, Tuple[int, int]] = {}
+
         for node in ordered_defs:
             span = (node.start_byte, node.end_byte)
             # attempt to get the name child, else a name paired via the query, else anonymous
@@ -1402,8 +1416,15 @@ class UniversalParser:
 
             # Scope the call query to this function's own node — querying
             # tree.root_node instead would collect every call in the whole
-            # file for every function.
-            calls = self._extract_calls(node, content, language, fn_name)
+            # file for every function. Also exclude any nested function's
+            # span so a call made inside a closure is attributed only to
+            # that innermost function, not to every ancestor whose range
+            # happens to contain it too (see all_spans comment above).
+            nested_spans = [
+                s for s in all_spans
+                if s != span and span[0] <= s[0] and s[1] <= span[1]
+            ]
+            calls = self._extract_calls(node, content, language, fn_name, exclude_spans=nested_spans)
             instantiates = self._extract_instantiations(node, content, language)
 
             # Java's method_declaration is the SAME node type for both a
@@ -1420,7 +1441,7 @@ class UniversalParser:
             is_abstract = node.child_by_field_name("body") is None
 
             module = Path(filepath).parts[0] if Path(filepath).parts else "root"
-            functions.append(ParsedFunction(
+            parsed_fn = ParsedFunction(
                 name=fn_name,
                 file=filepath,
                 language=language,
@@ -1435,10 +1456,48 @@ class UniversalParser:
                 is_method=class_name is not None,
                 is_abstract=is_abstract,
                 instantiates=instantiates,
-            ))
+            )
+            functions.append(parsed_fn)
+            node_span_by_fn[id(parsed_fn)] = span
+
+        # Anonymous callback scopes (`anonymous_<line>` — see _is_anonymous_
+        # callback) are already excluded from the rendered function graph and
+        # from dead-code flagging, because they have no name a user could
+        # click through to. A call made directly inside one should read the
+        # same way everywhere else: as coming from the nearest NAMED function
+        # that actually contains it, not from the anonymous scope itself —
+        # otherwise it either vanishes from that named function's fan_out
+        # (now that nested_spans excludes the callback body above) or, worse,
+        # surfaces in impact analysis as a confusing extra "anonymous_129"
+        # caller with nothing to navigate to.
+        for fn in functions:
+            if not _is_anonymous_callback(fn.name) or not fn.calls:
+                continue
+            fn_span = node_span_by_fn[id(fn)]
+            best_ancestor = None
+            best_ancestor_span = None
+            for other in functions:
+                if other is fn or _is_anonymous_callback(other.name):
+                    continue
+                other_span = node_span_by_fn[id(other)]
+                if other_span[0] <= fn_span[0] and fn_span[1] <= other_span[1]:
+                    if best_ancestor_span is None or (
+                        other_span[1] - other_span[0] < best_ancestor_span[1] - best_ancestor_span[0]
+                    ):
+                        best_ancestor = other
+                        best_ancestor_span = other_span
+            if best_ancestor is not None:
+                best_ancestor.calls = sorted(set(best_ancestor.calls) | set(fn.calls))
+                best_ancestor.fan_out = len(best_ancestor.calls)
+                fn.calls = []
+                fn.fan_out = 0
+
         return functions
 
-    def _extract_calls(self, scope_node, content: str, language: str, current_fn_name: str) -> List[str]:
+    def _extract_calls(
+        self, scope_node, content: str, language: str, current_fn_name: str,
+        exclude_spans: List[Tuple[int, int]] = (),
+    ) -> List[str]:
         """`current_fn_name` is unused for filtering — kept in the signature
         since callers already pass it and other extractors in this file take
         the same parameter shape. It USED to exclude any call whose bare
@@ -1460,15 +1519,22 @@ class UniversalParser:
             return []
         raw_captures = run_query(lang_obj, CALL_QUERIES[language], scope_node)
 
+        def _excluded(node) -> bool:
+            return any(s <= node.start_byte and node.end_byte <= e for s, e in exclude_spans)
+
         calls = set()
         if isinstance(raw_captures, dict):
             for nodes in raw_captures.values():
                 for node in nodes:
+                    if _excluded(node):
+                        continue
                     called = content[node.start_byte:node.end_byte]
                     if called:
                         calls.add(called)
         else:
             for node, _ in raw_captures:
+                if _excluded(node):
+                    continue
                 called = content[node.start_byte:node.end_byte]
                 if called:
                     calls.add(called)
