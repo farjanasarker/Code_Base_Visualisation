@@ -1,5 +1,5 @@
 """
-llm_engine.py — LLM Reasoning Engine (Groq / Llama-3.3-70b).
+llm_engine.py — LLM Reasoning Engine (Groq / GPT-OSS-120b).
 
 Role in the pipeline:
   Static analysis (smell_detector + smell_graph) detects WHAT is wrong.
@@ -49,7 +49,7 @@ _load_dotenv()
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL        = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 TEMPERATURE  = 0.20   # low temperature → deterministic, structured output
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ def get_refactor_plan(
     project_context:  Optional[Dict] = None,
 ) -> Dict:
     """
-    Call Groq (llama-3.3-70b-versatile) to reason about the refactor plan.
+    Call Groq (openai/gpt-oss-120b) to reason about the refactor plan.
     Returns parsed plan dict, or a static-analysis fallback on any failure.
     """
     if not GROQ_API_KEY:
