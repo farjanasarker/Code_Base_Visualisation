@@ -25,6 +25,17 @@
         </div>
       </div>
 
+      <!-- Onboarding: what this tool does, shown until the first upload -->
+      <div v-if="!uploadedFile" class="sidebar-section onboarding-panel">
+        <div class="section-title">Get Started</div>
+        <div class="section-subtitle">CodeLens turns your source code into an explorable map — structure, quality issues, and design patterns, all in one place.</div>
+        <ol class="onboarding-steps">
+          <li><strong>Upload</strong> — a source file, ZIP, or folder</li>
+          <li><strong>Analyze</strong> — CodeLens builds the call graph, metrics, and pattern report automatically</li>
+          <li><strong>Explore</strong> — click any node to drill in, hover to trace impact</li>
+        </ol>
+      </div>
+
       <!-- Upload zone -->
       <div class="sidebar-section">
         <div class="section-title">Upload Source</div>
@@ -183,9 +194,21 @@
         </ol>
       </div>
 
+      <!-- ── Sidebar Tabs ──────────────────────────────────── -->
+      <div v-if="uploadSuccess" class="sidebar-tabs" role="tablist">
+        <button
+          v-for="t in sidebarTabs" :key="t.id"
+          class="sidebar-tab" :class="{ active: activeSidebarTab === t.id }"
+          role="tab" :aria-selected="activeSidebarTab === t.id"
+          @click="activeSidebarTab = t.id"
+        >{{ t.label }}</button>
+      </div>
+
+      <div v-show="activeSidebarTab === 'overview'">
       <!-- ── Integrated Metrics Dashboard ──────────────────── -->
       <div v-if="metricsData && metricsData.total_functions != null" class="sidebar-section metrics-panel">
         <div class="section-title">Code Metrics</div>
+        <div class="section-subtitle">Quick health check — high complexity or low maintainability usually means harder, riskier changes ahead.</div>
         <div class="metrics-grid">
           <div class="mrow"><span class="mlabel">Lines of Code</span><span class="mval">{{ metricsData.loc?.toLocaleString() }}</span></div>
           <div class="mrow"><span class="mlabel">Significant Lines</span><span class="mval">{{ metricsData.sloc?.toLocaleString() }}</span></div>
@@ -224,6 +247,7 @@
       <!-- ── Git History Panel ───────────────────────────────── -->
       <div v-if="gitHistory" class="sidebar-section git-panel">
         <div class="section-title">Git History — Metrics Trend</div>
+        <div class="section-subtitle">See whether code quality is trending better or worse as the project evolves.</div>
         <div class="git-meta">
           <span class="git-branch">🌿 {{ gitHistory.current_branch }}</span>
           <span class="git-total">{{ gitHistory.total_commits }} commits</span>
@@ -342,10 +366,13 @@
           </div>
         </div>
       </div>
+      </div>
 
+      <div v-show="activeSidebarTab === 'quality'">
       <!-- ── Code Smell Analysis Panel ──────────────────────────── -->
       <div v-if="smellData && smellData.summary?.total > 0" class="sidebar-section smell-panel">
         <div class="section-title">Code Smell Analysis</div>
+        <div class="section-subtitle">The concrete things worth fixing first, ranked by effort vs. payoff.</div>
 
         <!-- Severity summary chips -->
         <div class="smell-summary">
@@ -577,6 +604,7 @@
       <!-- Dependency Risk Panel -->
       <div v-if="riskData" class="sidebar-section risk-panel">
         <div class="section-title">Dependency Risk</div>
+        <div class="section-subtitle">Functions many other things depend on — breaking these has the widest blast radius.</div>
 
         <!-- Summary chips -->
         <div class="risk-summary">
@@ -604,12 +632,13 @@
             <span class="risk-item-count">{{ fn.fan_in }}</span>
           </div>
         </div>
-        <div v-else class="risk-empty">No high-risk dependencies found.</div>
+        <div v-else class="risk-empty">No high-risk dependencies found — no function has 10+ callers. That's a good sign for decoupling.</div>
       </div>
 
       <!-- Potentially Unreachable Panel -->
       <div v-if="deadCodeData" class="sidebar-section dead-panel">
         <div class="section-title">Potentially Unreachable</div>
+        <div class="section-subtitle">Code that looks unused — candidates to double-check and safely delete.</div>
 
         <!-- Summary chips -->
         <div class="dead-summary">
@@ -661,7 +690,7 @@
         </div>
 
         <div v-if="!deadCodeData.unreachable_functions?.length && !deadCodeData.unused_imports?.length" class="risk-empty">
-          No potentially unreachable code found.
+          No potentially unreachable code found — every function and import appears to be in use.
         </div>
 
         <!-- Static analysis disclaimer -->
@@ -670,10 +699,13 @@
           Dynamic calls, reflection, and external callers cannot be detected.
         </div>
       </div>
-      
+      </div>
+
+      <div v-show="activeSidebarTab === 'architecture'">
       <!-- ── Architecture Patterns Panel ──────────────────────── -->
       <div v-if="patternsData && patternsData.patterns_found > 0" class="sidebar-section patterns-panel">
         <div class="section-title">Architecture Patterns</div>
+        <div class="section-subtitle">How this codebase is organized at a high level, and whether that structure is holding up.</div>
         <div class="patterns-summary-chip">
           {{ patternsData.patterns_found }} pattern{{ patternsData.patterns_found !== 1 ? 's' : '' }} detected
         </div>
@@ -715,12 +747,14 @@
       </div>
       <div v-else-if="patternsData && patternsData.patterns_found === 0" class="sidebar-section patterns-panel">
         <div class="section-title">Architecture Patterns</div>
-        <div class="patterns-empty">No recognisable patterns detected in this codebase.</div>
+        <div class="section-subtitle">How this codebase is organized at a high level, and whether that structure is holding up.</div>
+        <div class="patterns-empty">No standard pattern (MVC, Layered, Hexagonal, Repository) matched this codebase's structure — common for smaller or script-style projects, and not necessarily a problem.</div>
       </div>
 
       <!-- ── GoF Design Patterns Panel ────────────────────────── -->
       <div v-if="gofPatternsData && gofPatternsData.patterns_found > 0" class="sidebar-section patterns-panel">
         <div class="section-title">GoF Design Patterns</div>
+        <div class="section-subtitle">Recognized design patterns already in the code — useful context before you extend it.</div>
         <div class="patterns-summary-chip">
           {{ gofPatternsData.patterns_found }} pattern{{ gofPatternsData.patterns_found !== 1 ? 's' : '' }} detected
         </div>
@@ -735,7 +769,13 @@
                     ×{{ grp.instances.length }}
                   </span>
                 </div>
-                <span v-if="!grp.heuristic" class="pattern-tier-label">tier: {{ grp.tier }}</span>
+                <InfoTooltip
+                  v-if="!grp.heuristic"
+                  text="Tier reflects how many of this pattern's required structural signals were found: high = all matched strongly, medium/low = fewer or weaker."
+                  :icon="false"
+                >
+                  <span class="pattern-tier-label">tier: {{ grp.tier }}</span>
+                </InfoTooltip>
               </div>
               <span
                 v-if="grp.heuristic"
@@ -744,14 +784,23 @@
               >
                 ⚠ heuristic
               </span>
-              <span
+              <InfoTooltip
                 v-else
-                class="pattern-conf-badge"
-                :class="grp.tier === 'high' ? 'pconf-high' : grp.tier === 'medium' ? 'pconf-med' : 'pconf-low'"
-                :title="grp.instances.length > 1 ? 'highest-confidence instance' : `tier: ${grp.tier}`"
+                text="How completely the code's structure matches this pattern's expected shape, for the best-matching instance."
+                :icon="false"
               >
-                {{ Math.round(grp.instances[0].confidence * 100) }}%
-              </span>
+                <span
+                  class="pattern-conf-badge"
+                  :class="grp.tier === 'high' ? 'pconf-high' : grp.tier === 'medium' ? 'pconf-med' : 'pconf-low'"
+                >
+                  {{ Math.round(grp.instances[0].confidence * 100) }}%
+                </span>
+              </InfoTooltip>
+            </div>
+
+            <div v-if="grp.definition" class="pattern-definition">
+              {{ grp.definition }}
+              <span v-if="grp.why_it_matters" class="pattern-why">{{ grp.why_it_matters }}</span>
             </div>
 
             <!-- One collapsible entry per matched instance (e.g. per class,
@@ -772,37 +821,37 @@
               <!-- Evidence grouped per structural requirement (why it
                    matched, requirement by requirement) — falls back to the
                    flat list if an older cached response has no
-                   evidence_detail. -->
-              <div v-if="p.evidence_detail?.length" class="pattern-evidence-groups">
-                <div v-for="(eg, gi) in p.evidence_detail" :key="gi" class="pattern-evidence-group">
-                  <div class="pattern-evidence-group-head">
-                    <span class="pattern-evidence-label">{{ eg.label }}</span>
-                    <span
-                      v-if="eg.role"
-                      class="pattern-evidence-role"
-                      :title="`bound as '${eg.role}'`"
-                    >→ {{ eg.role }}</span>
-                    <span
-                      v-if="eg.strength !== null && eg.strength !== undefined && eg.strength < 1"
-                      class="pattern-evidence-weak"
-                      title="Weaker evidence — matched, but not as certainly as a full-strength requirement"
-                    >~ approximate</span>
+                   evidence_detail. Demoted behind its own toggle since it's
+                   raw predicate output, not something a non-technical
+                   reader needs by default. -->
+              <details class="pattern-evidence-details">
+                <summary class="pattern-evidence-summary">Technical details (raw evidence)</summary>
+                <div v-if="p.evidence_detail?.length" class="pattern-evidence-groups">
+                  <div v-for="(eg, gi) in p.evidence_detail" :key="gi" class="pattern-evidence-group">
+                    <div class="pattern-evidence-group-head">
+                      <span class="pattern-evidence-label">{{ eg.label }}</span>
+                      <span
+                        v-if="eg.role"
+                        class="pattern-evidence-role"
+                        :title="`bound as '${eg.role}'`"
+                      >→ {{ eg.role }}</span>
+                      <span
+                        v-if="eg.strength !== null && eg.strength !== undefined && eg.strength < 1"
+                        class="pattern-evidence-weak"
+                        title="Weaker evidence — matched, but not as certainly as a full-strength requirement"
+                      >~ approximate</span>
+                    </div>
+                    <div v-for="(line, li) in eg.evidence" :key="li" class="pattern-evidence-item">· {{ line }}</div>
                   </div>
-                  <div v-for="(line, li) in eg.evidence" :key="li" class="pattern-evidence-item">· {{ line }}</div>
                 </div>
-              </div>
-              <div v-else-if="p.evidence?.length" class="pattern-evidence">
-                <div v-for="e in p.evidence" :key="e" class="pattern-evidence-item">· {{ e }}</div>
-              </div>
+                <div v-else-if="p.evidence?.length" class="pattern-evidence">
+                  <div v-for="e in p.evidence" :key="e" class="pattern-evidence-item">· {{ e }}</div>
+                </div>
+              </details>
+
               <div v-if="p.bindings && Object.keys(p.bindings).length" class="pattern-components">
                 <div class="pattern-components-label">Roles</div>
-                <template v-for="(value, role) in p.bindings" :key="role">
-                  <div class="pattern-layer-row">
-                    <span class="ptree-prefix">├──</span>
-                    <span class="pattern-layer-name">{{ role }}:</span>
-                    <span class="pattern-layer-files" :title="value">{{ value }}</span>
-                  </div>
-                </template>
+                <PatternRoleDiagram :bindings="p.bindings" :pattern-name="grp.pattern" />
               </div>
             </details>
           </div>
@@ -810,12 +859,14 @@
       </div>
       <div v-else-if="gofPatternsData && gofPatternsData.patterns_found === 0" class="sidebar-section patterns-panel">
         <div class="section-title">GoF Design Patterns</div>
-        <div class="patterns-empty">No GoF design patterns detected in this codebase.</div>
+        <div class="section-subtitle">Recognized design patterns already in the code — useful context before you extend it.</div>
+        <div class="patterns-empty">No classic GoF design patterns detected. That's normal for smaller or straightforward codebases — patterns tend to emerge as reuse and abstraction grow.</div>
       </div>
 
       <!-- Layer Analysis Panel (folder / ZIP only) -->
       <div v-if="layerViolations" class="sidebar-section layer-panel">
         <div class="section-title">Layer Analysis</div>
+        <div class="section-subtitle">Whether your architecture's boundaries (e.g. controller → service → repository) are actually being respected.</div>
 
         <!-- Clean state -->
         <div v-if="layerViolations.summary?.total === 0" class="layer-clean">
@@ -853,6 +904,7 @@
             </div>
           </div>
         </template>
+      </div>
       </div>
     </aside>
     <div class="sidebar-resize-handle" :class="{ resizing: isResizing }" @mousedown.prevent="startResize"></div>
@@ -905,6 +957,11 @@
           <div class="empty-badges">
             <span>.py</span><span>.js</span><span>.ts</span><span>.java</span><span>.go</span><span>.zip</span>
           </div>
+          <ol class="empty-steps">
+            <li>Upload a file, ZIP, or folder</li>
+            <li>Wait a few seconds while it's analyzed</li>
+            <li>Click nodes to explore the structure</li>
+          </ol>
         </template>
       </div>
 
@@ -956,6 +1013,8 @@ import "@vue-flow/controls/dist/style.css";
 import FunctionNode from "./FunctionNode.vue";
 import BottomBackEdge from "./BottomBackEdge.vue";
 import FixTreeNode from "./FixTreeNode.vue";
+import InfoTooltip from "./InfoTooltip.vue";
+import PatternRoleDiagram from "./PatternRoleDiagram.vue";
 
 // Inject session manager
 const sessionManager = inject('sessionManager');
@@ -1008,6 +1067,7 @@ const groupedGofPatterns = computed(() => {
       groups.set(p.pattern, {
         pattern: p.pattern, category: p.category, tier: p.tier,
         heuristic: p.heuristic, instances: [],
+        definition: p.definition, why_it_matters: p.why_it_matters,
       });
     }
     groups.get(p.pattern).instances.push(p);
@@ -1015,6 +1075,12 @@ const groupedGofPatterns = computed(() => {
   return Array.from(groups.values());
 });
 const smellViewMode = ref('files'); // 'files' | 'plan' | 'layers' | 'tree'
+const activeSidebarTab = ref('overview'); // 'overview' | 'quality' | 'architecture'
+const sidebarTabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'quality', label: 'Quality' },
+  { id: 'architecture', label: 'Architecture' },
+];
 const expandedLayers = ref({});     // { [layerName]: bool }
 const expandedPreviews = ref({});   // { [smell_id]: bool } — code_preview toggle in ROI plan
 
@@ -2590,9 +2656,37 @@ const collapseOthers = (nodeType, keepId) => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #475569;
+  color: #a5b4fc;
   margin-bottom: 10px;
 }
+.section-subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin: -6px 0 10px;
+}
+
+.sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 4px;
+}
+.sidebar-tab {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #94a3b8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sidebar-tab:hover { background: #273549; color: #e2e8f0; }
+.sidebar-tab.active { background: #6366f1; border-color: #6366f1; color: #fff; }
 
 /* Sticky back navigation */
 .sidebar-back-sticky {
@@ -2807,6 +2901,24 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .tips-list strong { color: #94a3b8; }
 
+.onboarding-panel {
+  background: #172033;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+.onboarding-steps {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.onboarding-steps li {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+.onboarding-steps strong { color: #e2e8f0; }
+
 /* ── Graph canvas ──────────────────────────────────── */
 .graph-section {
   flex: 1;
@@ -2940,6 +3052,14 @@ const collapseOthers = (nodeType, keepId) => {
   font-size: 12px;
   font-weight: 600;
   font-family: monospace;
+}
+.empty-steps {
+  margin-top: 18px;
+  padding-left: 20px;
+  text-align: left;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.9;
 }
 
 /* ── Code Smell Panel ───────────────────────────────── */
@@ -4081,6 +4201,49 @@ const collapseOthers = (nodeType, keepId) => {
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+.pattern-definition {
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.4;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 6px 0 8px;
+}
+.pattern-why {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.pattern-evidence-details {
+  margin-top: 4px;
+  margin-bottom: 5px;
+}
+.pattern-evidence-summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  padding: 2px 0;
+}
+.pattern-evidence-summary::-webkit-details-marker {
+  display: none;
+}
+.pattern-evidence-summary::before {
+  content: "▸ ";
+}
+.pattern-evidence-details[open] > .pattern-evidence-summary::before {
+  content: "▾ ";
+}
+.pattern-evidence-details .pattern-evidence-groups,
+.pattern-evidence-details .pattern-evidence {
+  margin-top: 5px;
 }
 .pattern-instance-count {
   font-size: 9px;

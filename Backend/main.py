@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions, ensure_schema, store_class_graph, get_class_graph
 from patterns.graph_view import SessionGraphView
-from patterns.rule_engine import evaluate_all
+from patterns.rule_engine import evaluate_all, pattern_info
 from patterns.language_idioms.singleton_idioms import scan_files as scan_singleton_idioms
 from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
 from smell_detector import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS
@@ -1947,6 +1947,7 @@ async def api_detect_gof_patterns(session_id: str):
                     "evidence": [f"{m['idiom']} found in {m['file']}:{m['line']}"],
                 }],
                 "heuristic":       True,
+                **pattern_info("Singleton (language idiom)"),
             }
             for m in cache.get("singleton_idiom_matches", [])
         ]
@@ -1966,6 +1967,7 @@ async def api_detect_gof_patterns(session_id: str):
                     "evidence":        m.evidence,
                     "evidence_detail": m.evidence_detail,
                     "heuristic":       False,
+                    **pattern_info(m.pattern),
                 }
                 for m in matches
             ]
