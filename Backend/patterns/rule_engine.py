@@ -110,6 +110,115 @@ PATTERN_CATEGORIES: Dict[str, str] = {
     "Strategy": "Behavioral", "Template Method": "Behavioral", "Visitor": "Behavioral",
 }
 
+# Plain-language descriptions for non-technical users, shown in the UI above
+# the raw predicate evidence. Kept faithful to the actual structural shape
+# each spec in patterns/specs/*.yaml checks for, not generic textbook prose.
+PATTERN_DEFINITIONS: Dict[str, Dict[str, str]] = {
+    "Factory Method": {
+        "definition": "A base class declares a method for creating objects, but leaves the exact object type up to its subclasses.",
+        "why_it_matters": "Lets new object types be added by writing a new subclass, without touching the code that asks for the object.",
+    },
+    "Abstract Factory": {
+        "definition": "One interface creates a whole family of related objects, with a different implementation of that interface per product family.",
+        "why_it_matters": "Keeps a group of related objects consistent with each other, and makes swapping the whole family a one-line change.",
+    },
+    "Builder": {
+        "definition": "Constructs a complex object step by step through configuration methods before a final build() call assembles it.",
+        "why_it_matters": "Makes objects with many optional parts easier to construct correctly, instead of a constructor that takes a dozen arguments.",
+    },
+    "Prototype": {
+        "definition": "An object creates a new instance of itself by cloning, instead of building one from scratch.",
+        "why_it_matters": "Cheaper and safer than re-running complex setup logic when you just need a copy of something that already works.",
+    },
+    "Singleton": {
+        "definition": "Ensures a class only ever has one instance, and provides a single shared access point to it.",
+        "why_it_matters": "Useful for shared resources like a config or connection pool — but can make testing and reasoning about state harder, so it's worth double-checking it's really needed.",
+    },
+    "Factory": {
+        "definition": "A class whose job is purely to construct and return other objects.",
+        "why_it_matters": "Centralizes object-creation logic in one place instead of scattering it across the codebase.",
+    },
+    "Adapter": {
+        "definition": "Wraps an incompatible class so it can be used through the interface your code already expects.",
+        "why_it_matters": "Lets you integrate a third-party or legacy class without rewriting it or the code that calls it.",
+    },
+    "Bridge": {
+        "definition": "Separates an abstraction from its implementation so each can vary and evolve independently.",
+        "why_it_matters": "Lets you add new variations of behavior without multiplying subclasses for every combination.",
+    },
+    "Composite": {
+        "definition": "Treats individual objects and groups of objects through the same interface, so a group behaves just like a single item.",
+        "why_it_matters": "Makes tree-like structures (e.g. UI components, file systems) easy to work with recursively.",
+    },
+    "Decorator": {
+        "definition": "Wraps an object to add new behavior at runtime, without changing the object's own class.",
+        "why_it_matters": "Adds features (e.g. logging, caching) in flexible layers instead of a rigid inheritance chain.",
+    },
+    "Facade": {
+        "definition": "One class provides a single, simplified entry point in front of a larger, more complex subsystem.",
+        "why_it_matters": "Reduces how much internal complexity other code needs to know about to get something done.",
+    },
+    "Flyweight": {
+        "definition": "Shares a small number of common object instances instead of creating a new one for every use.",
+        "why_it_matters": "Cuts memory use when many nearly-identical objects would otherwise be created.",
+    },
+    "Proxy": {
+        "definition": "Stands in for another object and forwards calls to it, controlling access along the way.",
+        "why_it_matters": "Useful for adding lazy-loading, permission checks, or remote access transparently.",
+    },
+    "Chain of Responsibility": {
+        "definition": "Passes a request along a chain of handlers until one of them handles it.",
+        "why_it_matters": "Lets you add or reorder handling steps without changing the code that sends the request.",
+    },
+    "Command": {
+        "definition": "Wraps a request or action as an object, so it can be passed around, queued, or undone.",
+        "why_it_matters": "Makes actions like undo/redo, queuing, or logging user actions much easier to implement.",
+    },
+    "Interpreter": {
+        "definition": "Represents the rules of a language or grammar as objects that can evaluate themselves.",
+        "why_it_matters": "Useful for building small custom expression languages or rule engines.",
+    },
+    "Iterator": {
+        "definition": "Provides a standard way to step through the elements of a collection without exposing its internal structure.",
+        "why_it_matters": "Lets calling code loop over data the same way regardless of how that data is actually stored.",
+    },
+    "Mediator": {
+        "definition": "Centralizes communication between a group of objects through one hub, so they don't talk to each other directly.",
+        "why_it_matters": "Reduces tangled, many-to-many dependencies between related classes.",
+    },
+    "Memento": {
+        "definition": "Captures an object's internal state so it can be restored later, without exposing that state's details.",
+        "why_it_matters": "The core mechanism behind undo/rollback features.",
+    },
+    "Observer": {
+        "definition": "One object automatically notifies a list of dependents whenever its state changes.",
+        "why_it_matters": "Decouples the thing that changes from everything that needs to react to the change — common in event/notification systems.",
+    },
+    "State": {
+        "definition": "Lets an object change its behavior when its internal state changes, as if it switched to a different class.",
+        "why_it_matters": "Replaces large if/switch blocks on a status field with cleaner, swappable state objects.",
+    },
+    "Strategy": {
+        "definition": "Lets interchangeable algorithms or behaviors be swapped in and out behind a shared interface.",
+        "why_it_matters": "Makes it easy to add a new behavior without changing the code that uses it.",
+    },
+    "Template Method": {
+        "definition": "A base class defines the skeleton of an algorithm, letting subclasses override specific steps.",
+        "why_it_matters": "Reuses the overall workflow while still allowing customization of individual steps.",
+    },
+    "Visitor": {
+        "definition": "Lets you add new operations to a group of classes without modifying those classes, via double dispatch.",
+        "why_it_matters": "Useful when you need to add many unrelated operations to a stable set of classes.",
+    },
+}
+
+
+def pattern_info(pattern_name: str) -> Dict[str, str]:
+    """Plain-language definition/benefit for a pattern name, tolerating the
+    ' (language idiom)' suffix main.py appends for idiom-based matches."""
+    base = pattern_name.replace(" (language idiom)", "")
+    return PATTERN_DEFINITIONS.get(base, {"definition": None, "why_it_matters": None})
+
 # predicate name -> (view, **resolved_params) -> List[Candidate]
 GENERATORS = {
     "interface_with_single_method": lambda view, **kw: P.interface_with_single_method(view),
