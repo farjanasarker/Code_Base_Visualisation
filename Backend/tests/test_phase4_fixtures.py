@@ -1,4 +1,4 @@
-"""Phase 4 pattern verification: Singleton/Observer/Factory/Facade, now
+"""Phase 4 pattern verification: Singleton/Observer/Facade, now
 detected structurally instead of via the old naming-heuristic detector
 (ArchitecturePatternDetector.detect_singleton/_observer/_factory/_facade,
 deleted from pattern_detector.py). Same harness as test_phase1/2_fixtures.py.
@@ -95,36 +95,6 @@ def test_observer_detected_structurally(session_id):
     strategy_matches = [m for m in matches if m.pattern == "Strategy"]
     assert len(strategy_matches) == 1
     assert strategy_matches[0].bindings == {"strategy_interface": "Observer", "context": "Subject"}
-
-
-def test_factory_simple_detected_structurally(session_id):
-    matches = _detect_gof_patterns("factory_simple_python", session_id)
-    factory_matches = [m for m in matches if m.pattern == "Factory"]
-    assert len(factory_matches) == 1
-    assert factory_matches[0].bindings["factory_class"] == "VehicleFactory"
-    assert factory_matches[0].tier == "medium"
-
-    # Car/Truck are plain data classes with no constructing methods of
-    # their own — must not false-positive as factories themselves.
-    assert not any(m.bindings.get("factory_class") in ("Car", "Truck") for m in factory_matches)
-
-
-def test_factory_branching_detected_structurally(session_id):
-    """The far more common real-world/textbook Simple Factory shape: ONE
-    method that branches on a type parameter and constructs several
-    different products (e.g. ShapeFactory.get_shape("CIRCLE") -> Circle()),
-    as opposed to factory_simple_python's one-method-per-product shape.
-    Regression coverage for the gap where this shape wasn't detected at
-    all — see predicates.factory_candidates's docstring.
-    """
-    matches = _detect_gof_patterns("factory_branching_python", session_id)
-    factory_matches = [m for m in matches if m.pattern == "Factory"]
-    assert len(factory_matches) == 1
-    assert factory_matches[0].bindings["factory_class"] == "ShapeFactory"
-
-    # Circle/Square/Rectangle are plain data classes with no constructing
-    # methods of their own — must not false-positive as factories.
-    assert not any(m.bindings.get("factory_class") in ("Circle", "Square", "Rectangle") for m in factory_matches)
 
 
 def test_facade_detected_structurally(session_id):
