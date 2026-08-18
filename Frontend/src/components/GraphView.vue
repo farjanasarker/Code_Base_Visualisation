@@ -2901,11 +2901,6 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .tips-list strong { color: #94a3b8; }
 
-.onboarding-panel {
-  background: #172033;
-  border: 1px solid #334155;
-  border-radius: 8px;
-}
 .onboarding-steps {
   padding-left: 18px;
   display: flex;
