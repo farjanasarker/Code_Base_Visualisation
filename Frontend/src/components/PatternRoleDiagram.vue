@@ -45,15 +45,15 @@ const roles = computed(() => Object.entries(props.bindings || {}));
 }
 .prd-role {
   display: block;
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #818cf8;
-  margin-bottom: 2px;
+  color: #a5b4fc;
+  margin-bottom: 3px;
 }
 .prd-class {
-  font-size: 11px;
+  font-size: 13px;
   font-family: monospace;
   color: #e2e8f0;
   overflow: hidden;

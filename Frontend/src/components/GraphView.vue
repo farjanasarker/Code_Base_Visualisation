@@ -4163,7 +4163,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 6px;
 }
 .pattern-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #e2e8f0;
 }
@@ -4186,7 +4186,7 @@ const collapseOthers = (nodeType, keepId) => {
   gap: 6px;
 }
 .pattern-category-badge {
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -4197,26 +4197,26 @@ const collapseOthers = (nodeType, keepId) => {
   flex-shrink: 0;
 }
 .pattern-tier-label {
-  font-size: 9px;
-  color: #64748b;
+  font-size: 10.5px;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .pattern-definition {
-  font-size: 11px;
-  color: #cbd5e1;
-  line-height: 1.4;
+  font-size: 13px;
+  color: #e2e8f0;
+  line-height: 1.55;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 9px 11px;
   margin: 6px 0 8px;
 }
 .pattern-why {
   display: block;
-  font-size: 10px;
-  color: #64748b;
-  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 5px;
 }
 .pattern-evidence-details {
   margin-top: 4px;
@@ -4225,11 +4225,11 @@ const collapseOthers = (nodeType, keepId) => {
 .pattern-evidence-summary {
   cursor: pointer;
   list-style: none;
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #64748b;
+  color: #94a3b8;
   padding: 2px 0;
 }
 .pattern-evidence-summary::-webkit-details-marker {
@@ -4246,7 +4246,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-top: 5px;
 }
 .pattern-instance-count {
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 700;
   color: #94a3b8;
   background: #0f172a;
@@ -4287,7 +4287,7 @@ details[open] > .pattern-instance-summary::before {
   content: "▾";
 }
 .pattern-instance-binding {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: #e2e8f0;
   overflow: hidden;
@@ -4295,7 +4295,7 @@ details[open] > .pattern-instance-summary::before {
   white-space: nowrap;
 }
 .pattern-instance-conf {
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #94a3b8;
   flex-shrink: 0;
@@ -4317,22 +4317,22 @@ details[open] > .pattern-instance-summary::before {
   margin-bottom: 1px;
 }
 .pattern-evidence-label {
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #7dd3fc;
 }
 .pattern-evidence-role {
-  font-size: 9px;
-  color: #64748b;
+  font-size: 10.5px;
+  color: #94a3b8;
 }
 .pattern-evidence-weak {
-  font-size: 9px;
+  font-size: 10.5px;
   color: #fb923c;
 }
 .pattern-conf-badge {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: 8px;
   flex-shrink: 0;
 }
@@ -4347,9 +4347,9 @@ details[open] > .pattern-instance-summary::before {
   margin-bottom: 5px;
 }
 .pattern-evidence-item {
-  font-size: 10px;
+  font-size: 11.5px;
   color: #94a3b8;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 .pattern-components {
   margin-top: 7px;
@@ -4358,11 +4358,11 @@ details[open] > .pattern-instance-summary::before {
   margin-bottom: 2px;
 }
 .pattern-components-label {
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: #94a3b8;
   margin-bottom: 5px;
 }
 .pattern-layer-row {

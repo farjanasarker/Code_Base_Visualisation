@@ -100,7 +100,6 @@ PREDICATE_LABELS: Dict[str, str] = {
 PATTERN_CATEGORIES: Dict[str, str] = {
     "Factory Method": "Creational", "Abstract Factory": "Creational",
     "Builder": "Creational", "Prototype": "Creational", "Singleton": "Creational",
-    "Factory": "Creational",
     "Adapter": "Structural", "Bridge": "Structural", "Composite": "Structural",
     "Decorator": "Structural", "Facade": "Structural", "Flyweight": "Structural",
     "Proxy": "Structural",
@@ -133,10 +132,6 @@ PATTERN_DEFINITIONS: Dict[str, Dict[str, str]] = {
     "Singleton": {
         "definition": "Ensures a class only ever has one instance, and provides a single shared access point to it.",
         "why_it_matters": "Useful for shared resources like a config or connection pool — but can make testing and reasoning about state harder, so it's worth double-checking it's really needed.",
-    },
-    "Factory": {
-        "definition": "A class whose job is purely to construct and return other objects.",
-        "why_it_matters": "Centralizes object-creation logic in one place instead of scattering it across the codebase.",
     },
     "Adapter": {
         "definition": "Wraps an incompatible class so it can be used through the interface your code already expects.",
