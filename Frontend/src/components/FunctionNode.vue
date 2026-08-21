@@ -87,9 +87,9 @@ const riskTitle = computed(() => {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
   position: relative;
   overflow: visible;
   cursor: pointer;
@@ -125,25 +125,25 @@ const riskTitle = computed(() => {
 
 /* ── Circle badge ─────────────────────────────────── */
 .fn-badge {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   font-style: italic;
   background: #6366f1;
   color: #fff;
 }
-.fn-card.module    .fn-badge { background: #3b82f6; font-style: normal; font-size: 11px; }
-.fn-card.file      .fn-badge { background: #f59e0b; font-style: normal; font-size: 11px; }
-.fn-card.chunk     .fn-badge { background: #8b5cf6; font-style: normal; font-size: 12px; }
-.fn-card.rootfiles .fn-badge { background: #22c55e; font-style: normal; font-size: 14px; }
-.fn-card.service   .fn-badge { background: #14b8a6; font-style: normal; font-size: 11px; }
-.fn-card.service-unresolved .fn-badge { background: #ef4444; font-style: normal; font-size: 14px; }
+.fn-card.module    .fn-badge { background: #3b82f6; font-style: normal; font-size: 13px; }
+.fn-card.file      .fn-badge { background: #f59e0b; font-style: normal; font-size: 13px; }
+.fn-card.chunk     .fn-badge { background: #8b5cf6; font-style: normal; font-size: 14px; }
+.fn-card.rootfiles .fn-badge { background: #22c55e; font-style: normal; font-size: 16px; }
+.fn-card.service   .fn-badge { background: #14b8a6; font-style: normal; font-size: 13px; }
+.fn-card.service-unresolved .fn-badge { background: #ef4444; font-style: normal; font-size: 16px; }
 
 /* ── Text body ───────────────────────────────────── */
 .fn-body {
@@ -154,7 +154,7 @@ const riskTitle = computed(() => {
   gap: 2px;
 }
 .fn-name {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: #1e293b;
   white-space: nowrap;
@@ -163,7 +163,7 @@ const riskTitle = computed(() => {
   line-height: 1.2;
 }
 .fn-sub {
-  font-size: 11px;
+  font-size: 12.5px;
   color: #64748b;
   white-space: nowrap;
   overflow: hidden;
