@@ -315,6 +315,12 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
                 if narrowed:
                     candidates = narrowed
             for tgt_id in candidates:
+                # a `super().<name>()` call resolving back to this same node is
+                # the parent-class implementation, not a real self-loop — the
+                # sentinel means "don't know which class", so only drop it
+                # when nothing else narrowed the candidates away from self.
+                if tgt_id == src_id and hinted_class == "__super__":
+                    continue
                 key = (src_id, tgt_id)
                 if key not in seen_edges:
                     seen_edges.add(key)

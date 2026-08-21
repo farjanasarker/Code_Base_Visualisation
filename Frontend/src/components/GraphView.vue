@@ -921,7 +921,7 @@
         @node-click="onNodeClick"
         @node-mouse-enter="onNodeHover"
         @node-mouse-leave="onNodeUnhover"
-        @nodes-initialized="() => fitView({ padding: 0.45, duration: 400, maxZoom: 0.95 })"
+        @nodes-initialized="() => fitView({ padding: 0.45, duration: 400, maxZoom: 1.4 })"
         fit-view-on-init
         class="vue-flow"
       >
@@ -1214,7 +1214,7 @@ const applyDagreLayout = (rawNodes, rawEdges, opts = {}) => {
   g.setGraph({ rankdir, nodesep, ranksep, marginx: 40, marginy: 40 });
 
   rawNodes.forEach(n => {
-    g.setNode(n.id, { width: 170, height: 58 });
+    g.setNode(n.id, { width: 210, height: 74 });
   });
 
   rawEdges.forEach(e => {
@@ -1230,8 +1230,8 @@ const applyDagreLayout = (rawNodes, rawEdges, opts = {}) => {
     return {
       ...n,
       position: {
-        x: pos.x - 85,  // center: width/2
-        y: pos.y - 29   // center: height/2
+        x: pos.x - 105,  // center: width/2
+        y: pos.y - 37    // center: height/2
       }
     };
   });
@@ -1396,8 +1396,8 @@ const createNode = (id, position, opts = {}) => {
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
     style: {
-      width: '170px',
-      height: '58px',
+      width: '210px',
+      height: '74px',
     },
     draggable: false
   };
@@ -1504,7 +1504,7 @@ const goBack = async () => {
     fetchAnalysisPanels(false, uploadedFile.value || '').catch(() => {});
   }
   await nextTick();
-  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+  fitView({ padding: 0.45, duration: 300, maxZoom: 1.4 });
 };
 
 // Build structural parent→child edges (module→file, file→function)
@@ -1552,7 +1552,7 @@ const renderFileRelationsView = async (fileGraph) => {
   navStack.value = [];
   currentLabel.value = 'Files';
   await nextTick();
-  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+  fitView({ padding: 0.45, duration: 300, maxZoom: 1.4 });
 };
 
 // Build Tier 0 (service) edges, colored by connection type rather than by
@@ -1638,7 +1638,7 @@ const renderTier0Graph = async (serviceGraph) => {
   navStack.value = [];
   currentLabel.value = 'Services';
   await nextTick();
-  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+  fitView({ padding: 0.45, duration: 300, maxZoom: 1.4 });
 };
 
 const renderTier1Graph = async (tier1) => {
@@ -1738,7 +1738,7 @@ const renderTier1Graph = async (tier1) => {
   navStack.value = [];
   currentLabel.value = 'Modules';
   await nextTick();
-  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+  fitView({ padding: 0.45, duration: 300, maxZoom: 1.4 });
 };
 
 const renderModuleRoot = async (moduleNodes) => {
@@ -1763,7 +1763,7 @@ const renderModuleRoot = async (moduleNodes) => {
   navStack.value = [];
   currentLabel.value = 'Modules';
   await nextTick();
-  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+  fitView({ padding: 0.45, duration: 300, maxZoom: 1.4 });
 };
 
 const resetGraphState = () => {
@@ -1978,7 +1978,7 @@ const uploadWithFormData = async (formData, sourceName) => {
               } catch (_) { /* ignore */ }
             }
             await nextTick();
-            fitView({ padding: 0.4, duration: 400, maxZoom: 0.9 });
+            fitView({ padding: 0.4, duration: 400, maxZoom: 1.4});
           }
         } else {
           await renderModuleRoot(resolvedTier1.nodes);
@@ -2126,7 +2126,7 @@ const renderFunctionView = async (fileId, functionGraph) => {
   expandedNodes.value.clear();
   functionLayoutMode.value = true;
   await nextTick();
-  fitView({ padding: 0.45, duration: 300, maxZoom: 0.95 });
+  fitView({ padding: 0.45, duration: 300, maxZoom: 1.4 });
 };
 
 const handleFileUpload = async (event) => {
@@ -2240,7 +2240,7 @@ const onNodeClick = async ({ node }) => {
     expandedNodes.value.clear();
     expandedNodes.value.add(node.id);
     await nextTick();
-    fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
+    fitView({ padding: 0.5, duration: 250, maxZoom: 1.4});
     return;
     }
     const response = await sessionManager.apiCall(`/graph/tier2/${encodeURIComponent(node.id)}`, {
@@ -2268,7 +2268,7 @@ const onNodeClick = async ({ node }) => {
     layoutedNodes.forEach((n) => nodeLevelMap.value.set(n.id, 0));
 
     await nextTick();
-    fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
+    fitView({ padding: 0.5, duration: 250, maxZoom: 1.4});
   } else if (type === 'file') {
       // Drill into chunk/function graph for this file
       const response = await sessionManager.apiCall(`/graph/tier3?file_path=${encodeURIComponent(node.id)}`, {
@@ -2344,7 +2344,7 @@ const onNodeClick = async ({ node }) => {
       expandedNodes.value.add(node.id);
       functionLayoutMode.value = true;
       await nextTick();
-      fitView({ padding: 0.5, duration: 250, maxZoom: 0.9 });
+      fitView({ padding: 0.5, duration: 250, maxZoom: 1.4});
     }
   } catch (err) {
     console.error('Error fetching graph:', err);

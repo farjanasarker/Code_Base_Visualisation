@@ -20,7 +20,16 @@ def _detect_cycles(functions: List[Dict]) -> List[List[str]]:
         n = fn.get("name", "")
         if n == "__file__":
             continue
-        adj[n] = [c for c in fn.get("calls", []) if c in fn_set]
+        call_targets = fn.get("call_targets") or {}
+        adj[n] = [
+            c for c in fn.get("calls", [])
+            if c in fn_set
+            # A `super().<name>()` call to a method sharing the caller's own
+            # name (e.g. `super().__init__()`) is a real edge to the parent
+            # implementation, not a same-node self-loop — don't let it read
+            # as a circular dependency.
+            and not (c == n and call_targets.get(c) == "__super__")
+        ]
 
     found: List[List[str]] = []
     visited: set = set()

@@ -1080,6 +1080,15 @@ class UniversalParser:
                                 target_class = attr_map.get(value.attr)
                                 if target_class:
                                     call_targets[callee] = target_class
+                            elif (isinstance(value, ast.Call)
+                                    and isinstance(value.func, ast.Name)
+                                    and value.func.id == "super"):
+                                # super().<callee>() → a real edge, but when
+                                # <callee> matches the enclosing function's own
+                                # name (the common super().__init__() case)
+                                # it must not read as a same-node self-loop in
+                                # the call-cycle detector.
+                                call_targets[callee] = "__super__"
                         if callee:
                             calls.add(callee)
                 return list(calls), call_targets, list(instantiates)
