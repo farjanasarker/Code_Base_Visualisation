@@ -298,8 +298,29 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
         name_to_ids.setdefault(fn.get("name", ""), []).append(node_id)
         id_to_vm[node_id] = fn.get("virtual_module") or file_path
 
+    # class name → node id of its __init__ (when defined in this same file/graph) —
+    # lets instantiation sites (`ClassName(...)`) nest under the constructor instead
+    # of leaving __init__ floating as an unconnected node.
+    init_id_by_class: Dict[str, str] = {}
+    for fn in file_fns:
+        if fn.get("name") == "__init__":
+            cls = fn.get("virtual_module")
+            if cls and cls != file_path:
+                init_id_by_class[cls] = _node_id(fn)
+
     seen_edges: set = set()
     edges = []
+    for fn in file_fns:
+        src_id = _node_id(fn)
+        for cls in fn.get("instantiates", []) or []:
+            tgt_id = init_id_by_class.get(cls)
+            if not tgt_id or tgt_id == src_id:
+                continue
+            key = (src_id, tgt_id)
+            if key not in seen_edges:
+                seen_edges.add(key)
+                edges.append({"source": src_id, "target": tgt_id, "kind": "instantiate"})
+
     for fn in file_fns:
         src_id = _node_id(fn)
         call_targets = fn.get("call_targets") or {}
