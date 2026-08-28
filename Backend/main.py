@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions, ensure_schema, store_class_graph, get_class_graph
+from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1, get_tier2, get_tier3, get_all_files_graph, delete_session_data, get_chunk_functions, ensure_schema, store_class_graph, get_class_graph, get_function_node
 from patterns.graph_view import SessionGraphView
 from patterns.rule_engine import evaluate_all, pattern_info
 from patterns.language_idioms.singleton_idioms import scan_files as scan_singleton_idioms
@@ -22,6 +22,9 @@ from smell_graph import build_smell_graph
 import llm_engine
 from pattern_detector import ArchitecturePatternDetector
 from service_call_detector import detect_service_connections
+from dynamic_analysis import runner as dynamic_runner
+from dynamic_analysis.runner import UnsupportedFunctionError
+from dynamic_analysis.statements import FunctionNotFoundError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -140,6 +143,9 @@ active_sessions: Dict[str, Dict[str, Any]] = {}
 # }
 
 UPLOADS_BASE_DIR = Path("./uploads")
+# Dynamic-analysis tier's persisted Python source (see /upload) — deliberately
+# outside Backend/ so `uvicorn --reload`'s file watcher never sees it change.
+DYNAMIC_SOURCE_DIR = Path(__file__).resolve().parent.parent / "dynamic_analysis_sources"
 SESSION_TIMEOUT = timedelta(hours=3)  # Sessions auto-cleanup after 3 hours of inactivity
 
 # In-memory cache of last parsed upload (used when Neo4j is unavailable)
@@ -256,7 +262,11 @@ def end_session_cleanup(session_id: str) -> bool:
         if upload_dir.exists():
             shutil.rmtree(upload_dir, ignore_errors=True)
             logger.info(f"✅ Deleted upload directory: {upload_dir}")
-        
+
+        dynamic_source_dir = DYNAMIC_SOURCE_DIR / session_id
+        if dynamic_source_dir.exists():
+            shutil.rmtree(dynamic_source_dir, ignore_errors=True)
+
         # Delete from session cache
         SESSION_CACHE.pop(session_id, None)
         
@@ -302,6 +312,7 @@ async def startup_event():
     
     # Create uploads directory
     UPLOADS_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    DYNAMIC_SOURCE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Idempotent Neo4j schema setup for the GoF pattern engine's Class nodes
     # (best-effort — logs and continues if the constraint can't be created)
@@ -770,6 +781,34 @@ async def upload(
         if filtered_out:
             logger.info(f"Filtered out {filtered_out} files under SKIP_DIRS before analysis")
         all_files = filtered
+
+        # Persist Python source somewhere it survives past this request — needed by
+        # the dynamic-analysis tier (sandbox execution, statement extraction) since
+        # SESSION_CACHE strips file content to save memory. Deliberately NOT under
+        # session_upload_dir (Backend/uploads/...): that's inside the tree `uvicorn
+        # --reload` watches, so writing .py files there on every /upload triggered a
+        # full server reload mid-request — wiping active_sessions/SESSION_CACHE and
+        # breaking the session that was just created. dynamic_source_dir lives
+        # outside Backend/ entirely so it's never watched.
+        dynamic_source_dir = DYNAMIC_SOURCE_DIR / session_id
+        # Clear any files persisted by a previous upload in this session first,
+        # mirroring the Neo4j wipe below (delete_session_data) so stale sources don't linger.
+        if dynamic_source_dir.exists():
+            for stale in dynamic_source_dir.glob("**/*"):
+                if stale.is_file():
+                    try:
+                        stale.unlink()
+                    except OSError:
+                        pass
+        for f in all_files:
+            if f.get("language") != "python":
+                continue
+            try:
+                dest = dynamic_source_dir / f["path"]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(f.get("content", ""), encoding="utf-8")
+            except Exception:
+                logger.exception(f"Failed to persist source for {f.get('path')} (session {session_id})")
 
         if len(all_files) >= MAX_FILE_COUNT:
             logger.warning(
@@ -1991,4 +2030,106 @@ async def api_detect_gof_patterns(session_id: str):
         raise
     except Exception as e:
         logger.error(f"GoF pattern detection error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== DYNAMIC ANALYSIS (Python-only) ==========
+# session_id comes from the X-Session-ID header like every other route above —
+# not from the URL — so `function_node_id` alone identifies the target, encoded
+# as "<file_path>::<function_name>" (function names can't contain "::", so
+# splitting on the last occurrence is unambiguous even if a file_path did).
+
+def _split_function_node_id(function_node_id: str) -> tuple[str, str]:
+    if "::" not in function_node_id:
+        raise HTTPException(status_code=400, detail="malformed function_node_id (expected '<file_path>::<function_name>')")
+    file_path, function_name = function_node_id.rsplit("::", 1)
+    return file_path, function_name
+
+
+def _require_python_function(session_id: str, file_path: str, function_name: str) -> None:
+    fn = get_function_node(session_id, file_path, function_name)
+    if fn is None:
+        raise HTTPException(status_code=404, detail=f"function '{function_name}' not found in {file_path}")
+    if fn.get("language") != "python":
+        raise HTTPException(status_code=400, detail="dynamic analysis is only supported for Python functions")
+
+
+@app.post("/dynamic/functions/{function_node_id:path}/params")
+def api_dynamic_params(request: Request, function_node_id: str):
+    """Param names + type hints for the auto-generated input form (re-parses
+    the function's persisted source — Python functions carry no params on
+    their Function node; see dynamic_analysis/params.py)."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        file_path, function_name = _split_function_node_id(function_node_id)
+        _require_python_function(session_id, file_path, function_name)
+
+        upload_dir = str(DYNAMIC_SOURCE_DIR / session_id)
+        return dynamic_runner.get_function_params(session_id, upload_dir, file_path, function_name)
+
+    except HTTPException:
+        raise
+    except FunctionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Dynamic-analysis params error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/dynamic/functions/{function_node_id:path}/run")
+async def api_dynamic_run(request: Request, function_node_id: str):
+    """Executes the target function in the sandbox with the given inputs and
+    returns the traced execution (see dynamic_analysis/runner.py, sandbox.py)."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        file_path, function_name = _split_function_node_id(function_node_id)
+        _require_python_function(session_id, file_path, function_name)
+
+        body = await request.json()
+        inputs = body.get("inputs", {})
+        upload_dir = str(DYNAMIC_SOURCE_DIR / session_id)
+        run_id = str(uuid.uuid4())
+
+        return dynamic_runner.run_dynamic_function(session_id, upload_dir, file_path, function_name, inputs, run_id)
+
+    except HTTPException:
+        raise
+    except (FunctionNotFoundError, UnsupportedFunctionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Dynamic-analysis run error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/dynamic/runs/{run_id}/slice")
+async def api_dynamic_slice(request: Request, run_id: str):
+    """Backward program slice for one (statement, variable) criterion within
+    an already-completed run (see dynamic_analysis/slicer.py)."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        body = await request.json()
+        statement_node_id = body.get("statement_node_id")
+        variable_name = body.get("variable_name")
+        if not statement_node_id or not variable_name:
+            raise HTTPException(status_code=400, detail="statement_node_id and variable_name are required")
+
+        return dynamic_runner.compute_slice_for_run(session_id, run_id, statement_node_id, variable_name)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Dynamic-analysis slice error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

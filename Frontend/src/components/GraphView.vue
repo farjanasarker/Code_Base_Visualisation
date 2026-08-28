@@ -999,6 +999,13 @@
       </div>
     </div>
 
+    <SliceParamForm
+      v-if="dynamicSliceTarget"
+      :function-node-id="dynamicSliceTarget.functionNodeId"
+      :function-label="dynamicSliceTarget.functionLabel"
+      @close="() => { dynamicSliceTarget = null; clearExecStateHighlight(); }"
+      @run-complete="applyExecStateHighlight"
+    />
   </div>
 </template>
 
@@ -1015,6 +1022,7 @@ import BottomBackEdge from "./BottomBackEdge.vue";
 import FixTreeNode from "./FixTreeNode.vue";
 import InfoTooltip from "./InfoTooltip.vue";
 import PatternRoleDiagram from "./PatternRoleDiagram.vue";
+import SliceParamForm from "./SliceParamForm.vue";
 
 // Inject session manager
 const sessionManager = inject('sessionManager');
@@ -1035,6 +1043,10 @@ const discoveredFunctions = ref([]);
 const selectedRoot = ref("");
 const functionLayoutMode = ref(false);
 const navStack = ref([]);   // [{label, nodes, edges, expandedNodes, nodeLevelMap}]
+
+// ── Dynamic-analysis (Python-only) state ──────────────────────────────────
+const dynamicSliceTarget = ref(null); // {functionNodeId, functionLabel} while the param form is open
+const execStateByNode = ref(new Map()); // node.id (function name) -> 'executed' | 'slice'
 const activeServiceId = ref(null);   // set while drilled into one service (Tier 0 -> Tier 1+), null at the top / in single-project mode
 const currentLabel = ref('');
 const riskData = ref(null);         // { functions: [...], summary: {...}, total: N }
@@ -1369,7 +1381,7 @@ const createNode = (id, position, opts = {}) => {
     label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false,
     language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none',
     violationCount = 0, violationSeverity = 'none', smellSeverity = 'none',
-    parentFile = null, fnCount = 0, className = null,
+    parentFile = null, fnCount = 0, className = null, filePath = null,
   } = opts;
   return {
     id,
@@ -1391,6 +1403,7 @@ const createNode = (id, position, opts = {}) => {
       parentFile,
       fnCount,
       className,
+      filePath,
     },
     position,
     sourcePosition: Position.Bottom,
@@ -2117,6 +2130,9 @@ const renderFunctionView = async (fileId, functionGraph) => {
       parentFile: fn.type === 'chunk' ? fileId : null,
       fnCount: fn.fn_count || 0,
       className: fn.class_name || null,
+      // Dynamic-analysis (Python-only) needs "<file_path>::<function_name>" to
+      // identify the target — chunks aren't individual functions, so only tag it there.
+      filePath: fn.type === 'chunk' ? null : fileId,
     });
   });
 
@@ -2198,7 +2214,19 @@ const handleFolderUpload = async (event) => {
   }
 };
 
-const onNodeClick = async ({ node }) => {
+const onNodeClick = async ({ event, node }) => {
+  // "Run Dynamic Slice" badge (Python function nodes only — see FunctionNode.vue's
+  // §4.0 gate) intercepts the click before the normal drill-down logic below;
+  // it isn't a separate emit since vue-flow's nodeTypes-rendered components
+  // aren't wired into this component's own event listeners.
+  if (event?.target?.closest?.('.dynamic-slice-badge')) {
+    dynamicSliceTarget.value = {
+      functionNodeId: `${node.data?.filePath}::${node.id}`,
+      functionLabel: node.data?.label || node.id,
+    };
+    return;
+  }
+
   if (expandedNodes.value.has(node.id)) return;
 
   const type = node.data?.nodeType || 'module';
@@ -2460,6 +2488,41 @@ const onNodeUnhover = () => {
       filter: 'none'
     }
   }));
+};
+
+// ── Dynamic-analysis execution highlight ──────────────────────────────────
+// Coarse, function-node-granularity signal: the analyzed function itself
+// ("slice" — emphasized) and the functions it actually called during this
+// run ("executed" — dimmed but visible), against everything else in the
+// current graph (faded). Statement-level slice detail (S1..S11, reads/writes)
+// has no representation in this call-graph view — it's shown inside
+// SliceParamForm's own criterion picker instead.
+const applyExecStateHighlight = (runResult) => {
+  const targetFnName = dynamicSliceTarget.value?.functionNodeId?.split('::').pop();
+  const called = new Set(runResult.called_functions || []);
+  const relevant = new Set([targetFnName, ...called]);
+
+  const map = new Map();
+  nodes.value.forEach((n) => {
+    if (n.data?.nodeType !== 'function') return;
+    if (n.id === targetFnName) map.set(n.id, 'slice');
+    else if (called.has(n.id)) map.set(n.id, 'executed');
+  });
+  execStateByNode.value = map;
+
+  nodes.value = nodes.value.map((n) => ({
+    ...n,
+    data: { ...n.data, execState: map.get(n.id) || null },
+    style: { ...n.style, opacity: relevant.has(n.id) ? 1 : 0.25 },
+  }));
+};
+
+const clearExecStateHighlight = () => {
+  execStateByNode.value = new Map();
+  nodes.value = nodes.value.map((n) => {
+    const { execState, ...restData } = n.data || {};
+    return { ...n, data: restData, style: { ...n.style, opacity: 1 } };
+  });
 };
 
 const performSearch = (query) => {

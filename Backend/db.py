@@ -1,5 +1,6 @@
 from neo4j import GraphDatabase
 from pathlib import Path
+import json
 import logging
 import re
 
@@ -874,3 +875,152 @@ def get_chunk_functions(file_path: str, chunk_name: str, session_id: str):
     except Exception as e:
         logger.error(f"Error building chunk functions: {str(e)}")
         raise
+
+
+# ========== DYNAMIC ANALYSIS (Statement / CONTROL_DEP / Run / DYNAMIC_DATA_DEP) ==========
+# See dynamic_analysis/ for the builders that produce the shapes these functions
+# persist and query. Statement/CONTROL_DEP are static (built lazily, once per
+# function, cached); Run/EXECUTED/DYNAMIC_DATA_DEP are scoped per run_id.
+
+def get_function_node(session_id: str, file_path: str, function_name: str):
+    def _tx(tx):
+        result = tx.run("""
+            MATCH (fn:Function {name: $name, file: $file, session_id: $session_id})
+            RETURN fn.language AS language, fn.line_start AS line_start, fn.line_end AS line_end
+        """, name=function_name, file=file_path, session_id=session_id)
+        record = result.single()
+        return dict(record) if record else None
+
+    with driver.session() as db_session:
+        return db_session.execute_read(_tx)
+
+
+def has_statements_for_function(session_id: str, function_id: str) -> bool:
+    def _tx(tx):
+        result = tx.run("""
+            MATCH (s:Statement {function_id: $function_id, session_id: $session_id})
+            RETURN count(s) AS cnt
+        """, function_id=function_id, session_id=session_id)
+        return result.single()["cnt"] > 0
+
+    with driver.session() as db_session:
+        return db_session.execute_read(_tx)
+
+
+def create_statements_and_control_dep(session_id: str, function_id: str, file_path: str,
+                                       function_name: str, built: dict) -> None:
+    def _tx(tx):
+        for s in built["statements"]:
+            stmt_id = f"{function_id}::{s['id_suffix']}"
+            tx.run("""
+                MATCH (fn:Function {name: $function_name, file: $file_path, session_id: $session_id})
+                MERGE (s:Statement {id: $stmt_id, session_id: $session_id})
+                SET s.function_id = $function_id,
+                    s.id_suffix = $id_suffix,
+                    s.line_no = $line_no,
+                    s.static_seq = $static_seq,
+                    s.kind = $kind,
+                    s.source_text = $source_text,
+                    s.reads = $reads,
+                    s.writes = $writes
+                MERGE (fn)-[:HAS_STATEMENT]->(s)
+            """, function_name=function_name, file_path=file_path, session_id=session_id,
+                 function_id=function_id, stmt_id=stmt_id, id_suffix=s["id_suffix"],
+                 line_no=s["line_no"], static_seq=s["static_seq"], kind=s["kind"],
+                 source_text=s["source_text"], reads=s["reads"], writes=s["writes"])
+
+        for e in built["control_dep_edges"]:
+            from_id = f"{function_id}::{e['from_suffix']}"
+            to_id = f"{function_id}::{e['to_suffix']}"
+            tx.run("""
+                MATCH (a:Statement {id: $from_id, session_id: $session_id})
+                MATCH (b:Statement {id: $to_id, session_id: $session_id})
+                MERGE (a)-[:CONTROL_DEP {branch: $branch}]->(b)
+            """, from_id=from_id, to_id=to_id, branch=e["branch"], session_id=session_id)
+
+    with driver.session() as db_session:
+        db_session.execute_write(_tx)
+
+
+def get_statements_for_function(session_id: str, function_id: str) -> list[dict]:
+    def _tx(tx):
+        result = tx.run("""
+            MATCH (s:Statement {function_id: $function_id, session_id: $session_id})
+            RETURN s.id AS id, s.id_suffix AS id_suffix, s.line_no AS line_no,
+                   s.static_seq AS static_seq, s.kind AS kind, s.source_text AS source_text,
+                   s.reads AS reads, s.writes AS writes
+            ORDER BY s.static_seq
+        """, function_id=function_id, session_id=session_id)
+        return [dict(r) for r in result]
+
+    with driver.session() as db_session:
+        return db_session.execute_read(_tx)
+
+
+def create_run(session_id: str, function_id: str, run_id: str, inputs: dict, status: str,
+                error: str | None) -> None:
+    def _tx(tx):
+        tx.run("""
+            CREATE (r:Run {
+                id: $run_id, session_id: $session_id, function_id: $function_id,
+                inputs_json: $inputs_json, status: $status, error: $error,
+                created_at: datetime()
+            })
+        """, run_id=run_id, session_id=session_id, function_id=function_id,
+             inputs_json=json.dumps(inputs), status=status, error=error)
+
+    with driver.session() as db_session:
+        db_session.execute_write(_tx)
+
+
+def record_execution(session_id: str, run_id: str, executed_ids_in_order: list[str],
+                      data_dep_edges: list[dict]) -> None:
+    def _tx(tx):
+        for order, stmt_id in enumerate(executed_ids_in_order, start=1):
+            tx.run("""
+                MATCH (r:Run {id: $run_id, session_id: $session_id})
+                MATCH (s:Statement {id: $stmt_id, session_id: $session_id})
+                CREATE (r)-[:EXECUTED {order: $order}]->(s)
+            """, run_id=run_id, session_id=session_id, stmt_id=stmt_id, order=order)
+
+        for e in data_dep_edges:
+            tx.run("""
+                MATCH (a:Statement {id: $from_id, session_id: $session_id})
+                MATCH (b:Statement {id: $to_id, session_id: $session_id})
+                MERGE (a)-[:DYNAMIC_DATA_DEP {run_id: $run_id, variable_name: $variable_name}]->(b)
+            """, from_id=e["from_id"], to_id=e["to_id"], variable_name=e["variable_name"],
+                 run_id=run_id, session_id=session_id)
+
+    with driver.session() as db_session:
+        db_session.execute_write(_tx)
+
+
+def get_run_edges(session_id: str, run_id: str):
+    """Returns (statements, data_dep_edges, control_dep_edges) shaped for
+    dynamic_analysis.slicer.build_lookups."""
+    def _tx(tx):
+        stmt_res = tx.run("""
+            MATCH (r:Run {id: $run_id, session_id: $session_id})-[e:EXECUTED]->(s:Statement)
+            WITH s, min(e.order) AS first_order
+            RETURN s.id AS id, first_order AS order, s.reads AS reads
+        """, run_id=run_id, session_id=session_id)
+        statements = [dict(r) for r in stmt_res]
+        executed_ids = [s["id"] for s in statements]
+
+        data_dep_res = tx.run("""
+            MATCH (a:Statement {session_id: $session_id})-[e:DYNAMIC_DATA_DEP {run_id: $run_id}]->(b:Statement)
+            RETURN a.id AS from_id, b.id AS to_id, e.variable_name AS variable_name
+        """, run_id=run_id, session_id=session_id)
+        data_dep_edges = [dict(r) for r in data_dep_res]
+
+        control_dep_res = tx.run("""
+            MATCH (a:Statement {session_id: $session_id})-[:CONTROL_DEP]->(b:Statement)
+            WHERE a.id IN $executed_ids AND b.id IN $executed_ids
+            RETURN a.id AS from_id, b.id AS to_id
+        """, session_id=session_id, executed_ids=executed_ids)
+        control_dep_edges = [dict(r) for r in control_dep_res]
+
+        return statements, data_dep_edges, control_dep_edges
+
+    with driver.session() as db_session:
+        return db_session.execute_read(_tx)
