@@ -33,6 +33,7 @@ const riskTitle = computed(() => {
       data.riskLevel && data.riskLevel !== 'none' ? `risk-${data.riskLevel}` : '',
       { 'dead-code': data.isDead },
       data.smellSeverity && data.smellSeverity !== 'none' ? `smell-node-${data.smellSeverity}` : '',
+      data.execState ? `execState-${data.execState}` : '',
     ]"
     :title="riskTitle"
   >
@@ -77,6 +78,13 @@ const riskTitle = computed(() => {
       :class="data.deadConfidence === 'high' ? 'dead-badge-high' : 'dead-badge-medium'"
       :title="data.deadConfidence === 'high' ? 'High confidence: private, no callers' : 'Medium confidence: no detected callers'"
     >👻</div>
+
+    <!-- Dynamic analysis is Python-only (§4.0) — never rendered for other languages -->
+    <div
+      v-if="data.nodeType === 'function' && data.language === 'python'"
+      class="dynamic-slice-badge"
+      title="Run Dynamic Slice"
+    >▶</div>
   </div>
 </template>
 
@@ -261,6 +269,42 @@ const riskTitle = computed(() => {
 }
 .dead-badge-high   { background: #475569; }
 .dead-badge-medium { background: #94a3b8; }
+
+/* ── Dynamic-analysis "Run Dynamic Slice" trigger (bottom-right corner) ── */
+.dynamic-slice-badge {
+  position: absolute;
+  bottom: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #059669;
+  color: #fff;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  z-index: 10;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.dynamic-slice-badge:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(5,150,105,0.4);
+}
+
+/* ── Dynamic-slice execution highlight (set after a run completes) ────── */
+.fn-card.execState-executed {
+  opacity: 0.45;
+}
+.fn-card.execState-slice {
+  opacity: 1;
+  border-color: #059669;
+  border-width: 2px;
+  box-shadow: 0 0 0 3px rgba(5,150,105,0.22);
+}
 
 /* ── Handles ─────────────────────────────────────── */
 .fn-handle {
