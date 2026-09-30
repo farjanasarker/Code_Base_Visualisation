@@ -56,5 +56,6 @@ const labelY = computed(() => laneY.value - 10);
   font-weight: 600;
   pointer-events: none;
   white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 </style>

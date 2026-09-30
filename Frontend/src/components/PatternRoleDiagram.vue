@@ -39,9 +39,14 @@ const roles = computed(() => Object.entries(props.bindings || {}));
   width: 100%;
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 10px;
+  border-radius: 8px;
+  padding: 7px 10px;
   text-align: center;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+.prd-box:hover {
+  border-color: #6366f1;
+  transform: translateY(-1px);
 }
 .prd-role {
   display: block;
