@@ -130,6 +130,16 @@ const riskTitle = computed(() => {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(99,102,241,0.18);
 }
+.fn-card:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fn-card { transition: box-shadow 140ms ease, border-color 140ms ease; }
+  .fn-card:hover { transform: none; }
+  .fn-card.chunk { animation: none; }
+}
 
 /* ── Circle badge ─────────────────────────────────── */
 .fn-badge {

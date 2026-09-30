@@ -37,12 +37,17 @@ a,
   border-radius: 8px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
 :deep(.vue-flow__node:hover) {
   box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
   transform: scale(1.05);
+}
+
+:deep(.vue-flow__node:focus-visible) {
+  outline: 2px solid #4f46e5;
+  outline-offset: 3px;
 }
 
 :deep(.vue-flow__node.selected) {
@@ -53,18 +58,30 @@ a,
 :deep(.vue-flow__edge-path) {
   stroke: #667eea;
   stroke-width: 2px;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
-:deep(.vue-flow__edge.animated path) {
-  stroke-dasharray: 5;
-  animation: dashdraw 0.5s linear infinite;
-}
-
-@keyframes dashdraw {
-  from {
-    stroke-dashoffset: 0;
+@media (prefers-reduced-motion: no-preference) {
+  :deep(.vue-flow__edge.animated path) {
+    stroke-dasharray: 5;
+    animation: dashdraw 0.5s linear infinite;
   }
-  to {
-    stroke-dashoffset: -10;
+
+  @keyframes dashdraw {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: -10;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :deep(.vue-flow__node) {
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  :deep(.vue-flow__node:hover) {
+    transform: none;
   }
 }
