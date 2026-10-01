@@ -1147,7 +1147,7 @@ const smellRoiPlan = computed(() => smellData.value?.plan || []);
 function togglePreview(smellId) {
   expandedPreviews.value = { ...expandedPreviews.value, [smellId]: !expandedPreviews.value[smellId] };
 }
-const sidebarWidth = ref(380);
+const sidebarWidth = ref(420);
 const isResizing = ref(false);
 const { fitView, findNode, setCenter } = useVueFlow();
 
