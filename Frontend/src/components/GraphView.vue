@@ -2771,19 +2771,19 @@ const collapseOthers = (nodeType, keepId) => {
   border-bottom: 1px solid #1e293b;
 }
 .brand-icon {
-  font-size: 31px;
+  font-size: 29px;
   line-height: 1;
   color: #818cf8;
   filter: drop-shadow(0 0 10px rgba(129, 140, 248, 0.45));
 }
 .brand-name {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: #f1f5f9;
   letter-spacing: -0.01em;
 }
 .brand-sub {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   margin-top: 1px;
 }
@@ -2805,7 +2805,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex: 1;
 }
 .section-title {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2813,7 +2813,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 10px;
 }
 .section-subtitle {
-  font-size: 14px;
+  font-size: 12px;
   color: #e2e8f0;
   line-height: 1.5;
   margin: -6px 0 10px;
@@ -2829,7 +2829,7 @@ const collapseOthers = (nodeType, keepId) => {
 .sidebar-tab {
   flex: 1;
   padding: 7px 8px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
@@ -2862,7 +2862,7 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #334155;
   border-radius: 7px;
   color: #e2e8f0;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
@@ -2882,7 +2882,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
 }
 .crumb { color: #cbd5e1; }
@@ -2911,10 +2911,10 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .upload-zone:active:not(.disabled) { transform: scale(0.99); }
 .upload-zone.disabled { opacity: 0.5; cursor: not-allowed; }
-.upload-zone-icon { font-size: 27px; transition: transform var(--transition-base); }
+.upload-zone-icon { font-size: 25px; transition: transform var(--transition-base); }
 .upload-zone:hover:not(.disabled) .upload-zone-icon { transform: translateY(-2px); }
-.upload-zone-text { font-size: 15px; font-weight: 600; color: #cbd5e1; line-height: 1.3; }
-.upload-zone-hint { font-size: 14px; color: #cbd5e1; margin-top: 2px; }
+.upload-zone-text { font-size: 13px; font-weight: 600; color: #cbd5e1; line-height: 1.3; }
+.upload-zone-hint { font-size: 12px; color: #cbd5e1; margin-top: 2px; }
 
 .upload-btn-folder {
   display: flex;
@@ -2927,7 +2927,7 @@ const collapseOthers = (nodeType, keepId) => {
   background: #1e293b;
   border: 1px solid #334155;
   color: #e2e8f0;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base), transform var(--transition-fast);
@@ -2967,14 +2967,14 @@ const collapseOthers = (nodeType, keepId) => {
   }
 }
 .status-filename {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: #e2e8f0;
   overflow-wrap: break-word;
   word-break: break-word;
 }
 .status-msg {
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.4;
   border-radius: var(--radius-sm);
   padding: 7px 10px;
@@ -2983,7 +2983,7 @@ const collapseOthers = (nodeType, keepId) => {
 .status-msg.err { background: #7f1d1d33; color: #fca5a5; }
 .status-count {
   margin-top: 6px;
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   display: flex;
   align-items: center;
@@ -3000,7 +3000,7 @@ const collapseOthers = (nodeType, keepId) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: 13px;
   color: #e2e8f0;
 }
 .legend-swatch {
@@ -3026,7 +3026,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin: 4px 0;
 }
 .legend-icon {
-  font-size: 16px;
+  font-size: 14px;
   width: 16px;
   text-align: center;
   color: #cbd5e1;
@@ -3040,7 +3040,7 @@ const collapseOthers = (nodeType, keepId) => {
   gap: 7px;
 }
 .tips-list li {
-  font-size: 15px;
+  font-size: 13px;
   color: #cbd5e1;
   line-height: 1.4;
 }
@@ -3053,7 +3053,7 @@ const collapseOthers = (nodeType, keepId) => {
   gap: 6px;
 }
 .onboarding-steps li {
-  font-size: 15px;
+  font-size: 13px;
   color: #e2e8f0;
   line-height: 1.4;
 }
@@ -3122,19 +3122,19 @@ const collapseOthers = (nodeType, keepId) => {
   pointer-events: none;
 }
 .impact-head {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #e2e8f0;
   margin-bottom: 7px;
 }
 .impact-fn-target { color: #f97316; }
 .impact-loading {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   font-style: italic;
 }
 .impact-summary {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   line-height: 1.5;
   margin-bottom: 7px;
@@ -3154,17 +3154,17 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .impact-fn-arrow {
   color: #f97316;
-  font-size: 14px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .impact-fn-name {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: #e2e8f0;
   flex-shrink: 0;
 }
 .impact-fn-file {
-  font-size: 13px;
+  font-size: 11px;
   color: #cbd5e1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3172,12 +3172,12 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .impact-fn-more {
-  font-size: 13px;
+  font-size: 11px;
   color: #cbd5e1;
   margin-top: 2px;
 }
 .impact-none {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   border-top: 1px solid #334155;
   padding-top: 7px;
@@ -3256,7 +3256,7 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-chip {
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   transition: transform var(--transition-fast);
@@ -3270,12 +3270,12 @@ const collapseOthers = (nodeType, keepId) => {
 /* Level 1 – smell type distribution */
 .smell-type-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .smell-type-row  { display: flex; align-items: baseline; gap: 5px; padding: 2px 4px; }
-.smell-type-rank { font-size: 14px; color: #cbd5e1; min-width: 14px; }
+.smell-type-rank { font-size: 12px; color: #cbd5e1; min-width: 14px; }
 .smell-type-name {
-  flex: 1; font-size: 14px; font-weight: 600; color: #cbd5e1;
+  flex: 1; font-size: 12px; font-weight: 600; color: #cbd5e1;
   text-transform: capitalize;
 }
-.smell-type-count { font-size: 14px; font-weight: 700; color: #818cf8; }
+.smell-type-count { font-size: 12px; font-weight: 700; color: #818cf8; }
 
 /* Level 2 – ranked file list */
 .smell-file-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
@@ -3287,15 +3287,15 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .smell-file-row:hover { background: #273549; border-color: #6366f1; transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .smell-file-row:active { transform: translateY(0); }
-.smell-file-rank { font-size: 14px; color: #cbd5e1; min-width: 14px; flex-shrink: 0; }
+.smell-file-rank { font-size: 12px; color: #cbd5e1; min-width: 14px; flex-shrink: 0; }
 .smell-file-body { flex: 1; min-width: 0; }
 .smell-file-name {
-  font-size: 14px; font-weight: 700; color: #e2e8f0;
+  font-size: 12px; font-weight: 700; color: #e2e8f0;
   font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.smell-file-meta { font-size: 14px; color: #e2e8f0; margin-top: 1px; }
+.smell-file-meta { font-size: 12px; color: #e2e8f0; margin-top: 1px; }
 .smell-file-meta strong { color: #a5b4fc; }
-.smell-file-arrow { font-size: 19px; color: #cbd5e1; flex-shrink: 0; }
+.smell-file-arrow { font-size: 17px; color: #cbd5e1; flex-shrink: 0; }
 
 /* Level 3 – file detail */
 .smell-detail-header {
@@ -3303,13 +3303,13 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .smell-back-btn {
   padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid #334155;
-  background: #1e293b; font-size: 14px; font-weight: 600; color: #e2e8f0;
+  background: #1e293b; font-size: 12px; font-weight: 600; color: #e2e8f0;
   cursor: pointer; flex-shrink: 0;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 .smell-back-btn:hover { background: #273549; border-color: #475569; color: #e2e8f0; }
 .smell-detail-filename {
-  font-size: 15px; font-weight: 700; color: #e2e8f0;
+  font-size: 13px; font-weight: 700; color: #e2e8f0;
   font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .smell-detail-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
@@ -3324,10 +3324,10 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-sev-high     { border-left-color: #ef4444; background: #1c1010; }
 .smell-sev-medium   { border-left-color: #f59e0b; background: #1c1800; }
 .smell-sev-low      { border-left-color: #22c55e; background: #0f1c12; }
-.smell-detail-icon { font-size: 16px; flex-shrink: 0; }
+.smell-detail-icon { font-size: 14px; flex-shrink: 0; }
 .smell-detail-body { flex: 1; min-width: 0; }
 .smell-sev-badge {
-  font-size: 13px; font-weight: 700; padding: 2px 5px;
+  font-size: 11px; font-weight: 700; padding: 2px 5px;
   border-radius: 6px; flex-shrink: 0; text-transform: uppercase;
 }
 .sev-badge-critical { background: #3b0764; color: #d8b4fe; }
@@ -3337,13 +3337,13 @@ const collapseOthers = (nodeType, keepId) => {
 
 /* shared item text */
 .smell-item-type  {
-  font-size: 14px; font-weight: 700; color: #e2e8f0;
+  font-size: 12px; font-weight: 700; color: #e2e8f0;
   text-transform: capitalize;
   line-height: 1.4;
   overflow-wrap: break-word; word-break: break-word;
 }
 .smell-item-target {
-  font-size: 14px; color: #e2e8f0; font-family: monospace;
+  font-size: 12px; color: #e2e8f0; font-family: monospace;
   line-height: 1.5;
   overflow-wrap: break-word; word-break: break-word;
 }
@@ -3356,7 +3356,7 @@ const collapseOthers = (nodeType, keepId) => {
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   background-size: 200% 200%;
   color: #fff;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   border: none;
   cursor: pointer;
@@ -3389,21 +3389,21 @@ const collapseOthers = (nodeType, keepId) => {
   gap: 6px;
 }
 .llm-plan-source {
-  font-size: 13px;
+  font-size: 11px;
   color: #6366f1;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 .llm-exec-summary {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   line-height: 1.5;
   border-left: 3px solid #6366f1;
   padding-left: 8px;
 }
 .llm-root-cause {
-  font-size: 14px;
+  font-size: 12px;
   color: #f87171;
   padding: 4px 8px;
   background: rgba(239,68,68,0.1);
@@ -3430,7 +3430,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 3px;
 }
 .llm-step-num {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   color: #e2e8f0;
   background: #334155;
@@ -3439,7 +3439,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex-shrink: 0;
 }
 .llm-step-pattern {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #e2e8f0;
   flex: 1;
@@ -3447,7 +3447,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .llm-step-effort {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 8px;
@@ -3457,16 +3457,16 @@ const collapseOthers = (nodeType, keepId) => {
 .effort-medium { background: #fef3c7; color: #92400e; }
 .effort-low    { background: #f0fdf4; color: #166534; }
 
-.llm-step-target  { font-size: 14px; color: #7dd3fc; font-family: monospace; margin-bottom: 2px; }
-.llm-step-what    { font-size: 14px; color: #e2e8f0; line-height: 1.4; }
-.llm-step-why     { font-size: 14px; color: #4ade80; line-height: 1.4; margin-top: 2px; font-style: italic; }
+.llm-step-target  { font-size: 12px; color: #7dd3fc; font-family: monospace; margin-bottom: 2px; }
+.llm-step-what    { font-size: 12px; color: #e2e8f0; line-height: 1.4; }
+.llm-step-why     { font-size: 12px; color: #4ade80; line-height: 1.4; margin-top: 2px; font-style: italic; }
 .llm-step-resolves {
-  font-size: 13px; color: #cbd5e1; margin-top: 3px;
+  font-size: 11px; color: #cbd5e1; margin-top: 3px;
   overflow-wrap: break-word; word-break: break-word;
 }
 
 .llm-longterm {
-  font-size: 14px;
+  font-size: 12px;
   color: #fbbf24;
   line-height: 1.5;
   padding: 5px 8px;
@@ -3475,7 +3475,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .llm-longterm strong { color: #fde68a; }
 .llm-error {
-  font-size: 14px;
+  font-size: 12px;
   color: #f87171;
   padding: 4px 8px;
   background: rgba(239,68,68,0.1);
@@ -3494,15 +3494,15 @@ const collapseOthers = (nodeType, keepId) => {
   background: #1e293b;
   border: 1px solid #334155;
 }
-.debt-stat-value { font-size: 18px; font-weight: 800; color: #f59e0b; }
-.debt-stat-label { font-size: 13px; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 1px; }
+.debt-stat-value { font-size: 16px; font-weight: 800; color: #f59e0b; }
+.debt-stat-label { font-size: 11px; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 1px; }
 
 /* ── Smell panel view-mode tabs ──────────────────────── */
 .smell-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
 .smell-tab {
   flex: 1;
   padding: 5px 6px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
@@ -3515,7 +3515,7 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-tab:hover { background: #273549; border-color: #475569; color: #e2e8f0; }
 .smell-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
 
-.smell-empty-note { font-size: 14px; color: #cbd5e1; padding: 6px 0; text-align: center; }
+.smell-empty-note { font-size: 12px; color: #cbd5e1; padding: 6px 0; text-align: center; }
 
 /* ── Feature 1 & 2: ROI-ranked plan + code preview ───── */
 .roi-plan-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
@@ -3532,20 +3532,20 @@ const collapseOthers = (nodeType, keepId) => {
 .roi-plan-item:hover { background: #232f45; transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .roi-plan-head { display: flex; align-items: center; gap: 6px; }
 .roi-plan-step {
-  font-size: 14px; font-weight: 800; color: #e2e8f0;
+  font-size: 12px; font-weight: 800; color: #e2e8f0;
   background: #334155; padding: 1px 5px; border-radius: 4px; flex-shrink: 0;
 }
 .roi-plan-meta {
-  display: flex; gap: 10px; font-size: 14px; color: #e2e8f0;
+  display: flex; gap: 10px; font-size: 12px; color: #e2e8f0;
 }
 .roi-plan-meta strong { color: #a5b4fc; }
-.roi-plan-desc { font-size: 14px; color: #cbd5e1; line-height: 1.4; }
-.roi-plan-suggestions { font-size: 14px; color: #4ade80; font-style: italic; }
+.roi-plan-desc { font-size: 12px; color: #cbd5e1; line-height: 1.4; }
+.roi-plan-suggestions { font-size: 12px; color: #4ade80; font-style: italic; }
 .roi-preview-toggle {
   align-self: flex-start;
   margin-top: 2px;
   padding: 2px 7px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 1px solid #6366f1;
@@ -3571,14 +3571,14 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .code-preview-col { display: flex; flex-direction: column; gap: 2px; }
 .code-preview-label {
-  font-size: 13px; font-weight: 700; color: #cbd5e1; text-transform: uppercase;
+  font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase;
 }
 .code-preview-pre {
   margin: 0;
   padding: 6px;
   border-radius: 6px;
   background: #131c2e;
-  font-size: 14px;
+  font-size: 12px;
   font-family: monospace;
   color: #e2e8f0;
   white-space: pre-wrap;
@@ -3586,7 +3586,7 @@ const collapseOthers = (nodeType, keepId) => {
   overflow-x: auto;
 }
 .code-preview-explanation {
-  font-size: 14px; color: #fbbf24; line-height: 1.4; font-style: italic;
+  font-size: 12px; color: #fbbf24; line-height: 1.4; font-style: italic;
 }
 
 /* ── Feature 3: Layer accordion ──────────────────────── */
@@ -3595,9 +3595,9 @@ const collapseOthers = (nodeType, keepId) => {
 .layer-group:hover { border-color: #475569; }
 .layer-header { display: flex; align-items: center; gap: 6px; cursor: pointer; border-radius: var(--radius-sm); transition: background var(--transition-fast); }
 .layer-header:hover { background: rgba(255,255,255,0.03); }
-.layer-name { flex: 1; font-size: 14px; font-weight: 700; color: #e2e8f0; }
+.layer-name { flex: 1; font-size: 12px; font-weight: 700; color: #e2e8f0; }
 .layer-count {
-  font-size: 14px; font-weight: 700; color: #818cf8;
+  font-size: 12px; font-weight: 700; color: #818cf8;
   background: rgba(99,102,241,0.15); padding: 1px 7px; border-radius: 10px;
 }
 
@@ -3616,7 +3616,7 @@ const collapseOthers = (nodeType, keepId) => {
 .risk-chip {
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   transition: transform var(--transition-fast);
@@ -3647,18 +3647,18 @@ const collapseOthers = (nodeType, keepId) => {
 .risk-item-medium { border-left: 3px solid #f59e0b; }
 .risk-item-low    { border-left: 3px solid #22c55e; }
 
-.risk-item-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+.risk-item-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
 
 .risk-item-body { flex: 1; min-width: 0; }
 .risk-item-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
   overflow-wrap: break-word;
   word-break: break-word;
 }
 .risk-item-warn {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
   overflow-wrap: break-word;
@@ -3667,7 +3667,7 @@ const collapseOthers = (nodeType, keepId) => {
 
 .risk-item-count {
   flex-shrink: 0;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 800;
   color: #cbd5e1;
   background: #334155;
@@ -3677,7 +3677,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 
 .risk-empty {
-  font-size: 15px;
+  font-size: 13px;
   color: #e2e8f0;
   text-align: center;
   padding: 8px 0;
@@ -3695,7 +3695,7 @@ const collapseOthers = (nodeType, keepId) => {
 .dead-chip {
   padding: 3px 7px;
   border-radius: 12px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3704,7 +3704,7 @@ const collapseOthers = (nodeType, keepId) => {
 .dead-chip-imp  { background: #fef9c3; color: #854d0e; }
 
 .dead-section-label {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -3737,11 +3737,11 @@ const collapseOthers = (nodeType, keepId) => {
 .dead-import-item { border-color: #92620f; background: #241d0c; }
 .dead-import-item:hover { background: #2e2510; }
 
-.dead-item-icon { font-size: 15px; flex-shrink: 0; }
+.dead-item-icon { font-size: 13px; flex-shrink: 0; }
 
 .dead-item-body { flex: 1; min-width: 0; }
 .dead-item-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-secondary);
   text-decoration: line-through;
@@ -3749,7 +3749,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .dead-item-file {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-muted);
   font-family: monospace;
   overflow-wrap: break-word;
@@ -3759,7 +3759,7 @@ const collapseOthers = (nodeType, keepId) => {
 /* confidence badge */
 .dead-conf-badge {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
   padding: 1px 5px;
   border-radius: 8px;
@@ -3775,7 +3775,7 @@ const collapseOthers = (nodeType, keepId) => {
   border-radius: var(--radius-sm);
   background: #fefce8;
   border: 1px solid #fde68a;
-  font-size: 14px;
+  font-size: 12px;
   color: #78350f;
   line-height: 1.6;
 }
@@ -3792,15 +3792,15 @@ const collapseOthers = (nodeType, keepId) => {
   background: #052e1655;
   border: 1px solid #166534;
 }
-.layer-clean-icon { font-size: 21px; flex-shrink: 0; margin-top: 1px; }
+.layer-clean-icon { font-size: 19px; flex-shrink: 0; margin-top: 1px; }
 .layer-clean-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #86efac;
   line-height: 1.3;
 }
 .layer-clean-sub {
-  font-size: 14px;
+  font-size: 12px;
   color: #4ade80;
   margin-top: 2px;
   line-height: 1.5;
@@ -3815,7 +3815,7 @@ const collapseOthers = (nodeType, keepId) => {
 .layer-chip {
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3843,10 +3843,10 @@ const collapseOthers = (nodeType, keepId) => {
 .layer-item-medium { border-left-color: #f59e0b; background: #1c1800; }
 .layer-item-medium:hover { background: #241f04; }
 
-.layer-item-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+.layer-item-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
 .layer-item-body { flex: 1; min-width: 0; }
 .layer-item-msg {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.4;
@@ -3854,7 +3854,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .layer-item-src {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
   font-family: monospace;
   margin-top: 1px;
@@ -3888,13 +3888,13 @@ const collapseOthers = (nodeType, keepId) => {
   margin: 2px 0;
 }
 .mlabel {
-  font-size: 14px;
+  font-size: 12px;
   color: #e2e8f0;
   white-space: nowrap;
   flex-shrink: 0;
 }
 .mval {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #e2e8f0;
   font-family: 'JetBrains Mono', 'Fira Mono', monospace;
@@ -3906,7 +3906,7 @@ const collapseOthers = (nodeType, keepId) => {
 .mv-warn    { color: #f87171; }
 
 .mi-val { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-.mi-label { font-size: 13px; font-weight: 500; color: #cbd5e1; font-family: inherit; }
+.mi-label { font-size: 11px; font-weight: 500; color: #cbd5e1; font-family: inherit; }
 
 .circ-details {
   margin-top: 8px;
@@ -3915,7 +3915,7 @@ const collapseOthers = (nodeType, keepId) => {
   padding: 6px 8px;
 }
 .circ-chain {
-  font-size: 14px;
+  font-size: 12px;
   color: #f87171;
   font-family: monospace;
   overflow-wrap: break-word;
@@ -3933,7 +3933,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 8px;
 }
 .git-branch {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #4ade80;
   background: #052e16;
@@ -3942,7 +3942,7 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #166534;
 }
 .git-total {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   font-weight: 600;
 }
@@ -3959,9 +3959,9 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 8px;
 }
 .gq-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
-.gq-label { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
-.gq-val   { font-size: 16px; font-weight: 800; font-family: monospace; line-height: 1.2; }
-.gq-sub   { font-size: 11px; color: var(--text-secondary); text-align: center; }
+.gq-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.gq-val   { font-size: 14px; font-weight: 800; font-family: monospace; line-height: 1.2; }
+.gq-sub   { font-size: 9px; color: var(--text-secondary); text-align: center; }
 .gq-divider { width: 1px; height: 28px; background: var(--border-card); flex-shrink: 0; }
 .gq-ok      { color: #4ade80; }
 .gq-caution { color: #fbbf24; }
@@ -3976,7 +3976,7 @@ const collapseOthers = (nodeType, keepId) => {
   display: flex;
   align-items: center;
   padding: 3px 8px 3px 6px;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -4010,7 +4010,7 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .git-hash {
-  font-size: 14px;
+  font-size: 12px;
   font-family: monospace;
   font-weight: 700;
   color: #a5b4fc;
@@ -4022,14 +4022,14 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .git-info { flex: 1; min-width: 0; }
 .git-msg {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.4;
   overflow-wrap: break-word;
   word-break: break-word;
 }
-.git-date { font-size: 13px; color: var(--text-secondary); }
+.git-date { font-size: 11px; color: var(--text-secondary); }
 
 /* meta row under commit message: date + churn + files */
 .git-meta-row {
@@ -4040,7 +4040,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-top: 1px;
 }
 .git-churn {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   font-family: monospace;
   padding: 0px 3px;
@@ -4049,7 +4049,7 @@ const collapseOthers = (nodeType, keepId) => {
 .churn-high { color: #dc2626; background: #fee2e2; }
 .churn-med  { color: #d97706; background: #fef3c7; }
 .churn-low  { color: #64748b; background: #f1f5f9; }
-.git-files  { font-size: 13px; color: #e2e8f0; }
+.git-files  { font-size: 11px; color: #e2e8f0; }
 
 .git-metrics-col {
   display: flex;
@@ -4059,7 +4059,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex-shrink: 0;
 }
 .git-loc-val {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #cbd5e1;
   font-family: monospace;
@@ -4067,7 +4067,7 @@ const collapseOthers = (nodeType, keepId) => {
   text-align: right;
 }
 .git-fns-val {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #6366f1;
   font-family: monospace;
@@ -4075,7 +4075,7 @@ const collapseOthers = (nodeType, keepId) => {
   text-align: right;
 }
 .git-mi-val {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   font-family: monospace;
   width: 28px;
@@ -4085,7 +4085,7 @@ const collapseOthers = (nodeType, keepId) => {
 .mi-caution { color: #fbbf24; }
 .mi-warn    { color: #f87171; }
 .git-delta-val {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   font-family: monospace;
   width: 42px;
@@ -4104,7 +4104,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .git-page-btn {
   flex: 1;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   padding: 5px 8px;
   border-radius: var(--radius-sm);
@@ -4120,7 +4120,7 @@ const collapseOthers = (nodeType, keepId) => {
 
 .git-note {
   margin-top: 6px;
-  font-size: 13px;
+  font-size: 11px;
   color: #e2e8f0;
   line-height: 1.5;
   font-style: italic;
@@ -4139,15 +4139,15 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #e2e8f0;
   margin-bottom: 10px;
 }
-.git-hint-icon { font-size: 23px; flex-shrink: 0; }
+.git-hint-icon { font-size: 21px; flex-shrink: 0; }
 .git-hint-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #334155;
   margin-bottom: 3px;
 }
 .git-hint-sub {
-  font-size: 14px;
+  font-size: 12px;
   color: #64748b;
   line-height: 1.5;
 }
@@ -4156,7 +4156,7 @@ const collapseOthers = (nodeType, keepId) => {
   padding: 1px 4px;
   border-radius: 3px;
   font-family: monospace;
-  font-size: 14px;
+  font-size: 12px;
   color: #334155;
 }
 
@@ -4167,7 +4167,7 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #fde68a;
 }
 .git-how-label {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: #92400e;
   margin-bottom: 6px;
@@ -4179,13 +4179,13 @@ const collapseOthers = (nodeType, keepId) => {
   padding-left: 16px;
 }
 .git-how-steps li {
-  font-size: 14px;
+  font-size: 12px;
   color: #78350f;
   line-height: 1.7;
 }
 .git-how-steps strong { color: #451a03; }
 .git-how-alt {
-  font-size: 14px;
+  font-size: 12px;
   color: #78350f;
   line-height: 1.6;
   background: rgba(0,0,0,0.04);
@@ -4198,7 +4198,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-top: 10px;
 }
 .upload-stage-text {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: #818cf8;
   margin-bottom: 6px;
@@ -4237,7 +4237,7 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #334155;
   border-radius: var(--radius-md);
   color: #e2e8f0;
-  font-size: 15px;
+  font-size: 13px;
   outline: none;
   box-sizing: border-box;
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
@@ -4279,7 +4279,7 @@ const collapseOthers = (nodeType, keepId) => {
 .search-result-item:last-child { border-bottom: none; }
 .search-result-item:hover { background: #253347; }
 .search-result-icon {
-  font-size: 16px;
+  font-size: 14px;
   width: 18px;
   text-align: center;
   flex-shrink: 0;
@@ -4293,7 +4293,7 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .search-result-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: #e2e8f0;
   white-space: nowrap;
@@ -4301,14 +4301,14 @@ const collapseOthers = (nodeType, keepId) => {
   text-overflow: ellipsis;
 }
 .search-result-file {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .search-risk-badge {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   padding: 2px 5px;
   border-radius: 4px;
@@ -4318,7 +4318,7 @@ const collapseOthers = (nodeType, keepId) => {
 .search-risk-badge.risk-medium { background: #f59e0b33; color: #fbbf24; }
 .search-risk-badge.risk-low    { background: #22c55e33; color: #4ade80; }
 .search-not-visible {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   flex-shrink: 0;
 }
@@ -4328,7 +4328,7 @@ const collapseOthers = (nodeType, keepId) => {
   display: inline-block;
   background: #1e3a5f;
   color: #93c5fd;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 10px;
@@ -4358,7 +4358,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 6px;
 }
 .pattern-name {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   color: #e2e8f0;
 }
@@ -4369,7 +4369,7 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .pattern-subtitle {
-  font-size: 14px;
+  font-size: 12px;
   color: #7dd3fc;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4398,7 +4398,7 @@ const collapseOthers = (nodeType, keepId) => {
   letter-spacing: 0.04em;
 }
 .pattern-definition {
-  font-size: 16px;
+  font-size: 14px;
   color: #e2e8f0;
   line-height: 1.55;
   background: #0f172a;
@@ -4409,7 +4409,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .pattern-why {
   display: block;
-  font-size: 15px;
+  font-size: 13px;
   color: #e2e8f0;
   margin-top: 5px;
 }
@@ -4486,14 +4486,14 @@ const collapseOthers = (nodeType, keepId) => {
 .pattern-instance-summary::before {
   content: "▸";
   color: #cbd5e1;
-  font-size: 13px;
+  font-size: 11px;
   margin-right: 4px;
 }
 details[open] > .pattern-instance-summary::before {
   content: "▾";
 }
 .pattern-instance-binding {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: #e2e8f0;
   overflow: hidden;
@@ -4536,7 +4536,7 @@ details[open] > .pattern-instance-summary::before {
   color: #fb923c;
 }
 .pattern-conf-badge {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 8px;
@@ -4578,19 +4578,19 @@ details[open] > .pattern-instance-summary::before {
   line-height: 1.6;
 }
 .ptree-prefix {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   flex-shrink: 0;
   font-family: monospace;
 }
 .pattern-layer-name {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: #7dd3fc;
   flex-shrink: 0;
 }
 .pattern-layer-files {
-  font-size: 14px;
+  font-size: 12px;
   color: #e2e8f0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4603,13 +4603,13 @@ details[open] > .pattern-instance-summary::before {
   padding-top: 6px;
 }
 .pattern-violations-label {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: #f87171;
   margin-bottom: 4px;
 }
 .pattern-violation-item {
-  font-size: 13px;
+  font-size: 11px;
   color: #fca5a5;
   line-height: 1.4;
   overflow: hidden;
@@ -4617,12 +4617,12 @@ details[open] > .pattern-instance-summary::before {
   white-space: nowrap;
 }
 .pattern-violation-more {
-  font-size: 13px;
+  font-size: 11px;
   color: #cbd5e1;
   margin-top: 2px;
 }
 .patterns-empty {
-  font-size: 14px;
+  font-size: 12px;
   color: #cbd5e1;
   padding: 6px 0;
 }
