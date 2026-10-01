@@ -1147,7 +1147,7 @@ const smellRoiPlan = computed(() => smellData.value?.plan || []);
 function togglePreview(smellId) {
   expandedPreviews.value = { ...expandedPreviews.value, [smellId]: !expandedPreviews.value[smellId] };
 }
-const sidebarWidth = ref(264);
+const sidebarWidth = ref(320);
 const isResizing = ref(false);
 const { fitView, findNode, setCenter } = useVueFlow();
 
@@ -2784,7 +2784,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .brand-sub {
   font-size: 11px;
-  color: #64748b;
+  color: #cbd5e1;
   margin-top: 1px;
 }
 
@@ -2805,7 +2805,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex: 1;
 }
 .section-title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2814,7 +2814,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .section-subtitle {
   font-size: 11px;
-  color: #94a3b8;
+  color: #e2e8f0;
   line-height: 1.5;
   margin: -6px 0 10px;
 }
@@ -2834,7 +2834,7 @@ const collapseOthers = (nodeType, keepId) => {
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: #1e293b;
-  color: #94a3b8;
+  color: #e2e8f0;
   cursor: pointer;
   white-space: nowrap;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
@@ -2861,7 +2861,7 @@ const collapseOthers = (nodeType, keepId) => {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 7px;
-  color: #94a3b8;
+  color: #e2e8f0;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -2882,12 +2882,12 @@ const collapseOthers = (nodeType, keepId) => {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  font-size: 10px;
-  color: #475569;
+  font-size: 11px;
+  color: #cbd5e1;
 }
-.crumb { color: #64748b; }
-.crumb-current { color: #94a3b8; font-weight: 600; }
-.crumb-sep { color: #334155; margin: 0 2px; }
+.crumb { color: #cbd5e1; }
+.crumb-current { color: #e2e8f0; font-weight: 600; }
+.crumb-sep { color: #cbd5e1; margin: 0 2px; }
 
 /* Upload zone */
 .upload-zone {
@@ -2914,7 +2914,7 @@ const collapseOthers = (nodeType, keepId) => {
 .upload-zone-icon { font-size: 24px; transition: transform var(--transition-base); }
 .upload-zone:hover:not(.disabled) .upload-zone-icon { transform: translateY(-2px); }
 .upload-zone-text { font-size: 12px; font-weight: 600; color: #cbd5e1; line-height: 1.3; }
-.upload-zone-hint { font-size: 10px; color: #475569; margin-top: 2px; }
+.upload-zone-hint { font-size: 11px; color: #cbd5e1; margin-top: 2px; }
 
 .upload-btn-folder {
   display: flex;
@@ -2926,7 +2926,7 @@ const collapseOthers = (nodeType, keepId) => {
   border-radius: var(--radius-md);
   background: #1e293b;
   border: 1px solid #334155;
-  color: #94a3b8;
+  color: #e2e8f0;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -2969,7 +2969,7 @@ const collapseOthers = (nodeType, keepId) => {
 .status-filename {
   font-size: 12px;
   font-weight: 600;
-  color: #94a3b8;
+  color: #e2e8f0;
   overflow-wrap: break-word;
   word-break: break-word;
 }
@@ -2984,7 +2984,7 @@ const collapseOthers = (nodeType, keepId) => {
 .status-count {
   margin-top: 6px;
   font-size: 11px;
-  color: #475569;
+  color: #cbd5e1;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -3001,7 +3001,7 @@ const collapseOthers = (nodeType, keepId) => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #94a3b8;
+  color: #e2e8f0;
 }
 .legend-swatch {
   width: 12px;
@@ -3041,10 +3041,10 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .tips-list li {
   font-size: 12px;
-  color: #64748b;
+  color: #cbd5e1;
   line-height: 1.4;
 }
-.tips-list strong { color: #94a3b8; }
+.tips-list strong { color: #e2e8f0; }
 
 .onboarding-steps {
   padding-left: 18px;
@@ -3054,7 +3054,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .onboarding-steps li {
   font-size: 12px;
-  color: #94a3b8;
+  color: #e2e8f0;
   line-height: 1.4;
 }
 .onboarding-steps strong { color: #e2e8f0; }
@@ -3130,7 +3130,7 @@ const collapseOthers = (nodeType, keepId) => {
 .impact-fn-target { color: #f97316; }
 .impact-loading {
   font-size: 11px;
-  color: #64748b;
+  color: #cbd5e1;
   font-style: italic;
 }
 .impact-summary {
@@ -3165,7 +3165,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .impact-fn-file {
   font-size: 10px;
-  color: #64748b;
+  color: #cbd5e1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3173,12 +3173,12 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .impact-fn-more {
   font-size: 10px;
-  color: #64748b;
+  color: #cbd5e1;
   margin-top: 2px;
 }
 .impact-none {
   font-size: 11px;
-  color: #64748b;
+  color: #cbd5e1;
   border-top: 1px solid #334155;
   padding-top: 7px;
 }
@@ -3239,7 +3239,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-top: 18px;
   padding-left: 20px;
   text-align: left;
-  color: #64748b;
+  color: #cbd5e1;
   font-size: 13px;
   line-height: 1.9;
 }
@@ -3256,7 +3256,7 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-chip {
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
   transition: transform var(--transition-fast);
@@ -3270,7 +3270,7 @@ const collapseOthers = (nodeType, keepId) => {
 /* Level 1 – smell type distribution */
 .smell-type-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .smell-type-row  { display: flex; align-items: baseline; gap: 5px; padding: 2px 4px; }
-.smell-type-rank { font-size: 10px; color: #64748b; min-width: 14px; }
+.smell-type-rank { font-size: 11px; color: #cbd5e1; min-width: 14px; }
 .smell-type-name {
   flex: 1; font-size: 11px; font-weight: 600; color: #cbd5e1;
   text-transform: capitalize;
@@ -3287,15 +3287,15 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .smell-file-row:hover { background: #273549; border-color: #6366f1; transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .smell-file-row:active { transform: translateY(0); }
-.smell-file-rank { font-size: 10px; color: #64748b; min-width: 14px; flex-shrink: 0; }
+.smell-file-rank { font-size: 11px; color: #cbd5e1; min-width: 14px; flex-shrink: 0; }
 .smell-file-body { flex: 1; min-width: 0; }
 .smell-file-name {
   font-size: 11px; font-weight: 700; color: #e2e8f0;
   font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.smell-file-meta { font-size: 10px; color: #94a3b8; margin-top: 1px; }
+.smell-file-meta { font-size: 11px; color: #e2e8f0; margin-top: 1px; }
 .smell-file-meta strong { color: #a5b4fc; }
-.smell-file-arrow { font-size: 16px; color: #475569; flex-shrink: 0; }
+.smell-file-arrow { font-size: 16px; color: #cbd5e1; flex-shrink: 0; }
 
 /* Level 3 – file detail */
 .smell-detail-header {
@@ -3303,7 +3303,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .smell-back-btn {
   padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid #334155;
-  background: #1e293b; font-size: 10px; font-weight: 600; color: #94a3b8;
+  background: #1e293b; font-size: 11px; font-weight: 600; color: #e2e8f0;
   cursor: pointer; flex-shrink: 0;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
@@ -3327,7 +3327,7 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-detail-icon { font-size: 13px; flex-shrink: 0; }
 .smell-detail-body { flex: 1; min-width: 0; }
 .smell-sev-badge {
-  font-size: 9px; font-weight: 700; padding: 2px 5px;
+  font-size: 10px; font-weight: 700; padding: 2px 5px;
   border-radius: 6px; flex-shrink: 0; text-transform: uppercase;
 }
 .sev-badge-critical { background: #3b0764; color: #d8b4fe; }
@@ -3343,7 +3343,7 @@ const collapseOthers = (nodeType, keepId) => {
   overflow-wrap: break-word; word-break: break-word;
 }
 .smell-item-target {
-  font-size: 10px; color: #94a3b8; font-family: monospace;
+  font-size: 11px; color: #e2e8f0; font-family: monospace;
   line-height: 1.5;
   overflow-wrap: break-word; word-break: break-word;
 }
@@ -3389,7 +3389,7 @@ const collapseOthers = (nodeType, keepId) => {
   gap: 6px;
 }
 .llm-plan-source {
-  font-size: 9px;
+  font-size: 10px;
   color: #6366f1;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -3403,7 +3403,7 @@ const collapseOthers = (nodeType, keepId) => {
   padding-left: 8px;
 }
 .llm-root-cause {
-  font-size: 10px;
+  font-size: 11px;
   color: #f87171;
   padding: 4px 8px;
   background: rgba(239,68,68,0.1);
@@ -3430,9 +3430,9 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 3px;
 }
 .llm-step-num {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  color: #94a3b8;
+  color: #e2e8f0;
   background: #334155;
   padding: 1px 5px;
   border-radius: 4px;
@@ -3447,7 +3447,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .llm-step-effort {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 8px;
@@ -3457,16 +3457,16 @@ const collapseOthers = (nodeType, keepId) => {
 .effort-medium { background: #fef3c7; color: #92400e; }
 .effort-low    { background: #f0fdf4; color: #166534; }
 
-.llm-step-target  { font-size: 10px; color: #7dd3fc; font-family: monospace; margin-bottom: 2px; }
-.llm-step-what    { font-size: 10px; color: #94a3b8; line-height: 1.4; }
-.llm-step-why     { font-size: 10px; color: #4ade80; line-height: 1.4; margin-top: 2px; font-style: italic; }
+.llm-step-target  { font-size: 11px; color: #7dd3fc; font-family: monospace; margin-bottom: 2px; }
+.llm-step-what    { font-size: 11px; color: #e2e8f0; line-height: 1.4; }
+.llm-step-why     { font-size: 11px; color: #4ade80; line-height: 1.4; margin-top: 2px; font-style: italic; }
 .llm-step-resolves {
-  font-size: 9px; color: #64748b; margin-top: 3px;
+  font-size: 10px; color: #cbd5e1; margin-top: 3px;
   overflow-wrap: break-word; word-break: break-word;
 }
 
 .llm-longterm {
-  font-size: 10px;
+  font-size: 11px;
   color: #fbbf24;
   line-height: 1.5;
   padding: 5px 8px;
@@ -3475,7 +3475,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .llm-longterm strong { color: #fde68a; }
 .llm-error {
-  font-size: 10px;
+  font-size: 11px;
   color: #f87171;
   padding: 4px 8px;
   background: rgba(239,68,68,0.1);
@@ -3495,19 +3495,19 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #334155;
 }
 .debt-stat-value { font-size: 15px; font-weight: 800; color: #f59e0b; }
-.debt-stat-label { font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 1px; }
+.debt-stat-label { font-size: 10px; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 1px; }
 
 /* ── Smell panel view-mode tabs ──────────────────────── */
 .smell-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
 .smell-tab {
   flex: 1;
   padding: 5px 6px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: #1e293b;
-  color: #94a3b8;
+  color: #e2e8f0;
   cursor: pointer;
   white-space: nowrap;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
@@ -3515,7 +3515,7 @@ const collapseOthers = (nodeType, keepId) => {
 .smell-tab:hover { background: #273549; border-color: #475569; color: #e2e8f0; }
 .smell-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
 
-.smell-empty-note { font-size: 10px; color: #64748b; padding: 6px 0; text-align: center; }
+.smell-empty-note { font-size: 11px; color: #cbd5e1; padding: 6px 0; text-align: center; }
 
 /* ── Feature 1 & 2: ROI-ranked plan + code preview ───── */
 .roi-plan-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
@@ -3532,20 +3532,20 @@ const collapseOthers = (nodeType, keepId) => {
 .roi-plan-item:hover { background: #232f45; transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .roi-plan-head { display: flex; align-items: center; gap: 6px; }
 .roi-plan-step {
-  font-size: 10px; font-weight: 800; color: #94a3b8;
+  font-size: 11px; font-weight: 800; color: #e2e8f0;
   background: #334155; padding: 1px 5px; border-radius: 4px; flex-shrink: 0;
 }
 .roi-plan-meta {
-  display: flex; gap: 10px; font-size: 10px; color: #94a3b8;
+  display: flex; gap: 10px; font-size: 11px; color: #e2e8f0;
 }
 .roi-plan-meta strong { color: #a5b4fc; }
-.roi-plan-desc { font-size: 10px; color: #cbd5e1; line-height: 1.4; }
-.roi-plan-suggestions { font-size: 10px; color: #4ade80; font-style: italic; }
+.roi-plan-desc { font-size: 11px; color: #cbd5e1; line-height: 1.4; }
+.roi-plan-suggestions { font-size: 11px; color: #4ade80; font-style: italic; }
 .roi-preview-toggle {
   align-self: flex-start;
   margin-top: 2px;
   padding: 2px 7px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 1px solid #6366f1;
@@ -3571,14 +3571,14 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .code-preview-col { display: flex; flex-direction: column; gap: 2px; }
 .code-preview-label {
-  font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase;
+  font-size: 10px; font-weight: 700; color: #cbd5e1; text-transform: uppercase;
 }
 .code-preview-pre {
   margin: 0;
   padding: 6px;
   border-radius: 6px;
   background: #131c2e;
-  font-size: 10px;
+  font-size: 11px;
   font-family: monospace;
   color: #e2e8f0;
   white-space: pre-wrap;
@@ -3586,7 +3586,7 @@ const collapseOthers = (nodeType, keepId) => {
   overflow-x: auto;
 }
 .code-preview-explanation {
-  font-size: 10px; color: #fbbf24; line-height: 1.4; font-style: italic;
+  font-size: 11px; color: #fbbf24; line-height: 1.4; font-style: italic;
 }
 
 /* ── Feature 3: Layer accordion ──────────────────────── */
@@ -3597,7 +3597,7 @@ const collapseOthers = (nodeType, keepId) => {
 .layer-header:hover { background: rgba(255,255,255,0.03); }
 .layer-name { flex: 1; font-size: 11px; font-weight: 700; color: #e2e8f0; }
 .layer-count {
-  font-size: 10px; font-weight: 700; color: #818cf8;
+  font-size: 11px; font-weight: 700; color: #818cf8;
   background: rgba(99,102,241,0.15); padding: 1px 7px; border-radius: 10px;
 }
 
@@ -3658,7 +3658,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .risk-item-warn {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
   overflow-wrap: break-word;
@@ -3678,7 +3678,7 @@ const collapseOthers = (nodeType, keepId) => {
 
 .risk-empty {
   font-size: 12px;
-  color: #94a3b8;
+  color: #e2e8f0;
   text-align: center;
   padding: 8px 0;
 }
@@ -3695,7 +3695,7 @@ const collapseOthers = (nodeType, keepId) => {
 .dead-chip {
   padding: 3px 7px;
   border-radius: 12px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -3704,11 +3704,11 @@ const collapseOthers = (nodeType, keepId) => {
 .dead-chip-imp  { background: #fef9c3; color: #854d0e; }
 
 .dead-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #94a3b8;
+  color: #e2e8f0;
   margin-bottom: 4px;
 }
 
@@ -3749,7 +3749,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .dead-item-file {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   font-family: monospace;
   overflow-wrap: break-word;
@@ -3759,14 +3759,14 @@ const collapseOthers = (nodeType, keepId) => {
 /* confidence badge */
 .dead-conf-badge {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   padding: 1px 5px;
   border-radius: 8px;
   letter-spacing: 0.03em;
 }
 .conf-high { background: #334155; color: #e2e8f0; }
-.conf-med  { background: #263041; color: #94a3b8; }
+.conf-med  { background: #263041; color: #e2e8f0; }
 
 /* static analysis disclaimer */
 .dead-note {
@@ -3775,7 +3775,7 @@ const collapseOthers = (nodeType, keepId) => {
   border-radius: var(--radius-sm);
   background: #fefce8;
   border: 1px solid #fde68a;
-  font-size: 10px;
+  font-size: 11px;
   color: #78350f;
   line-height: 1.6;
 }
@@ -3800,7 +3800,7 @@ const collapseOthers = (nodeType, keepId) => {
   line-height: 1.3;
 }
 .layer-clean-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: #4ade80;
   margin-top: 2px;
   line-height: 1.5;
@@ -3854,7 +3854,7 @@ const collapseOthers = (nodeType, keepId) => {
   word-break: break-word;
 }
 .layer-item-src {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-family: monospace;
   margin-top: 1px;
@@ -3889,7 +3889,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .mlabel {
   font-size: 11px;
-  color: #94a3b8;
+  color: #e2e8f0;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -3906,7 +3906,7 @@ const collapseOthers = (nodeType, keepId) => {
 .mv-warn    { color: #f87171; }
 
 .mi-val { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-.mi-label { font-size: 9px; font-weight: 500; color: #64748b; font-family: inherit; }
+.mi-label { font-size: 10px; font-weight: 500; color: #cbd5e1; font-family: inherit; }
 
 .circ-details {
   margin-top: 8px;
@@ -3915,7 +3915,7 @@ const collapseOthers = (nodeType, keepId) => {
   padding: 6px 8px;
 }
 .circ-chain {
-  font-size: 10px;
+  font-size: 11px;
   color: #f87171;
   font-family: monospace;
   overflow-wrap: break-word;
@@ -3943,7 +3943,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .git-total {
   font-size: 11px;
-  color: #64748b;
+  color: #cbd5e1;
   font-weight: 600;
 }
 
@@ -3959,7 +3959,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 8px;
 }
 .gq-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
-.gq-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.gq-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
 .gq-val   { font-size: 13px; font-weight: 800; font-family: monospace; line-height: 1.2; }
 .gq-sub   { font-size: 8px; color: var(--text-secondary); text-align: center; }
 .gq-divider { width: 1px; height: 28px; background: var(--border-card); flex-shrink: 0; }
@@ -3976,11 +3976,11 @@ const collapseOthers = (nodeType, keepId) => {
   display: flex;
   align-items: center;
   padding: 3px 8px 3px 6px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #94a3b8;
+  color: #e2e8f0;
   margin-bottom: 2px;
 }
 .gth-commit { flex: 1; }
@@ -4010,7 +4010,7 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .git-hash {
-  font-size: 10px;
+  font-size: 11px;
   font-family: monospace;
   font-weight: 700;
   color: #a5b4fc;
@@ -4029,7 +4029,7 @@ const collapseOthers = (nodeType, keepId) => {
   overflow-wrap: break-word;
   word-break: break-word;
 }
-.git-date { font-size: 9px; color: var(--text-secondary); }
+.git-date { font-size: 10px; color: var(--text-secondary); }
 
 /* meta row under commit message: date + churn + files */
 .git-meta-row {
@@ -4040,7 +4040,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-top: 1px;
 }
 .git-churn {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   font-family: monospace;
   padding: 0px 3px;
@@ -4049,7 +4049,7 @@ const collapseOthers = (nodeType, keepId) => {
 .churn-high { color: #dc2626; background: #fee2e2; }
 .churn-med  { color: #d97706; background: #fef3c7; }
 .churn-low  { color: #64748b; background: #f1f5f9; }
-.git-files  { font-size: 9px; color: #94a3b8; }
+.git-files  { font-size: 10px; color: #e2e8f0; }
 
 .git-metrics-col {
   display: flex;
@@ -4059,7 +4059,7 @@ const collapseOthers = (nodeType, keepId) => {
   flex-shrink: 0;
 }
 .git-loc-val {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: #cbd5e1;
   font-family: monospace;
@@ -4067,7 +4067,7 @@ const collapseOthers = (nodeType, keepId) => {
   text-align: right;
 }
 .git-fns-val {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: #6366f1;
   font-family: monospace;
@@ -4075,7 +4075,7 @@ const collapseOthers = (nodeType, keepId) => {
   text-align: right;
 }
 .git-mi-val {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   font-family: monospace;
   width: 28px;
@@ -4085,7 +4085,7 @@ const collapseOthers = (nodeType, keepId) => {
 .mi-caution { color: #fbbf24; }
 .mi-warn    { color: #f87171; }
 .git-delta-val {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   font-family: monospace;
   width: 42px;
@@ -4093,7 +4093,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .delta-pos  { color: #4ade80; }
 .delta-neg  { color: #f87171; }
-.delta-zero { color: #94a3b8; }
+.delta-zero { color: #e2e8f0; }
 
 /* Pagination */
 .git-pagination {
@@ -4104,7 +4104,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .git-page-btn {
   flex: 1;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 5px 8px;
   border-radius: var(--radius-sm);
@@ -4120,8 +4120,8 @@ const collapseOthers = (nodeType, keepId) => {
 
 .git-note {
   margin-top: 6px;
-  font-size: 9px;
-  color: #94a3b8;
+  font-size: 10px;
+  color: #e2e8f0;
   line-height: 1.5;
   font-style: italic;
 }
@@ -4147,7 +4147,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 3px;
 }
 .git-hint-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: #64748b;
   line-height: 1.5;
 }
@@ -4156,7 +4156,7 @@ const collapseOthers = (nodeType, keepId) => {
   padding: 1px 4px;
   border-radius: 3px;
   font-family: monospace;
-  font-size: 10px;
+  font-size: 11px;
   color: #334155;
 }
 
@@ -4167,7 +4167,7 @@ const collapseOthers = (nodeType, keepId) => {
   border: 1px solid #fde68a;
 }
 .git-how-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: #92400e;
   margin-bottom: 6px;
@@ -4185,7 +4185,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .git-how-steps strong { color: #451a03; }
 .git-how-alt {
-  font-size: 10px;
+  font-size: 11px;
   color: #78350f;
   line-height: 1.6;
   background: rgba(0,0,0,0.04);
@@ -4250,7 +4250,7 @@ const collapseOthers = (nodeType, keepId) => {
   box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
 }
 .search-input::placeholder {
-  color: #475569;
+  color: #cbd5e1;
 }
 .search-dropdown {
   position: absolute;
@@ -4283,7 +4283,7 @@ const collapseOthers = (nodeType, keepId) => {
   width: 18px;
   text-align: center;
   flex-shrink: 0;
-  color: #64748b;
+  color: #cbd5e1;
 }
 .search-result-icon.function { color: #10b981; }
 .search-result-icon.file     { color: #f59e0b; }
@@ -4301,14 +4301,14 @@ const collapseOthers = (nodeType, keepId) => {
   text-overflow: ellipsis;
 }
 .search-result-file {
-  font-size: 10px;
-  color: #64748b;
+  font-size: 11px;
+  color: #cbd5e1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .search-risk-badge {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   padding: 2px 5px;
   border-radius: 4px;
@@ -4319,7 +4319,7 @@ const collapseOthers = (nodeType, keepId) => {
 .search-risk-badge.risk-low    { background: #22c55e33; color: #4ade80; }
 .search-not-visible {
   font-size: 11px;
-  color: #475569;
+  color: #cbd5e1;
   flex-shrink: 0;
 }
 
@@ -4328,7 +4328,7 @@ const collapseOthers = (nodeType, keepId) => {
   display: inline-block;
   background: #1e3a5f;
   color: #93c5fd;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 10px;
@@ -4369,7 +4369,7 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .pattern-subtitle {
-  font-size: 10px;
+  font-size: 11px;
   color: #7dd3fc;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4393,7 +4393,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .pattern-tier-label {
   font-size: 10.5px;
-  color: #94a3b8;
+  color: #e2e8f0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -4410,7 +4410,7 @@ const collapseOthers = (nodeType, keepId) => {
 .pattern-why {
   display: block;
   font-size: 12px;
-  color: #94a3b8;
+  color: #e2e8f0;
   margin-top: 5px;
 }
 .pattern-evidence-details {
@@ -4424,7 +4424,7 @@ const collapseOthers = (nodeType, keepId) => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #94a3b8;
+  color: #e2e8f0;
   padding: 2px 0;
   border-radius: var(--radius-sm);
   transition: color var(--transition-fast);
@@ -4448,7 +4448,7 @@ const collapseOthers = (nodeType, keepId) => {
 .pattern-instance-count {
   font-size: 10.5px;
   font-weight: 700;
-  color: #94a3b8;
+  color: #e2e8f0;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
@@ -4485,8 +4485,8 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .pattern-instance-summary::before {
   content: "▸";
-  color: #64748b;
-  font-size: 9px;
+  color: #cbd5e1;
+  font-size: 10px;
   margin-right: 4px;
 }
 details[open] > .pattern-instance-summary::before {
@@ -4503,7 +4503,7 @@ details[open] > .pattern-instance-summary::before {
 .pattern-instance-conf {
   font-size: 11.5px;
   font-weight: 700;
-  color: #94a3b8;
+  color: #e2e8f0;
   flex-shrink: 0;
 }
 .pattern-evidence-groups {
@@ -4529,7 +4529,7 @@ details[open] > .pattern-instance-summary::before {
 }
 .pattern-evidence-role {
   font-size: 10.5px;
-  color: #94a3b8;
+  color: #e2e8f0;
 }
 .pattern-evidence-weak {
   font-size: 10.5px;
@@ -4554,7 +4554,7 @@ details[open] > .pattern-instance-summary::before {
 }
 .pattern-evidence-item {
   font-size: 11.5px;
-  color: #94a3b8;
+  color: #e2e8f0;
   line-height: 1.5;
 }
 .pattern-components {
@@ -4568,7 +4568,7 @@ details[open] > .pattern-instance-summary::before {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #94a3b8;
+  color: #e2e8f0;
   margin-bottom: 5px;
 }
 .pattern-layer-row {
@@ -4578,20 +4578,20 @@ details[open] > .pattern-instance-summary::before {
   line-height: 1.6;
 }
 .ptree-prefix {
-  font-size: 10px;
-  color: #475569;
+  font-size: 11px;
+  color: #cbd5e1;
   flex-shrink: 0;
   font-family: monospace;
 }
 .pattern-layer-name {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: #7dd3fc;
   flex-shrink: 0;
 }
 .pattern-layer-files {
-  font-size: 10px;
-  color: #94a3b8;
+  font-size: 11px;
+  color: #e2e8f0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4603,13 +4603,13 @@ details[open] > .pattern-instance-summary::before {
   padding-top: 6px;
 }
 .pattern-violations-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: #f87171;
   margin-bottom: 4px;
 }
 .pattern-violation-item {
-  font-size: 9px;
+  font-size: 10px;
   color: #fca5a5;
   line-height: 1.4;
   overflow: hidden;
@@ -4617,13 +4617,13 @@ details[open] > .pattern-instance-summary::before {
   white-space: nowrap;
 }
 .pattern-violation-more {
-  font-size: 9px;
-  color: #64748b;
+  font-size: 10px;
+  color: #cbd5e1;
   margin-top: 2px;
 }
 .patterns-empty {
   font-size: 11px;
-  color: #64748b;
+  color: #cbd5e1;
   padding: 6px 0;
 }
 </style>
