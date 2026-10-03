@@ -1370,6 +1370,107 @@ def api_risk_score(request: Request):
         raise HTTPException(status_code=500, detail=f"Error computing risk scores: {str(e)}")
 
 
+@app.get("/search")
+def api_search(request: Request, q: str, limit: int = 20):
+    """Search every parsed function and file in the session (not just the
+    top-50 risky ones), ranked exact > prefix > substring. Each function hit
+    carries what the UI needs to drill down to its node: the file, the node
+    id used in that file's function graph, and the chunk (god files only)."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        needle = (q or "").strip().lower()
+        if not needle:
+            return {"results": []}
+        limit = max(1, min(limit, 50))
+
+        from analyzer.heuristics import _is_anonymous_callback
+
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        real_fns = [
+            fn for fn in functions
+            if fn.get("name") and fn.get("name") != "__file__"
+            and not _is_anonymous_callback(fn.get("name", ""))
+        ]
+
+        # Mirror build_function_graph's node-id rule (name, or name:line when the
+        # name repeats within a file / chunk) so the UI can find the node directly.
+        by_scope: Dict[Any, Dict[str, int]] = {}
+        for fn in real_fns:
+            scope = fn.get("virtual_module") if fn.get("virtual_module") != fn.get("file") else None
+            counts = by_scope.setdefault((fn.get("file"), scope), {})
+            counts[fn["name"]] = counts.get(fn["name"], 0) + 1
+        file_counts: Dict[str, Dict[str, int]] = {}
+        for fn in real_fns:
+            counts = file_counts.setdefault(fn.get("file"), {})
+            counts[fn["name"]] = counts.get(fn["name"], 0) + 1
+        god_chunked_files = set()
+        vms_per_file: Dict[str, set] = {}
+        for fn in real_fns:
+            vm = fn.get("virtual_module")
+            if vm and vm != fn.get("file"):
+                vms_per_file.setdefault(fn.get("file"), set()).add(vm)
+        for f_path, vms in vms_per_file.items():
+            if len(vms) > 1 and any(
+                fn.get("is_god_file") for fn in real_fns if fn.get("file") == f_path
+            ):
+                god_chunked_files.add(f_path)
+
+        def rank(text: str) -> int:
+            t = text.lower()
+            if t == needle:
+                return 0
+            if t.startswith(needle):
+                return 1
+            return 2 if needle in t else -1
+
+        scored = []
+        seen_files = set()
+        for fn in real_fns:
+            name, file_path = fn["name"], fn.get("file") or ""
+            r = rank(name)
+            if r < 0:
+                continue
+            chunk = None
+            if file_path in god_chunked_files:
+                chunk = fn.get("virtual_module")
+                counts = by_scope.get((file_path, chunk), {})
+            else:
+                counts = file_counts.get(file_path, {})
+            node_id = f"{name}:{fn.get('line_start')}" if counts.get(name, 1) > 1 else name
+            scored.append((r, name.lower(), {
+                "type": "function", "label": name, "node_id": node_id,
+                "file": file_path, "chunk": chunk, "line_start": fn.get("line_start"),
+                "risk_level": fn.get("risk_level", "none"), "service": fn.get("service"),
+            }))
+        for fn in real_fns:
+            file_path = fn.get("file") or ""
+            if not file_path or file_path in seen_files:
+                continue
+            seen_files.add(file_path)
+            base = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+            r = rank(base)
+            if r < 0 and needle in file_path.lower():
+                r = 3
+            if r < 0:
+                continue
+            scored.append((r, base.lower(), {
+                "type": "file", "label": base, "node_id": file_path, "file": file_path,
+                "chunk": None, "line_start": None, "risk_level": None,
+                "service": fn.get("service"),
+            }))
+
+        scored.sort(key=lambda s: (s[0], s[1]))
+        return {"results": [s[2] for s in scored[:limit]]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error searching: {str(e)}")
+
+
 @app.get("/impact-analysis/{function_name}")
 def api_impact_analysis(function_name: str, request: Request):
     """
