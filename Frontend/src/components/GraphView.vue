@@ -98,7 +98,7 @@
       </div>
 
       <!-- Search -->
-      <div v-if="uploadSuccess" class="sidebar-section">
+      <div v-if="uploadSuccess" class="sidebar-section search-section">
         <div class="section-title">Search</div>
         <div class="search-wrap">
           <input
@@ -756,7 +756,10 @@
         <div class="section-title">GoF Design Patterns</div>
         <div class="section-subtitle">Recognized design patterns already in the code — useful context before you extend it.</div>
         <div class="patterns-summary-chip">
-          {{ gofPatternsData.patterns_found }} pattern{{ gofPatternsData.patterns_found !== 1 ? 's' : '' }} detected
+          {{ groupedGofPatterns.length }} pattern{{ groupedGofPatterns.length !== 1 ? 's' : '' }} detected
+          <template v-if="gofPatternsData.patterns_found !== groupedGofPatterns.length">
+            ({{ gofPatternsData.patterns_found }} instances)
+          </template>
         </div>
         <div class="patterns-list">
           <div v-for="grp in groupedGofPatterns" :key="grp.pattern" class="pattern-card">
@@ -2525,85 +2528,118 @@ const clearExecStateHighlight = () => {
   });
 };
 
+let searchSeq = 0;
+let searchTimer = null;
+
 const performSearch = (query) => {
+  clearTimeout(searchTimer);
   if (!query || !query.trim()) {
+    searchSeq++;
     searchResults.value = [];
     showSearchDropdown.value = false;
     return;
   }
+  searchTimer = setTimeout(() => runSearch(query.trim()), 200);
+};
+
+const runSearch = async (query) => {
+  const seq = ++searchSeq;
   const q = query.toLowerCase();
   const results = [];
   const seen = new Set();
 
-  // Search visible graph nodes first
+  // Nodes already on screen first (modules / files / functions of this view)
   for (const node of nodes.value) {
-    const label = (node.data?.label || node.data?.fullLabel || node.id || '').toLowerCase();
-    if (label.includes(q)) {
-      if (!seen.has(node.id)) {
-        seen.add(node.id);
-        results.push({
-          id: node.id,
-          label: node.data?.label || node.data?.fullLabel || node.id,
-          type: node.data?.nodeType || 'node',
-          inGraph: true,
-          file: node.data?.nodeType === 'function' ? (node.data?.fullLabel || '') : '',
-          risk: null,
-        });
-      }
+    const label = node.data?.label || node.data?.fullLabel || node.id || '';
+    if (label.toLowerCase().includes(q) || String(node.id).toLowerCase().includes(q)) {
+      seen.add(node.id);
+      const nt = node.data?.nodeType || 'node';
+      results.push({
+        id: node.id, nodeId: node.id, label, type: nt, inGraph: true,
+        file: nt === 'function' ? (node.data?.filePath || '') : (node.data?.fullLabel || ''),
+        risk: node.data?.riskLevel || null, chunk: null, service: null,
+      });
     }
   }
 
-  // Search all known functions from riskData
-  if (riskData.value?.functions) {
-    for (const fn of riskData.value.functions) {
-      const name = (fn.name || '').toLowerCase();
-      const file = (fn.file || '').toLowerCase();
-      if (name.includes(q) || file.includes(q)) {
-        const key = fn.name + '|' + fn.file;
-        if (!seen.has(key)) {
-          seen.add(key);
-          const inGraph = nodes.value.some(n => n.data?.label === fn.name || n.id === fn.name);
-          results.push({
-            id: fn.name,
-            label: fn.name,
-            type: 'function',
-            inGraph,
-            file: fn.file,
-            risk: fn.risk_level,
-          });
-        }
-      }
+  // Everything parsed in the session (backend), ranked
+  try {
+    const res = await sessionManager.apiCall(
+      `/search?q=${encodeURIComponent(query)}&limit=20`, { method: 'GET' }
+    );
+    const data = await res.json();
+    if (seq !== searchSeq) return; // a newer query superseded this one
+    for (const r of data.results || []) {
+      if (seen.has(r.node_id) && results.some(x => x.nodeId === r.node_id && (x.file === r.file || x.type === 'file'))) continue;
+      results.push({
+        id: `${r.file}::${r.node_id}`, nodeId: r.node_id, label: r.label, type: r.type,
+        inGraph: nodes.value.some(n => n.id === r.node_id),
+        file: r.file, risk: r.risk_level, chunk: r.chunk, service: r.service,
+      });
     }
+  } catch (err) {
+    console.warn('Search request failed, showing on-screen matches only', err);
   }
+  if (seq !== searchSeq) return;
 
-  searchResults.value = results.slice(0, 10);
+  searchResults.value = results.slice(0, 15);
   showSearchDropdown.value = results.length > 0;
+};
+
+const highlightAndCenter = async (nodeId) => {
+  await nextTick();
+  const target = nodes.value.find(n => n.id === nodeId);
+  if (!target) return false;
+  const gn = findNode(nodeId);
+  const w = gn?.dimensions?.width || 210;
+  const h = gn?.dimensions?.height || 74;
+  setCenter(target.position.x + w / 2, target.position.y + h / 2, { duration: 400, zoom: 1.5 });
+
+  nodes.value = nodes.value.map(n =>
+    n.id === nodeId
+      ? { ...n, style: { ...n.style, outline: '3px solid #818cf8', filter: 'drop-shadow(0 0 14px #818cf8)' } }
+      : n
+  );
+  setTimeout(() => {
+    nodes.value = nodes.value.map(n =>
+      n.id === nodeId ? { ...n, style: { ...n.style, outline: '', filter: 'none' } } : n
+    );
+  }, 2000);
+  return true;
 };
 
 const focusSearchResult = async (result) => {
   showSearchDropdown.value = false;
+  try {
+    // Already visible → just fly to it
+    if (nodes.value.some(n => n.id === result.nodeId)
+        && (result.type !== 'function' || result.inGraph)) {
+      if (await highlightAndCenter(result.nodeId)) return;
+    }
+    if (!result.file) return;
 
-  const graphNode = nodes.value.find(
-    n => n.id === result.id || n.data?.label === result.label
-  );
-
-  if (graphNode) {
-    await nextTick();
-    setCenter(graphNode.position.x + 75, graphNode.position.y + 30, { duration: 400, zoom: 1.5 });
-
-    // Flash highlight for 2 seconds
-    nodes.value = nodes.value.map(n =>
-      n.id === graphNode.id
-        ? { ...n, style: { ...n.style, outline: '3px solid #818cf8', filter: 'drop-shadow(0 0 14px #818cf8)' } }
-        : n
+    // Otherwise drill down: file's function graph, then (god files) the chunk
+    const svc = result.service ? `&service_id=${encodeURIComponent(result.service)}` : '';
+    const fileRes = await sessionManager.apiCall(
+      `/graph/tier3?file_path=${encodeURIComponent(result.file)}${svc}`, { method: 'GET' }
     );
-    setTimeout(() => {
-      nodes.value = nodes.value.map(n =>
-        n.id === graphNode.id
-          ? { ...n, style: { ...n.style, outline: '', filter: 'none' } }
-          : n
+    const fileGraph = await fileRes.json();
+    pushNav(result.file.split(/[\\/]/).pop());
+    await renderFunctionView(result.file, fileGraph);
+
+    if (result.type === 'function' && result.chunk && fileGraph.chunked) {
+      const chunkRes = await sessionManager.apiCall(
+        `/graph/chunk?file_path=${encodeURIComponent(result.file)}&chunk_name=${encodeURIComponent(result.chunk)}`,
+        { method: 'GET' }
       );
-    }, 2000);
+      const chunkGraph = await chunkRes.json();
+      pushNav(result.chunk);
+      await renderFunctionView(result.chunk, chunkGraph);
+    }
+    if (result.type === 'function') await highlightAndCenter(result.nodeId);
+  } catch (err) {
+    console.error('Failed to navigate to search result:', err);
+    alert('Could not open that result. Make sure backend is running.');
   }
 };
 
@@ -4227,6 +4263,14 @@ const collapseOthers = (nodeType, keepId) => {
 }
 
 /* ── Search ───────────────────────────────────────── */
+/* Every .sidebar-section runs a fade-in animation that leaves a transform
+   behind (fill-mode: both), so each one is its own stacking context and later
+   sections (Legend, ...) paint over — and swallow clicks on — this dropdown.
+   Lifting the whole Search section above its siblings fixes both. */
+.search-section {
+  position: relative;
+  z-index: 30;
+}
 .search-wrap {
   position: relative;
 }
