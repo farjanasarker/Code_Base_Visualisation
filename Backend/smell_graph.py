@@ -171,7 +171,12 @@ class SmellDependencyGraph:
 
             effort_val     = SMELL_CAUSATION.get(best.smell.type, {}).get("effort", 2)
             effort         = max(1, min(5, round(effort_val)))
-            resolves_count = len(cascade)
+            # Fixing a smell resolves the smell itself plus any downstream smells
+            # not already counted by an earlier step. Without the "1 +", every
+            # leaf smell (feature_envy, dead_code, ...) scored resolves=0 and
+            # roi=0, so the ROI ranking collapsed into a severity-only tie-break.
+            newly_resolved = [sid for sid in cascade if sid not in resolved]
+            resolves_count = 1 + len(newly_resolved)
             roi_score      = resolves_count / effort
 
             plan.append({
@@ -188,6 +193,7 @@ class SmellDependencyGraph:
                 "root_cause_score":     round(best.root_cause_score, 2),
                 "gain_ratio":           round(best.gain_ratio, 2),
                 "cascades_types":       cascade_types,
+                "cascade_count":        len(newly_resolved),
                 "upstream_note":        SMELL_CAUSATION.get(best.smell.type, {}).get("note", ""),
             })
 
