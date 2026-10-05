@@ -3,7 +3,7 @@
 এই ডকুমেন্টে ৪টা জিনিস ব্যাখ্যা করা হয়েছে:
 1. Code smell **detection** এর পেছনের লজিক (কোন ফাইলে, কীভাবে)
 2. **ROI Plan** (তুমি যেটাকে "RIO plan" বলেছ) — কীভাবে fix-priority ঠিক হয়
-3. **"By Layer"** এবং **"Fix Tree"** (তুমি যেটাকে "by lear" আর "fixed tree" বলেছ) কী বোঝায়
+3. **"By Layer"** এবং **"Fix Tree"** (তুমি যেটাকে "by layer" আর "fixed tree" বলেছ) কী বোঝায়
 4. **Debt Score** (Technical Debt Score) — কীভাবে হিসাব হয় এবং এর মানে কী
 
 > Source ফাইল: `Backend/analyzer.py`, `Backend/smell_detector.py`, `Backend/smell_graph.py`, `Backend/main.py`, `Backend/llm_engine.py`
@@ -88,9 +88,9 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৫. ROI Plan (তোমার "RIO plan") — `smell_graph.py`
+## ৫. ROI Plan — `smell_graph.py`
 
-তুমি যেটাকে **"RIO"** বলেছ সেটা আসলে **ROI (Return on Investment)** — code এ literally variable নাম `roi_score`। এটা কোনো ML model না, pure graph algorithm:
+**ROI (Return on Investment)** — code এ literally variable নাম `roi_score`। এটা কোনো ML model না, pure graph algorithm:
 
 ### ধাপে ধাপে:
 1. **Dependency Graph তৈরি** (`build_edges_from_type_rules`): প্রতিটা detected smell instance কে node ধরে, `SMELL_CAUSATION` এর নিয়ম অনুযায়ী upstream→downstream edge টানা হয় (যেমন কোনো নির্দিষ্ট `god_class` instance থেকে সেই class-এর ভেতরের `long_method` instance গুলোর দিকে edge)।
@@ -115,7 +115,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৬. "By Layer" (তোমার "by lear") — `main.py:_group_smells_by_layer`
+## ৬. "By Layer"  — `main.py:_group_smells_by_layer`
 
 প্রতিটা detected smell তার `SMELL_CAUSATION[type]["layer"]` অনুযায়ী ৩টা bucket এ ভাগ করা হয়:
 
@@ -127,7 +127,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৭. "Fix Tree" (তোমার "fixed tree") — `main.py:_build_fix_tree`
+## ৭. "Fix Tree" — `main.py:_build_fix_tree`
 
 এটা ROI plan থেকে আলাদা একটা **visualization feature**:
 
@@ -141,7 +141,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৮. Debt Score (তোমার "DEBT score") — `main.py:_extract_functions` এর পরের ধাপ (`main.py:1675-1680`)
+## ৮. Debt Score  — `main.py:_extract_functions` এর পরের ধাপ (`main.py:1675-1680`)
 
 UI তে "Debt Score" আর "Est. Dev Days" নামে যে দুইটা সংখ্যা দেখায় (screenshot এ `debt-stats` অংশ), সেটাও কোনো ML/AI স্কোর না — একটা সহজ weighted-sum ফর্মুলা, ROI Plan যে দুইটা জিনিস (`SEVERITY_WEIGHTS`, `SMELL_CAUSATION` এর `effort`) আগে থেকেই ব্যবহার করে সেগুলো দিয়েই বানানো।
 
