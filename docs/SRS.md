@@ -1,5 +1,5 @@
 # Software Requirements Specification (SRS)
-## CodeFlow — Code Base Visualisation & Architectural Analysis Platform
+## CodeLens — Code Base Visualisation & Architectural Analysis Platform
 
 **Version:** 1.0
 **Date:** June 22, 2026
@@ -31,10 +31,10 @@
 ## 1. Introduction
 
 ### 1.1 Purpose
-This document specifies the software requirements for **CodeFlow**, a web-based platform that ingests a developer's source code (single file, ZIP archive, or full folder) and produces an interactive, multi-tier visual map of the codebase together with automated architectural, quality, and risk analysis. The SRS is derived from the **actual implemented system** (not just the design plan) so that it reflects working, verifiable behavior.
+This document specifies the software requirements for **CodeLens**, a web-based platform that ingests a developer's source code (single file, ZIP archive, or full folder) and produces an interactive, multi-tier visual map of the codebase together with automated architectural, quality, and risk analysis. The SRS is derived from the **actual implemented system** (not just the design plan) so that it reflects working, verifiable behavior.
 
 ### 1.2 Scope
-CodeFlow allows a user to:
+CodeLens allows a user to:
 - Upload source code (Python, JavaScript, TypeScript, Java, Go, Rust, C, C++, C#).
 - Visualize the codebase as a drill-down graph: **Module → File → Function → Chunk**.
 - Search for any function/file/module across the uploaded project.
@@ -75,7 +75,7 @@ Section 2 describes the product context and actors. Section 3 shows system archi
 ## 2. Overall Description
 
 ### 2.1 Product Perspective
-CodeFlow is a standalone, self-contained web application with a decoupled frontend (Vue 3 SPA) and backend (FastAPI REST API), backed by a Neo4j graph database for persisted code-graph storage and an external LLM API (Groq) for AI-assisted refactor reasoning.
+CodeLens is a standalone, self-contained web application with a decoupled frontend (Vue 3 SPA) and backend (FastAPI REST API), backed by a Neo4j graph database for persisted code-graph storage and an external LLM API (Groq) for AI-assisted refactor reasoning.
 
 ### 2.2 Product Functions (Summary)
 | # | Feature | Description |
@@ -173,7 +173,7 @@ graph TB
     Lead["👤 Tech Lead"]
     Admin["👤 System<br/>Administrator"]
 
-    subgraph CodeFlow["CodeFlow System"]
+    subgraph CodeLens["CodeLens System"]
         UC1((Upload Source Code))
         UC2((Browse 3-Tier<br/>Code Graph))
         UC3((Search Code Entities))
@@ -431,7 +431,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     User["Developer / Architect<br/>(External Entity)"]
-    System(("CodeFlow<br/>System"))
+    System(("CodeLens<br/>System"))
     Neo[("Neo4j Graph DB")]
     Groq["Groq LLM API"]
 
@@ -611,7 +611,7 @@ The AI Refactor Plan feature is designed to **degrade gracefully rather than fai
 
 ## 10. Data Model (ER Diagram)
 
-CodeFlow's persistent store is a **property graph (Neo4j)** rather than a relational database. The diagram below is expressed in ER notation to show entities, attributes, and relationships.
+CodeLens's persistent store is a **property graph (Neo4j)** rather than a relational database. The diagram below is expressed in ER notation to show entities, attributes, and relationships.
 
 ```mermaid
 erDiagram
@@ -830,7 +830,7 @@ sequenceDiagram
 
 ### 12.1 Session Lifecycle State Diagram
 
-The diagram below models the lifecycle states of a single user **session** — the central stateful entity in CodeFlow (see FR-13 and UC13) — from creation to cleanup.
+The diagram below models the lifecycle states of a single user **session** — the central stateful entity in CodeLens (see FR-13 and UC13) — from creation to cleanup.
 
 ```mermaid
 stateDiagram-v2

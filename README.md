@@ -1,6 +1,6 @@
 <div align="center">
 
-# CodeFlow
+# CodeLens
 
 **Understand any codebase visually.**
 Upload source code and explore it as an interactive call graph, then run architecture, quality and design-pattern analysis on top of it.
@@ -17,7 +17,7 @@ Upload source code and explore it as an interactive call graph, then run archite
 
 ## Table of Contents
 
-1. [What is CodeFlow?](#what-is-codeflow)
+1. [What is CodeLens?](#what-is-codelens)
 2. [Features](#features)
 3. [How it works](#how-it-works)
 4. [Supported languages and upload limits](#supported-languages-and-upload-limits)
@@ -25,7 +25,7 @@ Upload source code and explore it as an interactive call graph, then run archite
 6. [Installation](#installation)
 7. [Configuration](#configuration)
 8. [Running the app](#running-the-app)
-9. [How to use CodeFlow](#how-to-use-codeflow)
+9. [How to use CodeLens](#how-to-use-codelens)
 10. [API reference](#api-reference)
 11. [Running the tests](#running-the-tests)
 12. [Project structure](#project-structure)
@@ -34,10 +34,10 @@ Upload source code and explore it as an interactive call graph, then run archite
 
 ---
 
-## What is CodeFlow?
+## What is CodeLens?
 
 Large codebases are hard to understand. Reading files one by one does not show how the pieces
-connect. CodeFlow parses your code with Tree-sitter, stores the structure as a graph in Neo4j,
+connect. CodeLens parses your code with Tree-sitter, stores the structure as a graph in Neo4j,
 and shows it in the browser as a **3-tier, drill-down call graph**: modules, then files, then functions.
 
 On top of the graph it can tell you:
@@ -141,7 +141,7 @@ Every browser tab gets its own isolated session, so several people can use one s
 
 **Option B: Local with Docker.**
 ```bash
-docker run -d --name codeflow-neo4j -p 7474:7474 -p 7687:7687 \
+docker run -d --name codelens-neo4j -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/choose-a-password neo4j:5
 ```
 URI will be `bolt://localhost:7687`, user `neo4j`.
@@ -153,8 +153,8 @@ URI will be `bolt://localhost:7687`, user `neo4j`.
 ### 1. Clone
 
 ```bash
-git clone <your-repo-url> codeflow
-cd codeflow
+git clone <your-repo-url> codelens
+cd codelens
 ```
 
 ### 2. Backend
@@ -244,7 +244,7 @@ npm run preview
 
 ---
 
-## How to use CodeFlow
+## How to use CodeLens
 
 1. **Open the app** in your browser. A session starts automatically.
 2. **Upload code.** Choose a file, several files, a folder, or a ZIP of your project. For git-history analysis, upload a ZIP that includes the `.git` folder.
