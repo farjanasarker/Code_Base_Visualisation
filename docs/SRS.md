@@ -63,7 +63,7 @@ Out of scope: code editing/modification, real-time collaborative editing, CI/CD 
 | LLM | Large Language Model (Groq `llama-3.3-70b-versatile`) |
 
 ### 1.4 References
-- Backend source: `Backend/main.py`, `analyzer.py`, `pattern_detector.py`, `smell_detector.py`, `smell_graph.py`, `db.py`, `llm_engine.py`
+- Backend source: `Backend/main.py`, `analyzer.py`, `pattern_detector.py`, `smells/detector.py`, `smells/graph.py`, `db.py`, `llm_engine.py`
 - Frontend source: `Frontend/src/components/GraphView.vue`, `FunctionNode.vue`, `BottomBackEdge.vue`, `Frontend/src/services/sessionManager.js`
 - Project planning docs: `CONTEXT.md`, `.instructions.md`, `PHASES.md`
 
@@ -134,8 +134,8 @@ flowchart TB
         API["main.py — REST API & Session Mgmt"]
         AN["analyzer.py — AST Parsing & Metrics"]
         PD["pattern_detector.py — Architecture Patterns"]
-        SD["smell_detector.py — Code Smell Rules"]
-        SG["smell_graph.py — Smell Dependency Graph"]
+        SD["smells/detector.py — Code Smell Rules"]
+        SG["smells/graph.py — Smell Dependency Graph"]
         LE["llm_engine.py — LLM Refactor Reasoning"]
         DB_MOD["db.py — Neo4j Access Layer"]
     end
@@ -247,7 +247,7 @@ graph TB
 
 **UC7 — Run Code Smell Analysis**
 - **Actor:** Architect / Tech Lead
-- **Flow:** GET `/smell-analysis` → `smell_detector.py` evaluates function/module/architecture-level smell rules → `smell_graph.py` builds a smell dependency graph and root-cause ranking → results (severity chips, ranked files, expandable detail) shown in Smell Analysis panel.
+- **Flow:** GET `/smell-analysis` → `smells/detector.py` evaluates function/module/architecture-level smell rules → `smells/graph.py` builds a smell dependency graph and root-cause ranking → results (severity chips, ranked files, expandable detail) shown in Smell Analysis panel.
 
 **UC8 — Request AI Refactor Plan** (extends UC7)
 - **Actor:** Architect
@@ -287,9 +287,9 @@ flowchart TD
     START(("Start"))
     A1["Upload source code<br/>file / ZIP / folder"]
     A2["Parse with Tree-sitter,<br/>build call graph & metrics"]
-    A3["Run code smell analysis<br/>smell_detector.py"]
+    A3["Run code smell analysis<br/>smells/detector.py"]
     D1{"Smells<br/>detected?"}
-    A4["Build dependency graph +<br/>greedy set-cover fix plan<br/>smell_graph.py"]
+    A4["Build dependency graph +<br/>greedy set-cover fix plan<br/>smells/graph.py"]
     A5["User requests<br/>AI Refactor Plan"]
     A6["_build_prompt()<br/>smell summary + plan +<br/>project context"]
     A7["Call Groq API<br/>llama-3.3-70b-versatile"]
@@ -494,7 +494,7 @@ flowchart TB
 ## 7. AI Engineering Design
 
 ### 7.1 Purpose & Role in the Pipeline
-Static analysis (`smell_detector.py` + `smell_graph.py`) determines **what** is architecturally wrong and produces a preliminary, purely rule-based fix plan via a greedy set-cover ordering over the smell dependency graph. The AI layer (`llm_engine.py`) is invoked only on explicit user request (UC8) to reason about **why** the smells occurred and **how** to fix them with architectural judgment — it never runs automatically and never replaces the static analysis, only enriches it.
+Static analysis (`smells/detector.py` + `smells/graph.py`) determines **what** is architecturally wrong and produces a preliminary, purely rule-based fix plan via a greedy set-cover ordering over the smell dependency graph. The AI layer (`llm_engine.py`) is invoked only on explicit user request (UC8) to reason about **why** the smells occurred and **how** to fix them with architectural judgment — it never runs automatically and never replaces the static analysis, only enriches it.
 
 Two independent LLM-backed capabilities exist:
 - `get_refactor_plan()` — turns the smell summary + preliminary plan into a prioritized, risk-assessed architectural refactor plan (UC8).
@@ -531,8 +531,8 @@ This keeps the prompt small and token-efficient, and prevents the model from "in
 
 ```mermaid
 flowchart LR
-    SD["smell_detector.py<br/>function/module/architecture smells"]
-    SG["smell_graph.py<br/>dependency graph +<br/>greedy set-cover plan"]
+    SD["smells/detector.py<br/>function/module/architecture smells"]
+    SG["smells/graph.py<br/>dependency graph +<br/>greedy set-cover plan"]
     PB["_build_prompt()<br/>smell summary + plan +<br/>project context (data only)"]
     LLM["Groq API<br/>llama-3.3-70b-versatile<br/>temperature=0.20"]
     PARSE{"Valid JSON<br/>response?"}
@@ -565,7 +565,7 @@ The AI Refactor Plan feature is designed to **degrade gracefully rather than fai
 |---|---|
 | All REST endpoints in `main.py` | Load/stress testing beyond the 500-concurrent-session NFR target |
 | Frontend drill-down, search, and panel rendering (Vue Flow) | Cross-browser pixel-perfect UI testing |
-| Static analyzers: `analyzer.py`, `pattern_detector.py`, `smell_detector.py`, `smell_graph.py` | Real-time multi-user collaborative editing (explicitly out of scope, Section 1.2) |
+| Static analyzers: `analyzer.py`, `pattern_detector.py`, `smells/detector.py`, `smells/graph.py` | Real-time multi-user collaborative editing (explicitly out of scope, Section 1.2) |
 | AI Refactor Plan + its fallback path (`llm_engine.py`) | Third-party Groq model quality/accuracy evaluation |
 | Session lifecycle (creation, expiry, cleanup) | CI/CD pipeline integration (not yet part of the project) |
 
@@ -765,8 +765,8 @@ sequenceDiagram
     actor U as User
     participant FE as GraphView.vue
     participant API as FastAPI (main.py)
-    participant SD as smell_detector.py
-    participant SG as smell_graph.py
+    participant SD as smells/detector.py
+    participant SG as smells/graph.py
     participant LE as llm_engine.py
     participant GROQ as Groq LLM API
 

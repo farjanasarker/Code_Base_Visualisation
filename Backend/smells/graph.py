@@ -18,7 +18,8 @@ Research notes:
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict, deque
-from smell_detector import Smell, SMELL_CAUSATION, SEVERITY_WEIGHTS, REFACTOR_CATALOG
+from .catalog import SMELL_CAUSATION, SEVERITY_WEIGHTS, REFACTOR_CATALOG
+from .detector import Smell
 
 
 # ── Graph Nodes and Edges ─────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 llm_engine.py — LLM Reasoning Engine (Groq / GPT-OSS-120b).
 
 Role in the pipeline:
-  Static analysis (smell_detector + smell_graph) detects WHAT is wrong.
+  Static analysis (smells/detector + smells/graph) detects WHAT is wrong.
   This module asks the LLM to reason about WHY and HOW TO FIX IT.
 
 The LLM receives:
