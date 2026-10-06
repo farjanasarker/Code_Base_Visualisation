@@ -158,7 +158,7 @@ dependency আলাদাভাবে হ্যান্ডেল হয়।
   পারে (যেমন কেউ যদি একটা model file-এর নাম `UserManager.py` রাখে, সেটা
   `manager` keyword দেখে `service` layer ধরা হয়ে যাবে)।
 - Single-file আপলোডে কাজ করে না (import graph বানানোর মতো একাধিক ফাইল লাগে)।
-- LLM কোনোভাবে জড়িত না — এটা ১০০% rule-based static heuristic, `smell_detector.py`
+- LLM কোনোভাবে জড়িত না — এটা ১০০% rule-based static heuristic, `smells/detector.py`
   এর মতোই (দেখুন [CODE_SMELL_DETECTION_EXPLAINED.md](CODE_SMELL_DETECTION_EXPLAINED.md))।
 
 ---

@@ -17,8 +17,7 @@ from patterns.graph_view import SessionGraphView
 from patterns.rule_engine import evaluate_all, pattern_info
 from patterns.language_idioms.singleton_idioms import scan_files as scan_singleton_idioms
 from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
-from smell_detector import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS
-from smell_graph import build_smell_graph
+from smells import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS, build_smell_graph
 import llm_engine
 from pattern_detector import ArchitecturePatternDetector
 from service_call_detector import detect_service_connections

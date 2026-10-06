@@ -49,7 +49,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৩. ধাপ ২ — Smell Detection (`smell_detector.py`)
+## ৩. ধাপ ২ — Smell Detection (`smells/detector.py`)
 
 এখানে ১৭ ধরনের smell কে ৩টা layer এ ভাগ করে রাখা হয়েছে (এটাই তোমার প্রশ্নের **"by lear" = "by layer"** answer, নিচে ৬ নং সেকশনে বিস্তারিত):
 
@@ -57,7 +57,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 - **Module-level**: god_module, god_class, large_module, shotgun_surgery, divergent_change, lazy_class, duplicate_code, data_clumps
 - **Architecture-level**: circular_dependency, long_call_chain, inappropriate_intimacy
 
-প্রতিটা smell এর জন্য একটা fixed numeric **threshold** আছে (`THRESHOLDS` dict, `smell_detector.py:23`), যেমন:
+প্রতিটা smell এর জন্য একটা fixed numeric **threshold** আছে (`THRESHOLDS` dict, `smells/catalog.py`), যেমন:
 
 | Smell | কীভাবে detect হয় (threshold-based rule) |
 |---|---|
@@ -79,7 +79,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ## ৪. Smell Causation Model — কে কার কারণ
 
-`SMELL_CAUSATION` dict (`smell_detector.py:108`) এ প্রতিটা smell type এর জন্য বলা আছে সে **আর কোন কোন smell এর জন্ম দেয়** (downstream), তার fix করতে কতটা effort লাগে (1-5 স্কেল), আর কোন layer এ পড়ে। যেমন:
+`SMELL_CAUSATION` dict (`smells/catalog.py`) এ প্রতিটা smell type এর জন্য বলা আছে সে **আর কোন কোন smell এর জন্ম দেয়** (downstream), তার fix করতে কতটা effort লাগে (1-5 স্কেল), আর কোন layer এ পড়ে। যেমন:
 
 - `god_class` → downstream এ `long_method`, `feature_envy`, `dead_code` ইত্যাদি অনেক কিছু তৈরি করে (effort ৫, layer: module)
 - `feature_envy`, `too_many_params`, `dead_code` — এগুলো "leaf smell", এদের কোনো downstream নেই, সরাসরি fix করতে হয়
@@ -88,7 +88,7 @@ Tree-sitter (Python/JS/Java/Go/Rust এর জন্য) দিয়ে কো�
 
 ---
 
-## ৫. ROI Plan — `smell_graph.py`
+## ৫. ROI Plan — `smells/graph.py`
 
 **ROI (Return on Investment)** — code এ literally variable নাম `roi_score`। এটা কোনো ML model না, pure graph algorithm:
 
@@ -151,7 +151,7 @@ UI তে "Debt Score" আর "Est. Dev Days" নামে যে দুইট�
 total_debt_score = Σ (severity_weight(smell) × effort(smell.type))   — সব detected smell এর উপর যোগফল
 ```
 
-- `severity_weight`: critical=4, high=3, medium=2, low=1 (`SEVERITY_WEIGHTS`, `smell_detector.py:54`)
+- `severity_weight`: critical=4, high=3, medium=2, low=1 (`SEVERITY_WEIGHTS`, `smells/catalog.py`)
 - `effort`: প্রতিটা smell **type**-এর জন্য fix করতে কতটা কষ্ট লাগে তার raw মান (১-৫ স্কেল, `SMELL_CAUSATION[type]["effort"]`, না পেলে default 2)। এটা ROI Plan এ যে `effort` ব্যবহার হয় সেই একই সংখ্যা — round/clamp করা হয় না এখানে।
 
 তারপর:
@@ -178,11 +178,11 @@ estimated_dev_days = total_debt_score / 24
 | জিনিস | ফাইল | Function/Variable |
 |---|---|---|
 | Metric extraction | `analyzer.py` | `_extract_functions`, `compute_fan_in`, `_compute_nesting_depth` |
-| Smell detection rules | `smell_detector.py` | `THRESHOLDS`, `SmellDetector.detect_all()` |
-| Refactor suggestions | `smell_detector.py` | `REFACTOR_CATALOG` |
-| Causation model | `smell_detector.py` | `SMELL_CAUSATION` |
-| Root cause scoring | `smell_graph.py` | `compute_root_cause_scores()` |
-| **ROI Plan** | `smell_graph.py` | `minimal_fix_plan()` → `roi_score` |
+| Smell detection rules | `smells/catalog.py` + `smells/detector.py` | `THRESHOLDS`, `SmellDetector.detect_all()` |
+| Refactor suggestions | `smells/catalog.py` | `REFACTOR_CATALOG` |
+| Causation model | `smells/catalog.py` | `SMELL_CAUSATION` |
+| Root cause scoring | `smells/graph.py` | `compute_root_cause_scores()` |
+| **ROI Plan** | `smells/graph.py` | `minimal_fix_plan()` → `roi_score` |
 | **By Layer grouping** | `main.py` | `_group_smells_by_layer()` |
 | **Fix Tree** | `main.py` | `_build_fix_tree()` |
 | **Debt Score** | `main.py` | `total_debt_score`, `estimated_dev_days` (`main.py:1675-1680`) |
