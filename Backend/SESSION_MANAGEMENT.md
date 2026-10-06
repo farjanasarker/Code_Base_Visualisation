@@ -193,7 +193,7 @@ Browser loads → main.js runs → sessionManager.init()
   ↓
 Returns: {"session_id": "abc123"}
   ↓
-sessionStorage.setItem('codeflow_session_id', 'abc123')
+sessionStorage.setItem('codelens_session_id', 'abc123')
 ```
 
 ### 2. User Uploads File
@@ -380,7 +380,7 @@ MATCH (n:Function {session_id: $session_id, name: $name})
 npm run dev
 
 # Check session created
-sessionStorage.getItem('codeflow_session_id')
+sessionStorage.getItem('codelens_session_id')
 
 # Upload file
 POST /upload with X-Session-ID header
