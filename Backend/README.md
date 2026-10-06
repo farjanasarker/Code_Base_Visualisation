@@ -8,7 +8,7 @@ This backend is a Python FastAPI application that analyzes source code and store
 - Python 3.12 installed
 - PowerShell
 - Internet access for installing Python packages
-- Access to the Neo4j instance configured in `db.py`
+- A reachable Neo4j instance configured in `.env`
 
 ## Project Setup
 
@@ -61,8 +61,8 @@ Invoke-WebRequest http://127.0.0.1:8000/health
 
 ## Notes
 
-- The Neo4j connection is currently hardcoded in `db.py`.
-- If you want to use a different Neo4j server, update the connection string and credentials in `db.py`.
+- The Neo4j connection is read from `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` in `Backend/.env` (see `.env.example`).
+- To use a different Neo4j server, just change those values in `.env`.
 - The upload endpoint accepts single files, multiple files, or ZIP uploads.
 
 ## Common Commands

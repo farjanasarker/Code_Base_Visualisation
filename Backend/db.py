@@ -1,6 +1,7 @@
 from neo4j import GraphDatabase
 from pathlib import Path
 import json
+import os
 import logging
 import re
 
@@ -9,9 +10,28 @@ from analyzer.heuristics import _is_anonymous_callback
 
 logger = logging.getLogger(__name__)
 
+def _load_dotenv() -> None:
+    """Load Backend/.env into os.environ (without overriding real env vars)."""
+    env_file = Path(__file__).parent / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
+
 driver = GraphDatabase.driver(
-    "neo4j+s://41ba1e28.databases.neo4j.io",
-    auth=("41ba1e28", "PXi2zC7QElI7PCf-cuK6S0E-DhuVxukey8ysxwPfzJE"),
+    NEO4J_URI,
+    auth=(NEO4J_USER, NEO4J_PASSWORD),
     # Aura silently closes connections that sit idle for a while. Without this,
     # the pool can hand out an already-dead connection and the first write on
     # it fails with SSLEOFError/SessionExpired instead of just reconnecting.

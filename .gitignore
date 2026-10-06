@@ -1,3 +1,28 @@
-srs_diagrams/node_modules/
-~$*.docx
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets / local config
+.env
+*.env.local
+
+# Logs & uploads
+*.log
+Backend/uploads/
+
+# Node / frontend build
+node_modules/
+Frontend/dist/
+
+# Local analysis scratch
 dynamic_analysis_sources/
+
+# OS / editors / Office temp
+.DS_Store
+Thumbs.db
+~$*
+.idea/
+.claude/
