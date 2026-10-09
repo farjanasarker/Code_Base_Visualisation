@@ -163,18 +163,6 @@
           </div>
           <div class="legend-divider"></div>
           <div class="legend-item">
-            <span class="legend-swatch risk-high-swatch"></span>
-            <span>High Dependency Risk</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-swatch risk-medium-swatch"></span>
-            <span>Medium Dependency Risk</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-swatch risk-low-swatch"></span>
-            <span>Low Dependency Risk</span>
-          </div>
-          <div class="legend-item">
             <span class="legend-swatch dead-swatch"></span>
             <span>Potentially Unreachable</span>
           </div>
@@ -942,9 +930,6 @@
             if (n.data?.nodeType === 'file') return '#f59e0b';
             if (n.data?.nodeType === 'chunk') return '#8b5cf6';
             if (n.data?.isDead) return '#94a3b8';
-            if (n.data?.riskLevel === 'high') return '#ef4444';
-            if (n.data?.riskLevel === 'medium') return '#f59e0b';
-            if (n.data?.riskLevel === 'low') return '#22c55e';
             return '#6366f1';
           }"
           :minimap-style="{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px' }"
@@ -3133,9 +3118,6 @@ const collapseOthers = (nodeType, keepId) => {
 .legend-swatch.file            { background: #f59e0b; }
 .legend-swatch.function        { background: #10b981; }
 .legend-swatch.chunk           { background: #8b5cf6; }
-.legend-swatch.risk-high-swatch   { background: #ef4444; }
-.legend-swatch.risk-medium-swatch { background: #f59e0b; }
-.legend-swatch.risk-low-swatch    { background: #22c55e; }
 .legend-swatch.dead-swatch        { background: #94a3b8; border-style: dashed; }
 .legend-divider {
   width: 100%;

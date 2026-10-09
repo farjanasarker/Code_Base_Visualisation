@@ -30,7 +30,6 @@ const riskTitle = computed(() => {
     :class="[
       data.nodeType || 'function',
       { 'fn-root': data.isRoot },
-      data.riskLevel && data.riskLevel !== 'none' ? `risk-${data.riskLevel}` : '',
       { 'dead-code': data.isDead },
       data.smellSeverity && data.smellSeverity !== 'none' ? `smell-node-${data.smellSeverity}` : '',
       data.execState ? `execState-${data.execState}` : '',
@@ -63,13 +62,6 @@ const riskTitle = computed(() => {
 
     <!-- Chunk expand hint -->
     <div v-if="data.nodeType === 'chunk'" class="chunk-expand-hint" title="Click to expand functions">▶</div>
-
-    <!-- Dependency-risk badge: number of project functions this one depends on (outgoing calls) -->
-    <div
-      v-if="data.nodeType === 'function' && data.depDirect > 0"
-      class="risk-dot"
-      :class="`risk-dot-${data.riskLevel || 'none'}`"
-    >{{ data.depDirect }}</div>
 
     <!-- Potentially unreachable ghost badge -->
     <div
@@ -115,11 +107,6 @@ const riskTitle = computed(() => {
 .fn-card.rootfiles { background: #f0fdf4; border-color: #86efac; border-style: dashed; box-shadow: 0 1px 4px rgba(34,197,94,0.15); }
 .fn-card.service   { background: #f0fdfa; border-color: #5eead4; box-shadow: 0 1px 4px rgba(20,184,166,0.15); }
 .fn-card.service-unresolved { background: #fef2f2; border-color: #fca5a5; border-style: dashed; box-shadow: 0 1px 4px rgba(239,68,68,0.15); }
-
-/* ── Risk level overrides (only for function nodes) ── */
-.fn-card.function.risk-high   { border-color: #ef4444; border-width: 2px; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
-.fn-card.function.risk-medium { border-color: #f59e0b; border-width: 2px; box-shadow: 0 0 0 3px rgba(245,158,11,0.15); }
-.fn-card.function.risk-low    { border-color: #22c55e; border-width: 2px; box-shadow: 0 0 0 3px rgba(34,197,94,0.12); }
 
 @keyframes pulse-chunk {
   0%, 100% { box-shadow: 0 1px 4px rgba(139,92,246,0.10); }
@@ -209,30 +196,6 @@ const riskTitle = computed(() => {
   opacity: 1;
   transform: translateX(2px);
 }
-
-/* ── Risk counter badge (top-right corner) ───────── */
-.risk-dot {
-  position: absolute;
-  top: -7px;
-  right: -7px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  border: 1.5px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
-  z-index: 10;
-}
-.risk-dot-high   { background: #ef4444; }
-.risk-dot-medium { background: #f59e0b; }
-.risk-dot-low    { background: #22c55e; }
-.risk-dot-none   { background: #94a3b8; }
 
 /* ── Smell severity glow (function nodes) ────────── */
 .fn-card.smell-node-critical { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.22), inset 0 0 8px rgba(124,58,237,0.08); }
