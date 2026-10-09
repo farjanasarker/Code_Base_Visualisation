@@ -138,6 +138,59 @@ def _is_anonymous_callback(name: str) -> bool:
     return bool(_ANONYMOUS_NAME_RE.match(name))
 
 
+_HASH_COMMENT_LANGS = frozenset({"python", "ruby", "bash", "shell", "perl", "r"})
+
+
+def _strip_comments(content: str, language: str) -> str:
+    """Blank out line/block comments so name-reference counting ignores them.
+
+    String literals are left intact (a `#` or `//` inside a string is not a
+    comment, and `getattr(obj, "name")` is a genuine reference). Newlines are
+    preserved. Python docstrings are strings to the tokenizer and are kept.
+    """
+    hash_style = language in _HASH_COMMENT_LANGS
+    out = []
+    i, n = 0, len(content)
+    quote = None            # active string delimiter: ', ", `, or triple forms
+    while i < n:
+        ch = content[i]
+        if quote:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n and len(quote) == 1:
+                out.append(content[i + 1])
+                i += 2
+                continue
+            if content.startswith(quote, i):
+                out.append(content[i + 1:i + len(quote)])
+                i += len(quote)
+                quote = None
+                continue
+            i += 1
+            continue
+        if ch in "'\"`":
+            quote = ch * 3 if (language == "python" and content.startswith(ch * 3, i)) else ch
+            out.append(quote)
+            i += len(quote)
+            continue
+        if hash_style and ch == "#":
+            while i < n and content[i] != "\n":
+                i += 1
+            continue
+        if not hash_style and content.startswith("//", i):
+            while i < n and content[i] != "\n":
+                i += 1
+            continue
+        if not hash_style and content.startswith("/*", i):
+            end = content.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            out.append("\n" * content.count("\n", i, end))
+            i = end
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _compute_nesting_depth(body: str) -> int:
     """Compute max brace-nesting depth inside a function body string.
 
