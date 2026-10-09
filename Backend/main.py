@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import subprocess
 import tempfile
@@ -16,9 +17,8 @@ from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1,
 from patterns.graph_view import SessionGraphView
 from patterns.rule_engine import evaluate_all, pattern_info
 from patterns.language_idioms.singleton_idioms import scan_files as scan_singleton_idioms
-from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
-from smell_detector import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS
-from smell_graph import build_smell_graph
+from analyzer import analyze_files, attach_edge_details, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
+from smells import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS, build_smell_graph
 import llm_engine
 from pattern_detector import ArchitecturePatternDetector
 from service_call_detector import detect_service_connections
@@ -365,17 +365,25 @@ async def start_session():
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 
-@app.delete("/end-session")
+@app.api_route("/end-session", methods=["DELETE", "POST"])
 async def end_session(request: Request):
     """
     Clean up session when browser closes
-    Frontend sends this via sendBeacon before closing
+    Frontend sends this via sendBeacon before closing (sendBeacon is always
+    POST and cannot set headers, so session_id may come in the JSON body)
     """
     try:
         session_id = request.headers.get("X-Session-ID")
-        
+
+        if not session_id and request.method == "POST":
+            try:
+                body = json.loads((await request.body()) or b"{}")
+                session_id = body.get("session_id")
+            except (ValueError, AttributeError):
+                session_id = None
+
         if not session_id:
-            raise HTTPException(status_code=400, detail="Missing X-Session-ID header")
+            raise HTTPException(status_code=400, detail="Missing session id (X-Session-ID header or session_id in body)")
         
         success = end_session_cleanup(session_id)
         
@@ -1152,6 +1160,15 @@ def api_service_graph(request: Request):
         raise HTTPException(status_code=500, detail=f"Error fetching service graph: {str(e)}")
 
 
+def _with_edge_details(graph: dict, session_id: str, service_id: str | None = None) -> dict:
+    """DB-built tier graphs only know edge counts; add the call/import evidence
+    from the cached parse so the UI can explain each arrow on hover."""
+    functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+    if service_id:
+        functions = [fn for fn in functions if fn.get("service") == service_id]
+    return attach_edge_details(graph, functions) if functions else graph
+
+
 @app.get("/graph/tier1")
 def api_tier1(request: Request, service_id: str | None = None):
     try:
@@ -1169,7 +1186,7 @@ def api_tier1(request: Request, service_id: str | None = None):
             if scoped:
                 return build_module_graph(scoped)
 
-        return get_tier1(session_id, service_id)
+        return _with_edge_details(get_tier1(session_id, service_id), session_id, service_id)
     except HTTPException:
         raise
     except Exception:
@@ -1193,7 +1210,7 @@ def api_tier2(request: Request, module_name: str, service_id: str | None = None)
         session_id = validate_session(session_id)
         update_session_activity(session_id)
 
-        return get_tier2(module_name, session_id, service_id)
+        return _with_edge_details(get_tier2(module_name, session_id, service_id), session_id, service_id)
     except HTTPException:
         raise
     except Exception:
@@ -1327,8 +1344,11 @@ def api_chunk(request: Request, file_path: str, chunk_name: str):
 
 @app.get("/risk-score")
 def api_risk_score(request: Request):
-    """Return all functions ranked by dependency risk (fan_in).
-    Risk levels: high (>=10 callers), medium (>=3), low (>=1), none (0).
+    """Return functions ranked by dependency risk: how fragile each is because
+    of the code it CALLS (direct + transitive project dependencies, cross-file
+    dependencies, circular call chains). This is the forward direction; the
+    reverse question — who breaks if it changes — is /impact-analysis.
+    Risk levels come from the score in parser.compute_risk_scores.
     """
     try:
         session_id = request.headers.get("X-Session-ID")
@@ -1343,21 +1363,36 @@ def api_risk_score(request: Request):
             lvl = fn.get("risk_level", "none")
             summary[lvl] = summary.get(lvl, 0) + 1
 
-        # Only functions that are called by at least one other function, sorted by risk
+        # Only functions that depend on at least one project function, riskiest first
         risky = sorted(
-            [fn for fn in real_fns if fn.get("fan_in", 0) > 0],
-            key=lambda f: f.get("fan_in", 0),
+            [fn for fn in real_fns if fn.get("dep_direct", 0) > 0],
+            key=lambda f: (f.get("risk_score", 0), f.get("dep_transitive", 0)),
             reverse=True
         )
+
+        def _warning(fn):
+            parts = [f"Depends on {fn.get('dep_direct', 0)} function(s)"]
+            extra = fn.get("dep_transitive", 0) - fn.get("dep_direct", 0)
+            if extra > 0:
+                parts.append(f"{extra} more indirectly")
+            if fn.get("dep_cross_file", 0):
+                parts.append(f"{fn['dep_cross_file']} in other files")
+            msg = ", ".join(parts)
+            if fn.get("in_dep_cycle"):
+                msg += " — part of a circular call chain"
+            return msg
 
         result = [
             {
                 "name": fn.get("name"),
                 "file": fn.get("file"),
-                "fan_in": fn.get("fan_in", 0),
-                "fan_out": fn.get("fan_out", 0),
+                "dep_direct": fn.get("dep_direct", 0),
+                "dep_transitive": fn.get("dep_transitive", 0),
+                "dep_cross_file": fn.get("dep_cross_file", 0),
+                "in_cycle": fn.get("in_dep_cycle", False),
+                "risk_score": fn.get("risk_score", 0),
                 "risk_level": fn.get("risk_level", "none"),
-                "warning": f"Changing this will affect {fn.get('fan_in', 0)} caller(s)",
+                "warning": _warning(fn),
             }
             for fn in risky[:50]
         ]
@@ -1370,12 +1405,114 @@ def api_risk_score(request: Request):
         raise HTTPException(status_code=500, detail=f"Error computing risk scores: {str(e)}")
 
 
+@app.get("/search")
+def api_search(request: Request, q: str, limit: int = 20):
+    """Search every parsed function and file in the session (not just the
+    top-50 risky ones), ranked exact > prefix > substring. Each function hit
+    carries what the UI needs to drill down to its node: the file, the node
+    id used in that file's function graph, and the chunk (god files only)."""
+    try:
+        session_id = request.headers.get("X-Session-ID")
+        session_id = validate_session(session_id)
+        update_session_activity(session_id)
+
+        needle = (q or "").strip().lower()
+        if not needle:
+            return {"results": []}
+        limit = max(1, min(limit, 50))
+
+        from analyzer.heuristics import _is_anonymous_callback
+
+        functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+        real_fns = [
+            fn for fn in functions
+            if fn.get("name") and fn.get("name") != "__file__"
+            and not _is_anonymous_callback(fn.get("name", ""))
+        ]
+
+        # Mirror build_function_graph's node-id rule (name, or name:line when the
+        # name repeats within a file / chunk) so the UI can find the node directly.
+        by_scope: Dict[Any, Dict[str, int]] = {}
+        for fn in real_fns:
+            scope = fn.get("virtual_module") if fn.get("virtual_module") != fn.get("file") else None
+            counts = by_scope.setdefault((fn.get("file"), scope), {})
+            counts[fn["name"]] = counts.get(fn["name"], 0) + 1
+        file_counts: Dict[str, Dict[str, int]] = {}
+        for fn in real_fns:
+            counts = file_counts.setdefault(fn.get("file"), {})
+            counts[fn["name"]] = counts.get(fn["name"], 0) + 1
+        god_chunked_files = set()
+        vms_per_file: Dict[str, set] = {}
+        for fn in real_fns:
+            vm = fn.get("virtual_module")
+            if vm and vm != fn.get("file"):
+                vms_per_file.setdefault(fn.get("file"), set()).add(vm)
+        for f_path, vms in vms_per_file.items():
+            if len(vms) > 1 and any(
+                fn.get("is_god_file") for fn in real_fns if fn.get("file") == f_path
+            ):
+                god_chunked_files.add(f_path)
+
+        def rank(text: str) -> int:
+            t = text.lower()
+            if t == needle:
+                return 0
+            if t.startswith(needle):
+                return 1
+            return 2 if needle in t else -1
+
+        scored = []
+        seen_files = set()
+        for fn in real_fns:
+            name, file_path = fn["name"], fn.get("file") or ""
+            r = rank(name)
+            if r < 0:
+                continue
+            chunk = None
+            if file_path in god_chunked_files:
+                chunk = fn.get("virtual_module")
+                counts = by_scope.get((file_path, chunk), {})
+            else:
+                counts = file_counts.get(file_path, {})
+            node_id = f"{name}:{fn.get('line_start')}" if counts.get(name, 1) > 1 else name
+            scored.append((r, name.lower(), {
+                "type": "function", "label": name, "node_id": node_id,
+                "file": file_path, "chunk": chunk, "line_start": fn.get("line_start"),
+                "risk_level": fn.get("risk_level", "none"), "service": fn.get("service"),
+            }))
+        for fn in real_fns:
+            file_path = fn.get("file") or ""
+            if not file_path or file_path in seen_files:
+                continue
+            seen_files.add(file_path)
+            base = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+            r = rank(base)
+            if r < 0 and needle in file_path.lower():
+                r = 3
+            if r < 0:
+                continue
+            scored.append((r, base.lower(), {
+                "type": "file", "label": base, "node_id": file_path, "file": file_path,
+                "chunk": None, "line_start": None, "risk_level": None,
+                "service": fn.get("service"),
+            }))
+
+        scored.sort(key=lambda s: (s[0], s[1]))
+        return {"results": [s[2] for s in scored[:limit]]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error searching: {str(e)}")
+
+
 @app.get("/impact-analysis/{function_name}")
 def api_impact_analysis(function_name: str, request: Request):
     """
     Reverse call graph: which functions/modules would be affected if
     `function_name` changes. Walks the caller chain transitively (BFS)
-    over functions[].calls, the same data risk-score's fan_in is built from.
+    over functions[].calls. Looks at callers (what breaks if this changes);
+    /risk-score looks at callees (what this is fragile to).
     """
     try:
         session_id = request.headers.get("X-Session-ID")

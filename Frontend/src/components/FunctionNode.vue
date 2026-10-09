@@ -11,12 +11,6 @@ const props = defineProps({
 
 const riskTitle = computed(() => {
   const base = props.data.fullLabel || props.data.label || '';
-  if (props.data.isDead) {
-    const conf = props.data.deadConfidence === 'high'
-      ? 'High confidence — private function with no detected callers.'
-      : 'No detected callers in this codebase. May still be called dynamically, via reflection, polymorphism, or by external code.';
-    return `${base}\n👻 Potentially Unreachable\n${conf}`;
-  }
   if (props.data.nodeType === 'service-unresolved') {
     return `${base}\n⚠ Referenced in service-map.json but no matching folder was found.\nCheck for a typo in the service name.`;
   }
@@ -30,8 +24,6 @@ const riskTitle = computed(() => {
     :class="[
       data.nodeType || 'function',
       { 'fn-root': data.isRoot },
-      data.riskLevel && data.riskLevel !== 'none' ? `risk-${data.riskLevel}` : '',
-      { 'dead-code': data.isDead },
       data.smellSeverity && data.smellSeverity !== 'none' ? `smell-node-${data.smellSeverity}` : '',
       data.execState ? `execState-${data.execState}` : '',
     ]"
@@ -63,21 +55,6 @@ const riskTitle = computed(() => {
 
     <!-- Chunk expand hint -->
     <div v-if="data.nodeType === 'chunk'" class="chunk-expand-hint" title="Click to expand functions">▶</div>
-
-    <!-- Risk counter badge: only on function nodes that have callers -->
-    <div
-      v-if="data.nodeType === 'function' && data.fanIn > 0"
-      class="risk-dot"
-      :class="`risk-dot-${data.riskLevel || 'none'}`"
-    >{{ data.fanIn }}</div>
-
-    <!-- Potentially unreachable ghost badge -->
-    <div
-      v-if="data.isDead && data.nodeType === 'function'"
-      class="dead-badge"
-      :class="data.deadConfidence === 'high' ? 'dead-badge-high' : 'dead-badge-medium'"
-      :title="data.deadConfidence === 'high' ? 'High confidence: private, no callers' : 'Medium confidence: no detected callers'"
-    >👻</div>
 
     <!-- Dynamic analysis is Python-only (§4.0) — never rendered for other languages -->
     <div
@@ -116,11 +93,6 @@ const riskTitle = computed(() => {
 .fn-card.service   { background: #f0fdfa; border-color: #5eead4; box-shadow: 0 1px 4px rgba(20,184,166,0.15); }
 .fn-card.service-unresolved { background: #fef2f2; border-color: #fca5a5; border-style: dashed; box-shadow: 0 1px 4px rgba(239,68,68,0.15); }
 
-/* ── Risk level overrides (only for function nodes) ── */
-.fn-card.function.risk-high   { border-color: #ef4444; border-width: 2px; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
-.fn-card.function.risk-medium { border-color: #f59e0b; border-width: 2px; box-shadow: 0 0 0 3px rgba(245,158,11,0.15); }
-.fn-card.function.risk-low    { border-color: #22c55e; border-width: 2px; box-shadow: 0 0 0 3px rgba(34,197,94,0.12); }
-
 @keyframes pulse-chunk {
   0%, 100% { box-shadow: 0 1px 4px rgba(139,92,246,0.10); }
   50%       { box-shadow: 0 3px 14px rgba(139,92,246,0.28); }
@@ -129,6 +101,16 @@ const riskTitle = computed(() => {
 .fn-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(99,102,241,0.18);
+}
+.fn-card:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fn-card { transition: box-shadow 140ms ease, border-color 140ms ease; }
+  .fn-card:hover { transform: none; }
+  .fn-card.chunk { animation: none; }
 }
 
 /* ── Circle badge ─────────────────────────────────── */
@@ -200,75 +182,11 @@ const riskTitle = computed(() => {
   transform: translateX(2px);
 }
 
-/* ── Risk counter badge (top-right corner) ───────── */
-.risk-dot {
-  position: absolute;
-  top: -7px;
-  right: -7px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  border: 1.5px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
-  z-index: 10;
-}
-.risk-dot-high   { background: #ef4444; }
-.risk-dot-medium { background: #f59e0b; }
-.risk-dot-low    { background: #22c55e; }
-.risk-dot-none   { background: #94a3b8; }
-
 /* ── Smell severity glow (function nodes) ────────── */
 .fn-card.smell-node-critical { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.22), inset 0 0 8px rgba(124,58,237,0.08); }
 .fn-card.smell-node-high     { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.18); }
 .fn-card.smell-node-medium   { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.15); }
 .fn-card.smell-node-low      { border-color: #84cc16; box-shadow: 0 0 0 1px rgba(132,204,22,0.15); }
-
-/* ── Dead code styling ───────────────────────────── */
-.fn-card.dead-code {
-  opacity: 0.55;
-  border-style: dashed;
-  border-color: #94a3b8;
-  background: #f8fafc;
-  box-shadow: none;
-}
-.fn-card.dead-code .fn-name {
-  text-decoration: line-through;
-  color: #94a3b8;
-}
-.fn-card.dead-code .fn-badge {
-  background: #94a3b8;
-}
-.fn-card.dead-code:hover {
-  opacity: 0.8;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.dead-badge {
-  position: absolute;
-  top: -7px;
-  left: -7px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #64748b;
-  color: #fff;
-  border: 1.5px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
-  z-index: 10;
-}
-.dead-badge-high   { background: #475569; }
-.dead-badge-medium { background: #94a3b8; }
 
 /* ── Dynamic-analysis "Run Dynamic Slice" trigger (bottom-right corner) ── */
 .dynamic-slice-badge {

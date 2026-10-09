@@ -15,6 +15,7 @@ from .imports_resolution import (
     _fn_param_count,
     detect_unused_imports,
 )
+from .heuristics import _strip_comments
 from .layers import _compute_layer_violations
 from .parser import ParsedClass, ParsedFunction, UniversalParser
 
@@ -96,19 +97,30 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict[str, 
     # The parsed call graph misses callbacks passed as arguments, variable-stored
     # functions, and dynamic dispatch patterns.  A regex scan across every other
     # file's raw content catches the common case of `fn_name(` appearing somewhere.
-    if len(file_content_map) > 1:
-        norm_content_map: Dict[str, str] = {
-            k.replace("\\", "/"): v for k, v in file_content_map.items()
-        }
-        for fn in all_functions:
-            if fn.fan_in > 0:
-                continue
-            # Match direct calls `fn(` AND reference passing `, fn)` / `= fn`
-            pattern = re.compile(r'\b' + re.escape(fn.name) + r'\b')
-            for fp, content in norm_content_map.items():
-                if fp != fn.file and pattern.search(content):
-                    fn.fan_in = 1
-                    break
+    # Comments are stripped so a name merely mentioned in one doesn't count as a use.
+    lang_by_path = {
+        f.get("path", "").replace("\\", "/"): f.get("language", "") for f in files
+    }
+    norm_content_map: Dict[str, str] = {
+        k.replace("\\", "/"): _strip_comments(v, lang_by_path.get(k.replace("\\", "/"), ""))
+        for k, v in file_content_map.items()
+    }
+    for fn in all_functions:
+        if fn.fan_in > 0:
+            continue
+        # Match direct calls `fn(` AND reference passing `, fn)` / `= fn`
+        pattern = re.compile(r'\b' + re.escape(fn.name) + r'\b')
+        for fp, content in norm_content_map.items():
+            if fp != fn.file and pattern.search(content):
+                fn.fan_in = 1
+                break
+        else:
+            # Same-file reference, e.g. `map(_helper, xs)` or `handlers = [_helper]`:
+            # the name appears more than once (the definition is one occurrence),
+            # so something other than the `def` mentions it.
+            own = norm_content_map.get(fn.file, "")
+            if len(pattern.findall(own)) > 1:
+                fn.fan_in = 1
 
     all_functions = parser.compute_risk_scores(all_functions)
     all_functions = parser.compute_dead_code(all_functions)
@@ -161,6 +173,11 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict[str, 
             "fan_in": fn.fan_in,
             "fan_out": fn.fan_out,
             "risk_level": fn.risk_level,
+            "risk_score": fn.risk_score,
+            "dep_direct": fn.dep_direct,
+            "dep_transitive": fn.dep_transitive,
+            "dep_cross_file": fn.dep_cross_file,
+            "in_dep_cycle": fn.in_dep_cycle,
             "is_dead": fn.is_dead,
             "dead_confidence": fn.dead_confidence,
             "is_god_file": fn.is_god_file,

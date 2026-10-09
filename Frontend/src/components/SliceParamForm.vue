@@ -226,6 +226,7 @@ async function runSlice() {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -238,11 +239,31 @@ async function runSlice() {
   overflow-y: auto;
   background: #0f172a;
   border: 1px solid #334155;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 16px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.45);
   color: #e2e8f0;
   font-size: 13px;
+}
+.slice-form-panel::-webkit-scrollbar { width: 8px; }
+.slice-form-panel::-webkit-scrollbar-track { background: transparent; }
+.slice-form-panel::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px; }
+.slice-form-panel::-webkit-scrollbar-thumb:hover { background: #475569; }
+@media (prefers-reduced-motion: no-preference) {
+  .slice-form-backdrop {
+    animation: slice-backdrop-in 160ms ease-out both;
+  }
+  .slice-form-panel {
+    animation: slice-panel-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @keyframes slice-backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes slice-panel-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
 }
 .slice-form-head {
   display: flex;
@@ -256,9 +277,16 @@ async function runSlice() {
 .slice-close-btn {
   background: transparent;
   border: none;
+  border-radius: 6px;
   color: #94a3b8;
   cursor: pointer;
   font-size: 13px;
+  padding: 2px 6px;
+  transition: background 140ms ease, color 140ms ease;
+}
+.slice-close-btn:hover {
+  background: #1e293b;
+  color: #e2e8f0;
 }
 .slice-loading, .slice-hint {
   color: #94a3b8;
@@ -293,6 +321,17 @@ async function runSlice() {
   padding: 6px 8px;
   font-size: 12px;
   font-family: inherit;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.slice-param-row input:hover,
+.slice-param-row textarea:hover {
+  border-color: #475569;
+}
+.slice-param-row input:focus,
+.slice-param-row textarea:focus {
+  outline: none;
+  border-color: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
 }
 .slice-param-row input[type="checkbox"] {
   width: auto;
@@ -307,7 +346,14 @@ async function runSlice() {
   padding: 8px;
   cursor: pointer;
   margin-top: 4px;
+  transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
 }
+.slice-run-btn:hover:not(:disabled) {
+  background: #047857;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.35);
+}
+.slice-run-btn:active:not(:disabled) { transform: translateY(0); }
 .slice-run-btn:disabled {
   background: #334155;
   cursor: not-allowed;
@@ -331,6 +377,9 @@ async function runSlice() {
   max-height: 160px;
   overflow-y: auto;
 }
+.slice-stmt-list::-webkit-scrollbar { width: 6px; }
+.slice-stmt-list::-webkit-scrollbar-track { background: transparent; }
+.slice-stmt-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px; }
 .slice-stmt-row {
   display: flex;
   align-items: center;
@@ -354,6 +403,12 @@ async function runSlice() {
   font-size: 11px;
   color: #34d399;
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.slice-var-chip:hover {
+  background: #263a33;
+  border-color: #34d399;
+  transform: translateY(-1px);
 }
 .slice-var-chip.active {
   background: #059669;

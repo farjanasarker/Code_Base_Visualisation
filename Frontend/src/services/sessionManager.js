@@ -4,8 +4,8 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const SESSION_ID_KEY = 'bmad_session_id';
-const SESSION_CREATED_AT = 'bmad_session_created';
+const SESSION_ID_KEY = 'codelens_session_id';
+const SESSION_CREATED_AT = 'codelens_session_created';
 
 class SessionManager {
   constructor() {

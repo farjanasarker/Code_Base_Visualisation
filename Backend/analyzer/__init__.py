@@ -9,6 +9,7 @@ working unchanged.
 
 from .chunking import decide_render_strategy
 from .graph_builder import (
+    attach_edge_details,
     build_all_files_graph,
     build_file_graph,
     build_function_graph,
@@ -18,6 +19,7 @@ from .metrics import compute_aggregate_metrics
 from .pipeline import analyze_files
 
 __all__ = [
+    "attach_edge_details",
     "analyze_files",
     "build_module_graph",
     "build_all_files_graph",
