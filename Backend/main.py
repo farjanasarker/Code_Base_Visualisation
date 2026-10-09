@@ -16,7 +16,7 @@ from db import clear_graph, get_full_graph, get_neighbors, store_all, get_tier1,
 from patterns.graph_view import SessionGraphView
 from patterns.rule_engine import evaluate_all, pattern_info
 from patterns.language_idioms.singleton_idioms import scan_files as scan_singleton_idioms
-from analyzer import analyze_files, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
+from analyzer import analyze_files, attach_edge_details, build_module_graph, decide_render_strategy, build_all_files_graph, compute_aggregate_metrics
 from smells import SmellDetector, SMELL_CAUSATION, SEVERITY_WEIGHTS, build_smell_graph
 import llm_engine
 from pattern_detector import ArchitecturePatternDetector
@@ -1151,6 +1151,15 @@ def api_service_graph(request: Request):
         raise HTTPException(status_code=500, detail=f"Error fetching service graph: {str(e)}")
 
 
+def _with_edge_details(graph: dict, session_id: str, service_id: str | None = None) -> dict:
+    """DB-built tier graphs only know edge counts; add the call/import evidence
+    from the cached parse so the UI can explain each arrow on hover."""
+    functions = SESSION_CACHE.get(session_id, {}).get("functions", [])
+    if service_id:
+        functions = [fn for fn in functions if fn.get("service") == service_id]
+    return attach_edge_details(graph, functions) if functions else graph
+
+
 @app.get("/graph/tier1")
 def api_tier1(request: Request, service_id: str | None = None):
     try:
@@ -1168,7 +1177,7 @@ def api_tier1(request: Request, service_id: str | None = None):
             if scoped:
                 return build_module_graph(scoped)
 
-        return get_tier1(session_id, service_id)
+        return _with_edge_details(get_tier1(session_id, service_id), session_id, service_id)
     except HTTPException:
         raise
     except Exception:
@@ -1192,7 +1201,7 @@ def api_tier2(request: Request, module_name: str, service_id: str | None = None)
         session_id = validate_session(session_id)
         update_session_activity(session_id)
 
-        return get_tier2(module_name, session_id, service_id)
+        return _with_edge_details(get_tier2(module_name, session_id, service_id), session_id, service_id)
     except HTTPException:
         raise
     except Exception:

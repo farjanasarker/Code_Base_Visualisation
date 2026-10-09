@@ -10,6 +10,98 @@ from .heuristics import _is_anonymous_callback
 from .imports_resolution import _build_stem_to_files, _module_basename, _resolve_import
 
 
+# Max evidence rows kept per edge — hover tooltips only need a representative sample,
+# and a hub module can otherwise carry thousands of call sites over the wire.
+_MAX_EDGE_DETAILS = 40
+
+
+def attach_edge_details(graph: Dict, all_functions: List[Dict]) -> Dict:
+    """Annotate each edge of a tier-1 / tier-2 / files / chunked-tier-3 graph with
+    `details`: the concrete call sites and imports that produced the arrow, as
+    {kind, from_file, from_fn, to_file, to_fn} (calls) or {kind: "import",
+    from_file, to_file, name}. Lets the UI answer "why are these two connected?"
+    on hover. Edges that already carry details are left untouched.
+    """
+    edges = graph.get("edges") or []
+    if not edges:
+        return graph
+    tier = graph.get("tier")
+
+    if tier == 1:
+        scope = all_functions
+        group_of = lambda fn: (fn.get("module") or "").strip() or fn.get("file")
+    elif tier == "files":
+        scope = all_functions
+        group_of = lambda fn: fn.get("file")
+    elif tier == 2:
+        scope = [fn for fn in all_functions if fn.get("module") == graph.get("module")]
+        group_of = lambda fn: fn.get("file")
+    elif tier == 3 and graph.get("chunked"):
+        file_path = graph.get("file")
+        scope = [fn for fn in all_functions if fn.get("file") == file_path or fn.get("virtual_module") == file_path]
+        scope = [fn for fn in scope if not _is_anonymous_callback(fn.get("name", ""))]
+        group_of = lambda fn: fn.get("virtual_module") or file_path
+    else:
+        return graph
+
+    name_to_fn = {fn.get("name"): fn for fn in scope if fn.get("name") != "__file__"}
+    buckets: Dict[tuple, List[Dict]] = {}
+    seen: set = set()
+
+    def _add(src_g, tgt_g, detail):
+        sig = (src_g, tgt_g, tuple(sorted(detail.items())))
+        if sig in seen:
+            return
+        seen.add(sig)
+        buckets.setdefault((src_g, tgt_g), []).append(detail)
+
+    for fn in scope:
+        src_g = group_of(fn)
+        for called in fn.get("calls", []) or []:
+            tgt_fn = name_to_fn.get(called)
+            if not tgt_fn:
+                continue
+            tgt_g = group_of(tgt_fn)
+            if tgt_g == src_g:
+                continue
+            _add(src_g, tgt_g, {
+                "kind": "call",
+                "from_file": fn.get("file"), "from_fn": fn.get("name"),
+                "to_file": tgt_fn.get("file"), "to_fn": called,
+            })
+
+    if tier != 3:
+        file_group: Dict[str, str] = {}
+        file_imports: Dict[str, set] = {}
+        for fn in scope:
+            fp = fn.get("file")
+            if not fp:
+                continue
+            file_group.setdefault(fp, group_of(fn))
+            if fn.get("imports"):
+                file_imports.setdefault(fp, set()).update(fn.get("imports", []))
+        stem_to_files = _build_stem_to_files(scope)
+        stem_to_file = {stem: files[0] for stem, files in stem_to_files.items()}
+        for src_file, imported_names in file_imports.items():
+            src_g = file_group.get(src_file)
+            for imported in imported_names:
+                tgt_file = _resolve_import(imported, stem_to_files, src_file)                     or stem_to_file.get(_module_basename(imported))
+                tgt_g = file_group.get(tgt_file) if tgt_file else None
+                if tgt_g and tgt_g != src_g:
+                    _add(src_g, tgt_g, {
+                        "kind": "import",
+                        "from_file": src_file, "to_file": tgt_file, "name": imported,
+                    })
+
+    for edge in edges:
+        if edge.get("details"):
+            continue
+        found = buckets.get((edge.get("source"), edge.get("target")), [])
+        edge["details"] = found[:_MAX_EDGE_DETAILS]
+        edge["details_total"] = len(found)
+    return graph
+
+
 def build_module_graph(all_functions: List[Dict]) -> Dict:
     group_stats = {}
     fn_to_group = {}
@@ -104,7 +196,7 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
         {"source": src, "target": tgt, "call_count": cnt}
         for (src, tgt), cnt in group_calls.items()
     ]
-    return {"nodes": nodes, "edges": edges, "tier": 1}
+    return attach_edge_details({"nodes": nodes, "edges": edges, "tier": 1}, all_functions)
 
 
 def build_all_files_graph(all_functions: List[Dict]) -> Dict:
@@ -149,7 +241,7 @@ def build_all_files_graph(all_functions: List[Dict]) -> Dict:
         {"source": src, "target": tgt, "call_count": cnt}
         for (src, tgt), cnt in file_calls.items()
     ]
-    return {"nodes": nodes, "edges": edges, "tier": "files"}
+    return attach_edge_details({"nodes": nodes, "edges": edges, "tier": "files"}, all_functions)
 
 
 def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
@@ -195,7 +287,7 @@ def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
         {"source": src, "target": tgt, "call_count": cnt}
         for (src, tgt), cnt in file_calls.items()
     ]
-    return {"nodes": nodes, "edges": edges, "tier": 2, "module": module_name}
+    return attach_edge_details({"nodes": nodes, "edges": edges, "tier": 2, "module": module_name}, all_functions)
 
 
 def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
@@ -254,7 +346,7 @@ def build_function_graph(file_path: str, all_functions: List[Dict]) -> Dict:
                     key = (src_vm, tgt_vm)
                     chunk_calls[key] = chunk_calls.get(key, 0) + 1
         edges = [{"source": src, "target": tgt, "call_count": cnt} for (src, tgt), cnt in chunk_calls.items()]
-        return {"nodes": nodes, "edges": edges, "tier": 3, "file": file_path, "chunked": True}
+        return attach_edge_details({"nodes": nodes, "edges": edges, "tier": 3, "file": file_path, "chunked": True}, all_functions)
 
     # Normal case: সরাসরি function graph (class split হলেও)
     name_counts: Dict[str, int] = {}
