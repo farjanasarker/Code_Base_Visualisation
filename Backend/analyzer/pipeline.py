@@ -96,19 +96,25 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict[str, 
     # The parsed call graph misses callbacks passed as arguments, variable-stored
     # functions, and dynamic dispatch patterns.  A regex scan across every other
     # file's raw content catches the common case of `fn_name(` appearing somewhere.
-    if len(file_content_map) > 1:
-        norm_content_map: Dict[str, str] = {
-            k.replace("\\", "/"): v for k, v in file_content_map.items()
-        }
-        for fn in all_functions:
-            if fn.fan_in > 0:
-                continue
-            # Match direct calls `fn(` AND reference passing `, fn)` / `= fn`
-            pattern = re.compile(r'\b' + re.escape(fn.name) + r'\b')
-            for fp, content in norm_content_map.items():
-                if fp != fn.file and pattern.search(content):
-                    fn.fan_in = 1
-                    break
+    norm_content_map: Dict[str, str] = {
+        k.replace("\\", "/"): v for k, v in file_content_map.items()
+    }
+    for fn in all_functions:
+        if fn.fan_in > 0:
+            continue
+        # Match direct calls `fn(` AND reference passing `, fn)` / `= fn`
+        pattern = re.compile(r'\b' + re.escape(fn.name) + r'\b')
+        for fp, content in norm_content_map.items():
+            if fp != fn.file and pattern.search(content):
+                fn.fan_in = 1
+                break
+        else:
+            # Same-file reference, e.g. `map(_helper, xs)` or `handlers = [_helper]`:
+            # the name appears more than once (the definition is one occurrence),
+            # so something other than the `def` mentions it.
+            own = norm_content_map.get(fn.file, "")
+            if len(pattern.findall(own)) > 1:
+                fn.fan_in = 1
 
     all_functions = parser.compute_risk_scores(all_functions)
     all_functions = parser.compute_dead_code(all_functions)

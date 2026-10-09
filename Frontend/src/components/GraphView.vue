@@ -161,11 +161,6 @@
             <span class="legend-icon">⚡</span>
             <span>Chunk (large file)</span>
           </div>
-          <div class="legend-divider"></div>
-          <div class="legend-item">
-            <span class="legend-swatch dead-swatch"></span>
-            <span>Potentially Unreachable</span>
-          </div>
         </div>
       </div>
 
@@ -630,11 +625,8 @@
 
         <!-- Summary chips -->
         <div class="dead-summary">
-          <span class="dead-chip dead-chip-high" :title="'High confidence: private functions with no callers'">
+          <span class="dead-chip dead-chip-high" :title="'Private functions with no callers'">
             🔒 {{ deadCodeData.summary?.high_confidence || 0 }} private
-          </span>
-          <span class="dead-chip dead-chip-medium" :title="'Medium confidence: may be called dynamically or externally'">
-            👻 {{ deadCodeData.summary?.medium_confidence || 0 }} public
           </span>
           <span class="dead-chip dead-chip-imp">📦 {{ deadCodeData.summary?.total_unused_imports || 0 }} imports</span>
         </div>
@@ -684,7 +676,8 @@
         <!-- Static analysis disclaimer -->
         <div class="dead-note">
           ⚠ Static analysis only. Cross-file calls within this upload are handled.
-          Dynamic calls, reflection, and external callers cannot be detected.
+          Only private functions with no callers are listed; public functions,
+          callbacks and methods are not flagged since they may be called externally.
         </div>
       </div>
       </div>
@@ -929,7 +922,6 @@
             if (n.data?.nodeType === 'rootfiles') return '#f59e0b';
             if (n.data?.nodeType === 'file') return '#f59e0b';
             if (n.data?.nodeType === 'chunk') return '#8b5cf6';
-            if (n.data?.isDead) return '#94a3b8';
             return '#6366f1';
           }"
           :minimap-style="{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px' }"

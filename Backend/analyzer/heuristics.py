@@ -177,5 +177,6 @@ def _is_private_name(name: str, language: str) -> bool:
     if language in ("javascript", "typescript"):
         return name.startswith("_") or name.startswith("#")
     if language in ("java", "csharp"):
-        return name[0].islower() and name.startswith(("_", "do", "helper", "util"))
+        # "do..." was dropped: it also matched ordinary names like "document".
+        return name.startswith("_")
     return name.startswith("_")
