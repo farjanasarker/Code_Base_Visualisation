@@ -12,7 +12,7 @@ THRESHOLDS: Dict[str, Any] = {
     "long_method_lines":        50,    # LoC in one function body
     "long_method_cc":           10,    # cyclomatic complexity
     "too_many_params":           5,    # parameter count
-    "dead_code_high_only":    False,   # False → also flag medium-confidence dead code
+    "dead_code_high_only":    True,    # only high-confidence (private, uncalled) dead code
     "feature_envy_min_fan_out":  5,    # minimum fan_out to consider
     "feature_envy_ratio":        3.0,  # fan_out / fan_in
     "deep_nesting_depth":        4,    # max block-nesting depth to flag

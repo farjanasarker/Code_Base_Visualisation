@@ -1726,26 +1726,29 @@ class UniversalParser:
                 fn.dead_confidence = "none"
                 continue
 
-            # Patterns that suggest runtime invocation (callbacks, hooks, …)
-            # We still flag these as potentially unreachable but with only
-            # "medium" confidence because we cannot rule out dynamic dispatch.
+            # Callback / hook / handler-style names are invoked by a runtime we
+            # can't see — never flag them.
             if _is_likely_runtime_invoked(fn.name):
-                fn.is_dead = True
-                fn.dead_confidence = "medium"
+                fn.is_dead = False
+                fn.dead_confidence = "none"
                 continue
 
-            # Private helper — high confidence it's truly unused
+            # Abstract declarations and methods are dispatched polymorphically,
+            # so a missing static caller proves nothing.
+            if fn.is_abstract or fn.is_method and not _is_private_name(fn.name, fn.language):
+                fn.is_dead = False
+                fn.dead_confidence = "none"
+                continue
+
+            # Only a private helper with no callers is flagged. A public
+            # function with no callers is just as likely a library API, a
+            # script's top-level function or a demo — reporting it would be a
+            # false positive, so it is left unflagged.
             if _is_private_name(fn.name, fn.language):
                 fn.is_dead = True
                 fn.dead_confidence = "high"
-                continue
-
-            # Public function with no detected callers — could still be:
-            #   • a public library API called by external code
-            #   • invoked via reflection / getattr / importlib
-            #   • a virtual/override method called polymorphically
-            # → medium confidence only
-            fn.is_dead = True
-            fn.dead_confidence = "medium"
+            else:
+                fn.is_dead = False
+                fn.dead_confidence = "none"
 
         return all_functions

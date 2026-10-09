@@ -11,12 +11,6 @@ const props = defineProps({
 
 const riskTitle = computed(() => {
   const base = props.data.fullLabel || props.data.label || '';
-  if (props.data.isDead) {
-    const conf = props.data.deadConfidence === 'high'
-      ? 'High confidence — private function with no detected callers.'
-      : 'No detected callers in this codebase. May still be called dynamically, via reflection, polymorphism, or by external code.';
-    return `${base}\n👻 Potentially Unreachable\n${conf}`;
-  }
   if (props.data.nodeType === 'service-unresolved') {
     return `${base}\n⚠ Referenced in service-map.json but no matching folder was found.\nCheck for a typo in the service name.`;
   }
@@ -30,7 +24,6 @@ const riskTitle = computed(() => {
     :class="[
       data.nodeType || 'function',
       { 'fn-root': data.isRoot },
-      { 'dead-code': data.isDead },
       data.smellSeverity && data.smellSeverity !== 'none' ? `smell-node-${data.smellSeverity}` : '',
       data.execState ? `execState-${data.execState}` : '',
     ]"
@@ -62,14 +55,6 @@ const riskTitle = computed(() => {
 
     <!-- Chunk expand hint -->
     <div v-if="data.nodeType === 'chunk'" class="chunk-expand-hint" title="Click to expand functions">▶</div>
-
-    <!-- Potentially unreachable ghost badge -->
-    <div
-      v-if="data.isDead && data.nodeType === 'function'"
-      class="dead-badge"
-      :class="data.deadConfidence === 'high' ? 'dead-badge-high' : 'dead-badge-medium'"
-      :title="data.deadConfidence === 'high' ? 'High confidence: private, no callers' : 'Medium confidence: no detected callers'"
-    >👻</div>
 
     <!-- Dynamic analysis is Python-only (§4.0) — never rendered for other languages -->
     <div
@@ -202,46 +187,6 @@ const riskTitle = computed(() => {
 .fn-card.smell-node-high     { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.18); }
 .fn-card.smell-node-medium   { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.15); }
 .fn-card.smell-node-low      { border-color: #84cc16; box-shadow: 0 0 0 1px rgba(132,204,22,0.15); }
-
-/* ── Dead code styling ───────────────────────────── */
-.fn-card.dead-code {
-  opacity: 0.55;
-  border-style: dashed;
-  border-color: #94a3b8;
-  background: #f8fafc;
-  box-shadow: none;
-}
-.fn-card.dead-code .fn-name {
-  text-decoration: line-through;
-  color: #94a3b8;
-}
-.fn-card.dead-code .fn-badge {
-  background: #94a3b8;
-}
-.fn-card.dead-code:hover {
-  opacity: 0.8;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.dead-badge {
-  position: absolute;
-  top: -7px;
-  left: -7px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #64748b;
-  color: #fff;
-  border: 1.5px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
-  z-index: 10;
-}
-.dead-badge-high   { background: #475569; }
-.dead-badge-medium { background: #94a3b8; }
 
 /* ── Dynamic-analysis "Run Dynamic Slice" trigger (bottom-right corner) ── */
 .dynamic-slice-badge {
