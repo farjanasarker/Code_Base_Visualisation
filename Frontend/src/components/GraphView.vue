@@ -913,7 +913,7 @@
     <div class="sidebar-resize-handle" :class="{ resizing: isResizing }" @mousedown.prevent="startResize"></div>
 
     <!-- ── Graph canvas ─────────────────────────────── -->
-    <div class="graph-section">
+    <div class="graph-section" ref="graphSectionEl">
       <VueFlow
         v-if="nodes.length > 0"
         :nodes="nodes"
@@ -924,6 +924,9 @@
         @node-click="onNodeClick"
         @node-mouse-enter="onNodeHover"
         @node-mouse-leave="onNodeUnhover"
+        @edge-mouse-enter="onEdgeHover"
+        @edge-mouse-move="onEdgeHover"
+        @edge-mouse-leave="onEdgeUnhover"
         @nodes-initialized="() => fitView({ padding: 0.45, duration: 400, maxZoom: 1.4 })"
         fit-view-on-init
         class="vue-flow"
@@ -966,6 +969,32 @@
             <li>Click nodes to explore the structure</li>
           </ol>
         </template>
+      </div>
+
+      <!-- ── Edge evidence tooltip (why are these two connected?) ──────── -->
+      <div
+        v-if="edgeTip.visible"
+        class="edge-tip"
+        :style="{ left: edgeTip.x + 'px', top: edgeTip.y + 'px' }"
+      >
+        <div class="edge-tip-head">
+          <span class="edge-tip-name">{{ edgeTip.from }}</span>
+          <span class="edge-tip-arrow">→</span>
+          <span class="edge-tip-name">{{ edgeTip.to }}</span>
+        </div>
+        <div class="edge-tip-sub">
+          {{ edgeTip.total }} connection{{ edgeTip.total === 1 ? '' : 's' }}
+          <span v-if="edgeTip.total > edgeTip.shown">(showing {{ edgeTip.shown }})</span>
+        </div>
+        <div v-for="g in edgeTip.groups" :key="g.key" class="edge-tip-group">
+          <div v-if="g.from !== edgeTip.from || g.to !== edgeTip.to" class="edge-tip-files">
+            {{ g.from }} <span class="edge-tip-arrow">→</span> {{ g.to }}
+          </div>
+          <div v-for="(item, i) in g.items" :key="i" class="edge-tip-row" :class="item.kind">
+            <span class="edge-tip-kind">{{ item.kind === 'import' ? 'import' : 'call' }}</span>
+            <span class="edge-tip-text">{{ item.text }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- ── Change-Impact Overlay (reverse call graph on hover) ──────── -->
@@ -1473,6 +1502,8 @@ const toVueFlowEdges = (rawEdges, knownNodes, opts = {}) => {
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
       _origStroke: edgeColor,
+      interactionWidth: 24,   // fat invisible hit-area so thin edges are easy to hover
+      data: { details: e.details || [], total: e.details_total || 0, callCount: e.call_count || 0 },
       markerEnd: {
         type: MarkerType.ArrowClosed,
         width: 16,
@@ -2417,6 +2448,51 @@ const showImpactForNode = (node) => {
   });
 };
 
+// ── Edge evidence tooltip ─────────────────────────────────────────────
+// Module→module / file→file / chunk→chunk arrows carry `details` from the
+// backend (the concrete calls & imports behind them); hovering one lists them.
+const graphSectionEl = ref(null);
+const edgeTip = ref({ visible: false, x: 0, y: 0, from: '', to: '', total: 0, shown: 0, groups: [] });
+
+const shortName = (p) => String(p || '').split(/[\\/]/).pop();
+
+const onEdgeHover = ({ event, edge }) => {
+  const details = edge?.data?.details;
+  if (!details?.length) {
+    edgeTip.value.visible = false;
+    return;
+  }
+  const groups = new Map();
+  details.forEach((d) => {
+    const key = `${d.from_file}→${d.to_file}`;
+    if (!groups.has(key)) groups.set(key, { key, from: shortName(d.from_file), to: shortName(d.to_file), items: [] });
+    groups.get(key).items.push(
+      d.kind === 'import'
+        ? { kind: 'import', text: d.name }
+        : { kind: 'call', text: `${d.from_fn}() → ${d.to_fn}()` }
+    );
+  });
+  const rect = graphSectionEl.value?.getBoundingClientRect();
+  const TIP_W = 340;
+  const rawX = event.clientX - (rect?.left ?? 0) + 16;
+  const rawY = event.clientY - (rect?.top ?? 0) + 16;
+  const maxX = (rect?.width ?? 0) - TIP_W - 8;
+  edgeTip.value = {
+    visible: true,
+    x: rect ? Math.max(8, Math.min(rawX, maxX)) : rawX,
+    y: rawY,
+    from: shortName(edge.source),
+    to: shortName(edge.target),
+    total: edge.data.total || details.length,
+    shown: details.length,
+    groups: [...groups.values()],
+  };
+};
+
+const onEdgeUnhover = () => {
+  edgeTip.value.visible = false;
+};
+
 const onNodeHover = ({ node }) => {
   showImpactForNode(node);
   const connectedIds = new Set([node.id]);
@@ -3141,6 +3217,40 @@ const collapseOthers = (nodeType, keepId) => {
 .graph-section :deep(.vue-flow__minimap:hover) {
   box-shadow: var(--shadow-lg, 0 10px 32px rgba(0,0,0,0.3));
 }
+
+/* ── Edge evidence tooltip ─────────────────────────── */
+.edge-tip {
+  position: absolute;
+  z-index: 30;
+  width: 340px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  color: #e2e8f0;
+  font-size: 12px;
+}
+.edge-tip-head { font-size: 13px; font-weight: 700; word-break: break-all; }
+.edge-tip-name { color: #38bdf8; }
+.edge-tip-arrow { color: #94a3b8; margin: 0 4px; }
+.edge-tip-sub { color: #94a3b8; font-size: 11px; margin: 2px 0 6px; }
+.edge-tip-group { margin-top: 6px; }
+.edge-tip-files { color: #fbbf24; font-weight: 600; font-size: 11px; margin-bottom: 2px; word-break: break-all; }
+.edge-tip-row { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; }
+.edge-tip-kind {
+  flex: none;
+  min-width: 40px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #22d3ee;
+}
+.edge-tip-row.import .edge-tip-kind { color: #a78bfa; }
+.edge-tip-text { font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
 
 /* ── Change-Impact Overlay ─────────────────────────── */
 .impact-overlay {
