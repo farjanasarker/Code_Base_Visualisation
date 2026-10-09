@@ -15,6 +15,7 @@ from .imports_resolution import (
     _fn_param_count,
     detect_unused_imports,
 )
+from .heuristics import _strip_comments
 from .layers import _compute_layer_violations
 from .parser import ParsedClass, ParsedFunction, UniversalParser
 
@@ -96,8 +97,13 @@ def analyze_files(files: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict[str, 
     # The parsed call graph misses callbacks passed as arguments, variable-stored
     # functions, and dynamic dispatch patterns.  A regex scan across every other
     # file's raw content catches the common case of `fn_name(` appearing somewhere.
+    # Comments are stripped so a name merely mentioned in one doesn't count as a use.
+    lang_by_path = {
+        f.get("path", "").replace("\\", "/"): f.get("language", "") for f in files
+    }
     norm_content_map: Dict[str, str] = {
-        k.replace("\\", "/"): v for k, v in file_content_map.items()
+        k.replace("\\", "/"): _strip_comments(v, lang_by_path.get(k.replace("\\", "/"), ""))
+        for k, v in file_content_map.items()
     }
     for fn in all_functions:
         if fn.fan_in > 0:
