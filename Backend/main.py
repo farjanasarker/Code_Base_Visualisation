@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import subprocess
 import tempfile
@@ -364,17 +365,25 @@ async def start_session():
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 
-@app.delete("/end-session")
+@app.api_route("/end-session", methods=["DELETE", "POST"])
 async def end_session(request: Request):
     """
     Clean up session when browser closes
-    Frontend sends this via sendBeacon before closing
+    Frontend sends this via sendBeacon before closing (sendBeacon is always
+    POST and cannot set headers, so session_id may come in the JSON body)
     """
     try:
         session_id = request.headers.get("X-Session-ID")
-        
+
+        if not session_id and request.method == "POST":
+            try:
+                body = json.loads((await request.body()) or b"{}")
+                session_id = body.get("session_id")
+            except (ValueError, AttributeError):
+                session_id = None
+
         if not session_id:
-            raise HTTPException(status_code=400, detail="Missing X-Session-ID header")
+            raise HTTPException(status_code=400, detail="Missing session id (X-Session-ID header or session_id in body)")
         
         success = end_session_cleanup(session_id)
         
