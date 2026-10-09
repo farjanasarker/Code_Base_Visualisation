@@ -545,7 +545,7 @@
         <!-- LLM Reasoning Output -->
         <div v-if="llmPlan" class="llm-plan-box">
           <div class="llm-plan-source">
-            {{ llmPlan._source === 'llm' ? '🤖 Groq / llama-3.1-8b-instant' : '📊 Static Analysis Fallback' }}
+            {{ String(llmPlan._source || '').startsWith('groq:') ? `🤖 Groq / ${llmPlan._source.slice(5)}` : '📊 Static Analysis Fallback' }}
           </div>
           <div v-if="llmPlan.executive_summary" class="llm-exec-summary">
             {{ llmPlan.executive_summary }}
