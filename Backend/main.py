@@ -1335,8 +1335,11 @@ def api_chunk(request: Request, file_path: str, chunk_name: str):
 
 @app.get("/risk-score")
 def api_risk_score(request: Request):
-    """Return all functions ranked by dependency risk (fan_in).
-    Risk levels: high (>=10 callers), medium (>=3), low (>=1), none (0).
+    """Return functions ranked by dependency risk: how fragile each is because
+    of the code it CALLS (direct + transitive project dependencies, cross-file
+    dependencies, circular call chains). This is the forward direction; the
+    reverse question — who breaks if it changes — is /impact-analysis.
+    Risk levels come from the score in parser.compute_risk_scores.
     """
     try:
         session_id = request.headers.get("X-Session-ID")
@@ -1351,21 +1354,36 @@ def api_risk_score(request: Request):
             lvl = fn.get("risk_level", "none")
             summary[lvl] = summary.get(lvl, 0) + 1
 
-        # Only functions that are called by at least one other function, sorted by risk
+        # Only functions that depend on at least one project function, riskiest first
         risky = sorted(
-            [fn for fn in real_fns if fn.get("fan_in", 0) > 0],
-            key=lambda f: f.get("fan_in", 0),
+            [fn for fn in real_fns if fn.get("dep_direct", 0) > 0],
+            key=lambda f: (f.get("risk_score", 0), f.get("dep_transitive", 0)),
             reverse=True
         )
+
+        def _warning(fn):
+            parts = [f"Depends on {fn.get('dep_direct', 0)} function(s)"]
+            extra = fn.get("dep_transitive", 0) - fn.get("dep_direct", 0)
+            if extra > 0:
+                parts.append(f"{extra} more indirectly")
+            if fn.get("dep_cross_file", 0):
+                parts.append(f"{fn['dep_cross_file']} in other files")
+            msg = ", ".join(parts)
+            if fn.get("in_dep_cycle"):
+                msg += " — part of a circular call chain"
+            return msg
 
         result = [
             {
                 "name": fn.get("name"),
                 "file": fn.get("file"),
-                "fan_in": fn.get("fan_in", 0),
-                "fan_out": fn.get("fan_out", 0),
+                "dep_direct": fn.get("dep_direct", 0),
+                "dep_transitive": fn.get("dep_transitive", 0),
+                "dep_cross_file": fn.get("dep_cross_file", 0),
+                "in_cycle": fn.get("in_dep_cycle", False),
+                "risk_score": fn.get("risk_score", 0),
                 "risk_level": fn.get("risk_level", "none"),
-                "warning": f"Changing this will affect {fn.get('fan_in', 0)} caller(s)",
+                "warning": _warning(fn),
             }
             for fn in risky[:50]
         ]
@@ -1484,7 +1502,8 @@ def api_impact_analysis(function_name: str, request: Request):
     """
     Reverse call graph: which functions/modules would be affected if
     `function_name` changes. Walks the caller chain transitively (BFS)
-    over functions[].calls, the same data risk-score's fan_in is built from.
+    over functions[].calls. Looks at callers (what breaks if this changes);
+    /risk-score looks at callees (what this is fragile to).
     """
     try:
         session_id = request.headers.get("X-Session-ID")
