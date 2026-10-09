@@ -2908,7 +2908,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 10px;
 }
 .section-subtitle {
-  font-size: 12px;
+  font-size: 13px;
   color: #e2e8f0;
   line-height: 1.5;
   margin: -6px 0 10px;
@@ -4462,7 +4462,7 @@ const collapseOthers = (nodeType, keepId) => {
   display: inline-block;
   background: #1e3a5f;
   color: #93c5fd;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 10px;
@@ -4492,7 +4492,7 @@ const collapseOthers = (nodeType, keepId) => {
   margin-bottom: 6px;
 }
 .pattern-name {
-  font-size: 16.5px;
+  font-size: 16px;
   font-weight: 700;
   color: #e2e8f0;
 }
@@ -4503,7 +4503,7 @@ const collapseOthers = (nodeType, keepId) => {
   min-width: 0;
 }
 .pattern-subtitle {
-  font-size: 13.5px;
+  font-size: 14px;
   color: #7dd3fc;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4532,7 +4532,7 @@ const collapseOthers = (nodeType, keepId) => {
   letter-spacing: 0.04em;
 }
 .pattern-definition {
-  font-size: 15.5px;
+  font-size: 14px;
   color: #e2e8f0;
   line-height: 1.55;
   background: #0f172a;
@@ -4543,7 +4543,7 @@ const collapseOthers = (nodeType, keepId) => {
 }
 .pattern-why {
   display: block;
-  font-size: 14.5px;
+  font-size: 14px;
   color: #e2e8f0;
   margin-top: 5px;
 }
@@ -4620,14 +4620,14 @@ const collapseOthers = (nodeType, keepId) => {
 .pattern-instance-summary::before {
   content: "▸";
   color: #cbd5e1;
-  font-size: 12.5px;
+  font-size: 13.5px;
   margin-right: 4px;
 }
 details[open] > .pattern-instance-summary::before {
   content: "▾";
 }
 .pattern-instance-binding {
-  font-size: 15.5px;
+  font-size: 14px;
   font-weight: 600;
   color: #e2e8f0;
   overflow: hidden;
@@ -4635,7 +4635,7 @@ details[open] > .pattern-instance-summary::before {
   white-space: nowrap;
 }
 .pattern-instance-conf {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #e2e8f0;
   flex-shrink: 0;
@@ -4657,7 +4657,7 @@ details[open] > .pattern-instance-summary::before {
   margin-bottom: 1px;
 }
 .pattern-evidence-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: #7dd3fc;
 }
@@ -4670,7 +4670,7 @@ details[open] > .pattern-instance-summary::before {
   color: #fb923c;
 }
 .pattern-conf-badge {
-  font-size: 14.5px;
+  font-size: 13.5px;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 8px;
@@ -4687,7 +4687,7 @@ details[open] > .pattern-instance-summary::before {
   margin-bottom: 5px;
 }
 .pattern-evidence-item {
-  font-size: 13px;
+  font-size: 14px;
   color: #e2e8f0;
   line-height: 1.5;
 }
@@ -4712,19 +4712,19 @@ details[open] > .pattern-instance-summary::before {
   line-height: 1.6;
 }
 .ptree-prefix {
-  font-size: 13.5px;
+  font-size: 14px;
   color: #cbd5e1;
   flex-shrink: 0;
   font-family: monospace;
 }
 .pattern-layer-name {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: #7dd3fc;
   flex-shrink: 0;
 }
 .pattern-layer-files {
-  font-size: 13.5px;
+  font-size: 14px;
   color: #e2e8f0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4737,13 +4737,13 @@ details[open] > .pattern-instance-summary::before {
   padding-top: 6px;
 }
 .pattern-violations-label {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: #f87171;
   margin-bottom: 4px;
 }
 .pattern-violation-item {
-  font-size: 12.5px;
+  font-size: 13px;
   color: #fca5a5;
   line-height: 1.4;
   overflow: hidden;
@@ -4751,12 +4751,12 @@ details[open] > .pattern-instance-summary::before {
   white-space: nowrap;
 }
 .pattern-violation-more {
-  font-size: 12.5px;
+  font-size: 13px;
   color: #cbd5e1;
   margin-top: 2px;
 }
 .patterns-empty {
-  font-size: 13.5px;
+  font-size: 14px;
   color: #cbd5e1;
   padding: 6px 0;
 }
