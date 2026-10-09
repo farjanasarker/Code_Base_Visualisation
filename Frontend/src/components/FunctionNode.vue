@@ -64,12 +64,12 @@ const riskTitle = computed(() => {
     <!-- Chunk expand hint -->
     <div v-if="data.nodeType === 'chunk'" class="chunk-expand-hint" title="Click to expand functions">▶</div>
 
-    <!-- Risk counter badge: only on function nodes that have callers -->
+    <!-- Dependency-risk badge: number of project functions this one depends on (outgoing calls) -->
     <div
-      v-if="data.nodeType === 'function' && data.fanIn > 0"
+      v-if="data.nodeType === 'function' && data.depDirect > 0"
       class="risk-dot"
       :class="`risk-dot-${data.riskLevel || 'none'}`"
-    >{{ data.fanIn }}</div>
+    >{{ data.depDirect }}</div>
 
     <!-- Potentially unreachable ghost badge -->
     <div

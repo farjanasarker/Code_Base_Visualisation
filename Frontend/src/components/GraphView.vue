@@ -164,15 +164,15 @@
           <div class="legend-divider"></div>
           <div class="legend-item">
             <span class="legend-swatch risk-high-swatch"></span>
-            <span>High Risk (≥10 callers)</span>
+            <span>High Dependency Risk</span>
           </div>
           <div class="legend-item">
             <span class="legend-swatch risk-medium-swatch"></span>
-            <span>Medium Risk (3–9)</span>
+            <span>Medium Dependency Risk</span>
           </div>
           <div class="legend-item">
             <span class="legend-swatch risk-low-swatch"></span>
-            <span>Low Risk (1–2)</span>
+            <span>Low Dependency Risk</span>
           </div>
           <div class="legend-item">
             <span class="legend-swatch dead-swatch"></span>
@@ -604,7 +604,7 @@
       <!-- Dependency Risk Panel -->
       <div v-if="riskData" class="sidebar-section risk-panel">
         <div class="section-title">Dependency Risk</div>
-        <div class="section-subtitle">Functions many other things depend on — breaking these has the widest blast radius.</div>
+        <div class="section-subtitle">Functions that lean on the most other code (directly, indirectly, across files, or in circular chains) — the likeliest to break when something they call changes.</div>
 
         <!-- Summary chips -->
         <div class="risk-summary">
@@ -629,10 +629,10 @@
               <div class="risk-item-name">{{ fn.name }}</div>
               <div class="risk-item-warn">{{ fn.warning }}</div>
             </div>
-            <span class="risk-item-count">{{ fn.fan_in }}</span>
+            <span class="risk-item-count" :title="`${fn.dep_direct} direct / ${fn.dep_transitive} total dependencies`">{{ fn.in_cycle ? '↻ ' : '' }}{{ fn.dep_direct }}</span>
           </div>
         </div>
-        <div v-else class="risk-empty">No high-risk dependencies found — no function has 10+ callers. That's a good sign for decoupling.</div>
+        <div v-else class="risk-empty">No function depends on other project code — nothing is coupled through calls.</div>
       </div>
 
       <!-- Potentially Unreachable Panel -->
@@ -1411,7 +1411,7 @@ const getDisplayLabel = (fullLabel, nodeType = 'module') => {
 const createNode = (id, position, opts = {}) => {
   const {
     label, fullLabel, nodeType = 'module', callCount = 0, isRoot = false,
-    language, riskLevel = 'none', fanIn = 0, isDead = false, deadConfidence = 'none',
+    language, riskLevel = 'none', fanIn = 0, depDirect = 0, depTransitive = 0, inDepCycle = false, isDead = false, deadConfidence = 'none',
     violationCount = 0, violationSeverity = 'none', smellSeverity = 'none',
     parentFile = null, fnCount = 0, className = null, filePath = null,
   } = opts;
@@ -1427,6 +1427,9 @@ const createNode = (id, position, opts = {}) => {
       isRoot,
       riskLevel,
       fanIn,
+      depDirect,
+      depTransitive,
+      inDepCycle,
       isDead,
       deadConfidence,
       violationCount,
@@ -2158,6 +2161,9 @@ const renderFunctionView = async (fileId, functionGraph) => {
       callCount: fn.fan_out,
       riskLevel: fn.risk_level || 'none',
       fanIn: fn.fan_in || 0,
+      depDirect: fn.dep_direct || 0,
+      depTransitive: fn.dep_transitive || 0,
+      inDepCycle: fn.in_dep_cycle || false,
       isDead: fn.is_dead || false,
       deadConfidence: fn.dead_confidence || 'none',
       smellSeverity: smellSeverityMap.value[fn.label || fn.id] || 'none',

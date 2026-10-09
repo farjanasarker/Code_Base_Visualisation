@@ -50,7 +50,15 @@ class ParsedFunction:
     call_targets: Dict[str, str] = field(default_factory=dict)
     fan_in: int = 0
     fan_out: int = 0
+    # Dependency risk = how fragile this function is because of what it DEPENDS ON
+    # (outgoing calls). Deliberately the opposite direction to impact analysis,
+    # which walks callers (fan_in) to find what a change would break.
     risk_level: str = "none"      # none | low | medium | high
+    risk_score: int = 0
+    dep_direct: int = 0            # distinct project functions it calls directly
+    dep_transitive: int = 0        # distinct project functions reachable via calls
+    dep_cross_file: int = 0        # direct deps that live only in other files
+    in_dep_cycle: bool = False     # part of a circular call chain
     is_dead: bool = False          # True → potentially unreachable
     dead_confidence: str = "none"  # none | medium | high
     max_nesting_depth: int = 0     # max block-nesting depth inside the function
@@ -1584,13 +1592,111 @@ class UniversalParser:
             fn.fan_in = call_counts.get(fn.name, 0)
         return all_functions
 
+    # Dependency-risk weights/thresholds (see compute_risk_scores).
+    RISK_CYCLE_PENALTY = 6
+    RISK_HIGH_SCORE = 25
+    RISK_MEDIUM_SCORE = 10
+
     def compute_risk_scores(self, all_functions: List[ParsedFunction]) -> List[ParsedFunction]:
+        """Dependency risk: how exposed a function is to breakage in the code it
+        *calls* (forward edges). Impact analysis is the reverse question — who
+        calls it (fan_in) and would break if it changed — so fan_in is not used here.
+
+        score = 2*direct + (transitive - direct) + 2*cross_file + cycle penalty
+        Only calls that resolve to a function defined in the project count;
+        library / builtin calls are outside our control and ignored.
+        """
+        defs_by_name: Dict[str, set] = {}
         for fn in all_functions:
-            if fn.fan_in >= 10:
+            defs_by_name.setdefault(fn.name, set()).add(fn.file)
+
+        # name-level forward call graph restricted to project functions
+        graph: Dict[str, set] = {name: set() for name in defs_by_name}
+        for fn in all_functions:
+            for callee in fn.calls:
+                if callee in defs_by_name and callee != fn.name:
+                    graph[fn.name].add(callee)
+
+        # Tarjan SCC (iterative). Components are emitted sinks-first, so each
+        # component's reachable set can be built from its already-finished children.
+        index_of: Dict[str, int] = {}
+        low: Dict[str, int] = {}
+        on_stack: set = set()
+        stack: List[str] = []
+        comp_of: Dict[str, int] = {}
+        comps: List[List[str]] = []
+        counter = 0
+        for root in graph:
+            if root in index_of:
+                continue
+            work = [(root, iter(graph[root]))]
+            index_of[root] = low[root] = counter
+            counter += 1
+            stack.append(root)
+            on_stack.add(root)
+            while work:
+                node, it = work[-1]
+                advanced = False
+                for nxt in it:
+                    if nxt not in index_of:
+                        index_of[nxt] = low[nxt] = counter
+                        counter += 1
+                        stack.append(nxt)
+                        on_stack.add(nxt)
+                        work.append((nxt, iter(graph[nxt])))
+                        advanced = True
+                        break
+                    if nxt in on_stack:
+                        low[node] = min(low[node], index_of[nxt])
+                if advanced:
+                    continue
+                work.pop()
+                if work:
+                    parent = work[-1][0]
+                    low[parent] = min(low[parent], low[node])
+                if low[node] == index_of[node]:
+                    members = []
+                    while True:
+                        m = stack.pop()
+                        on_stack.discard(m)
+                        comp_of[m] = len(comps)
+                        members.append(m)
+                        if m == node:
+                            break
+                    comps.append(members)
+
+        # reachable-set bitmask per component (bit i = name_bit[i] reachable)
+        name_bit = {name: 1 << i for i, name in enumerate(graph)}
+        reach: List[int] = [0] * len(comps)
+        for cid, members in enumerate(comps):
+            mask = 0
+            for m in members:
+                mask |= name_bit[m]
+                for callee in graph[m]:
+                    if comp_of[callee] != cid:
+                        mask |= reach[comp_of[callee]]
+            reach[cid] = mask
+
+        for fn in all_functions:
+            direct = graph[fn.name]
+            cid = comp_of[fn.name]
+            fn.dep_direct = len(direct)
+            fn.dep_transitive = max(bin(reach[cid]).count("1") - 1, 0)
+            fn.in_dep_cycle = len(comps[cid]) > 1
+            fn.dep_cross_file = sum(1 for c in direct if fn.file not in defs_by_name[c])
+
+            score = (
+                2 * fn.dep_direct
+                + (fn.dep_transitive - fn.dep_direct)
+                + 2 * fn.dep_cross_file
+                + (self.RISK_CYCLE_PENALTY if fn.in_dep_cycle else 0)
+            )
+            fn.risk_score = score
+            if score >= self.RISK_HIGH_SCORE:
                 fn.risk_level = "high"
-            elif fn.fan_in >= 3:
+            elif score >= self.RISK_MEDIUM_SCORE:
                 fn.risk_level = "medium"
-            elif fn.fan_in >= 1:
+            elif score >= 1:
                 fn.risk_level = "low"
             else:
                 fn.risk_level = "none"
