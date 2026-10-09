@@ -199,6 +199,21 @@ def build_module_graph(all_functions: List[Dict]) -> Dict:
     return attach_edge_details({"nodes": nodes, "edges": edges, "tier": 1}, all_functions)
 
 
+def _drop_inert_init_files(nodes: List[Dict], edges: List[Dict]) -> List[Dict]:
+    """Hide Python package markers (`__init__.py`) that carry no information in a
+    file graph: no functions and no import/call edge to or from any other file.
+    An `__init__.py` that re-exports or imports something keeps its node."""
+    connected = {e["source"] for e in edges} | {e["target"] for e in edges}
+    return [
+        n for n in nodes
+        if not (
+            n["id"].replace("\\", "/").rsplit("/", 1)[-1] == "__init__.py"
+            and n.get("fn_count", 0) == 0
+            and n["id"] not in connected
+        )
+    ]
+
+
 def build_all_files_graph(all_functions: List[Dict]) -> Dict:
     """Build a flat file-relations graph across all files (no module grouping)."""
     files_map: Dict[str, Dict] = {}
@@ -241,6 +256,7 @@ def build_all_files_graph(all_functions: List[Dict]) -> Dict:
         {"source": src, "target": tgt, "call_count": cnt}
         for (src, tgt), cnt in file_calls.items()
     ]
+    nodes = _drop_inert_init_files(nodes, edges)
     return attach_edge_details({"nodes": nodes, "edges": edges, "tier": "files"}, all_functions)
 
 
@@ -287,6 +303,7 @@ def build_file_graph(module_name: str, all_functions: List[Dict]) -> Dict:
         {"source": src, "target": tgt, "call_count": cnt}
         for (src, tgt), cnt in file_calls.items()
     ]
+    nodes = _drop_inert_init_files(nodes, edges)
     return attach_edge_details({"nodes": nodes, "edges": edges, "tier": 2, "module": module_name}, all_functions)
 
 
