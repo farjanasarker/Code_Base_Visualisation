@@ -228,7 +228,27 @@ def _fallback_plan(preliminary_plan: List[Dict], error: str = "") -> Dict:
 _CODE_PREVIEW_SYSTEM = """\
 You are a refactoring assistant. Given a code smell and refactoring suggestion,
 produce a SHORT before/after Python/pseudocode snippet (max 15 lines total).
-Return JSON only: { before: string, after: string, explanation: string }"""
+Return JSON only: { before: string, after: string, explanation: string }
+Use real line breaks and normal 4-space indentation inside before/after
+(standard JSON string escaping only; never write a literal backslash-n)."""
+
+
+def _normalize_snippet(value) -> str:
+    """Turn LLM code output into a clean multi-line string.
+
+    Handles lists of lines and double-escaped sequences (literal "\\n", "\\t")
+    that would otherwise render on a single line in a <pre> block.
+    """
+    if isinstance(value, (list, tuple)):
+        value = "\n".join(str(v) for v in value)
+    text = str(value if value is not None else "")
+    if "\n" not in text or "\\n" in text:
+        text = (
+            text.replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\t", "    ")
+        )
+    return text.replace("\r\n", "\n").strip("\n")
 
 
 def get_code_preview(
@@ -274,8 +294,8 @@ def get_code_preview(
         if not all(k in parsed for k in ("before", "after", "explanation")):
             return None
         return {
-            "before":      parsed["before"],
-            "after":       parsed["after"],
+            "before":      _normalize_snippet(parsed["before"]),
+            "after":       _normalize_snippet(parsed["after"]),
             "explanation": parsed["explanation"],
         }
     except Exception as exc:
