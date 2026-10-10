@@ -1,12 +1,5 @@
-"""
-catalog.py — Static data for smell detection: thresholds, severity weights,
-refactoring catalog and the smell causation model.
-"""
-
 from typing import Any, Dict, List
 
-
-# ── Detection Thresholds ──────────────────────────────────────────────────────
 THRESHOLDS: Dict[str, Any] = {
     # --- function-level ---
     "long_method_lines":        50,    # LoC in one function body
@@ -89,9 +82,6 @@ REFACTOR_CATALOG: Dict[str, List[str]] = {
                                "Use Enum for Related Constants"],
 }
 
-# ── Smell Causation Model ─────────────────────────────────────────────────────
-# Defines which smell types are DOWNSTREAM (caused/worsened) by each upstream type.
-# Fixing an upstream smell typically cascades to reduce/resolve downstream ones.
 SMELL_CAUSATION: Dict[str, Dict] = {
     # ── Root-level architectural smells ───────────────────────────────────────
     "god_class": {

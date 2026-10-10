@@ -1,10 +1,3 @@
-"""Top-level orchestration: parse every uploaded file, apply file-size
-strategies (including god-file chunking), aggregate cross-file fan-in, flag
-dead code, resolve imports, and compute architecture-layer violations —
-producing the flat function-dict list the rest of the app (graph builders,
-metrics, smell detection) consumes.
-"""
-
 import re
 from typing import Dict, List, Tuple
 

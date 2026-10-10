@@ -1,20 +1,3 @@
-"""
-smell_graph.py — Smell Dependency Graph + Root Cause Analysis Engine.
-
-Architecture:
-  1. SmellDependencyGraph  — directed graph: node = smell instance, edge = causation
-  2. Root Cause Scoring    — BFS downstream impact: score(A) = Σ severity_weight(descendants)
-  3. Gain Ratio            — score / effort  (higher = better ROI for refactoring)
-  4. Minimal-Fix Planner   — Greedy Set-Cover: pick highest gain_ratio, mark cascades resolved
-
-Research notes:
-  The causation graph encodes SMELL TYPE relationships (from SMELL_CAUSATION catalog).
-  Instance-level edges are derived by linking each detected instance of type X to all
-  detected instances of type Y where Y ∈ SMELL_CAUSATION[X]["downstream"].
-  This models the real-world pattern: fixing a God Module instance typically
-  reduces the Long Method instances that live inside it.
-"""
-
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict, deque
@@ -40,17 +23,7 @@ class SmellNode:
 # ── Smell Dependency Graph ────────────────────────────────────────────────────
 
 class SmellDependencyGraph:
-    """
-    Directed graph where:
-      node  = a detected smell instance (Smell object)
-      edge  = causation: fixing upstream smell often resolves/reduces downstream
-
-    Algorithms:
-      build_edges_from_type_rules()  — derive instance edges from type-level catalog
-      compute_root_cause_scores()    — BFS from each node, accumulate severity scores
-      minimal_fix_plan()             — Greedy set-cover for maximum-gain ordering
-    """
-
+    
     def __init__(self):
         self.nodes: Dict[str, SmellNode] = {}    # smell_id → SmellNode
         self._edges: Set[Tuple[str,str]] = set() # (upstream_id, downstream_id)
@@ -70,14 +43,6 @@ class SmellDependencyGraph:
         self.nodes[downstream_id].upstream_ids.append(upstream_id)
 
     def build_edges_from_type_rules(self) -> None:
-        """
-        For each smell instance of type X, create edges to all instances of
-        type Y where Y ∈ SMELL_CAUSATION[X]["downstream"].
-
-        Complexity: O(|smells|²) worst case — acceptable for ≤ 500 smell instances.
-        For larger graphs, group-level edges (type→type instead of instance→instance)
-        should be used with lazy expansion.
-        """
         by_type: Dict[str, List[str]] = defaultdict(list)
         for sid, node in self.nodes.items():
             by_type[node.smell.type].append(sid)
@@ -93,13 +58,7 @@ class SmellDependencyGraph:
     # ── Root Cause Scoring ────────────────────────────────────────────────────
 
     def compute_root_cause_scores(self) -> None:
-        """
-        BFS from every node → accumulate severity weights of all reachable descendants.
-
-        score(A) = severity_weight(A) + Σ severity_weight(D) for D reachable from A
-
-        This captures: "if I fix A, how much total smell severity is eliminated downstream?"
-        """
+        
         for start_id, start_node in self.nodes.items():
             visited: Set[str] = set()
             queue = deque(start_node.downstream_ids)
@@ -125,16 +84,7 @@ class SmellDependencyGraph:
     # ── Minimal-Fix Planner ───────────────────────────────────────────────────
 
     def minimal_fix_plan(self, max_steps: int = 8) -> List[Dict]:
-        """
-        Greedy Set-Cover algorithm:
-          1. Rank unresolved smell nodes by gain_ratio (score / effort).
-          2. Pick the best candidate; mark it and all its BFS-reachable
-             downstream smells as "resolved".
-          3. Repeat until max_steps or no unresolved smells remain.
-
-        This produces a MINIMAL refactoring sequence with MAXIMUM smell coverage,
-        prioritising root-cause smells that eliminate cascades of downstream issues.
-        """
+        
         resolved:   Set[str] = set()
         plan:       List[Dict] = []
 

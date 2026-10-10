@@ -123,21 +123,8 @@ _COLLECTION_TYPE_HINTS = ("list<", "vec<", "array<", "set<", "hashset<",
                            # angle brackets, for generics (`List[Component]`).
                            "list[", "set[", "frozenset[", "sequence[")
 
-# Method-shaped body children per language, deliberately including bodyless
-# signatures (TS `method_signature`, Rust `function_signature_item`) so
-# interface/trait method counts don't depend on a body existing. Go's
-# `method_elem` only ever appears inside an `interface_type` body — struct
-# bodies never contain it, so this naturally yields [] for structs (Go
-# methods live outside the type declaration, linked via receiver instead).
 _METHOD_NODE_TYPES = {
     "javascript": {"method_definition"},
-    # abstract_method_signature is TS's bodyless abstract-class method decl
-    # (`abstract foo(): void;`) — a different node type from interface
-    # members' method_signature, easy to miss since both are bodyless and
-    # print identically. Without it here, an abstract class's abstract
-    # methods vanish from ClassInfo.method_names entirely (see
-    # abstract_method_called_from_concrete_sibling_method in predicates.py,
-    # which needs them to recognize Template Method).
     "typescript": {"method_signature", "method_definition", "abstract_method_signature"},
     "java": {"method_declaration"},
     "go": {"method_elem"},
@@ -180,10 +167,6 @@ def _walk_fields(body_node, content: str, language: str) -> List[ParsedField]:
             continue
         name = content[name_node.start_byte:name_node.end_byte]
         type_node = child.child_by_field_name("type")
-        # TS's `type:` field is the whole `type_annotation` node, whose text
-        # includes the leading `: ` (e.g. `: number`) — strip it so field
-        # types are comparable to plain type names elsewhere (Go/Rust/Java's
-        # `type:` field has no such wrapper).
         type_text = content[type_node.start_byte:type_node.end_byte].lstrip(":").strip() if type_node else ""
         fields.append(ParsedField(name=name, type=type_text, is_collection=_is_collection_type(type_text)))
     return fields

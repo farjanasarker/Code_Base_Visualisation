@@ -1,19 +1,3 @@
-"""
-smell_detector.py — Pure static-analysis code smell detection.
-
-Architecture:
-  Static analysis detects smells from metrics (fan_in, fan_out, complexity, LOC, etc.)
-  LLM does NOT run here — all rules are metric/pattern-based.
-  LLM only receives the structured output of this module to reason about architecture.
-
-Smell taxonomy:
-  Function-level  : long_method, too_many_params, dead_code, feature_envy,
-                    deep_nesting, switch_smell, magic_numbers
-  Module-level    : god_module, god_class, large_module, shotgun_surgery,
-                    divergent_change, lazy_class, duplicate_code, data_clumps
-  Architecture    : circular_dependency, long_call_chain, inappropriate_intimacy
-"""
-
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Set, Any
 import uuid
@@ -110,21 +94,12 @@ class SmellDetector:
             key = fn.get("module") or fn.get("file") or "unknown"
             buckets.setdefault(key, []).append(fn)
 
-        # Module names are flat directory-parent strings (e.g. "Backend",
-        # "Backend/analyzer") with no built-in parent/child relationship, so a
-        # folder that has both loose files and a subpackage ends up as two
-        # sibling buckets. Flag which ones have a nested sibling so the
-        # displayed name can make that relationship explicit instead of
-        # reading like an unrelated duplicate module.
         module_keys = set(buckets.keys())
 
         out = []
         for mod, fns in buckets.items():
             n      = len(fns)
             avg_cc = sum(f.get("complexity", 1) for f in fns) / n
-
-            # Detect whether this bucket maps to a single class (God Class)
-            # or to a file/package (God Module).
             virtual_modules = {f.get("virtual_module", "") for f in fns}
             is_class_level  = (
                 len(virtual_modules) == 1 and
@@ -417,15 +392,8 @@ class SmellDetector:
             ))
         return out
 
-    # ── Duplicate Code ───────────────────────────────────────────────────────
+    
     def _duplicate_code(self, _functions: List[Dict]) -> List[Smell]:
-        """Duplicate detection is deferred to LLM analysis.
-
-        Metric-similarity heuristics (same LOC + CC) produce too many false positives:
-        two unrelated validation or mapping functions can have identical size/complexity
-        without sharing any logic.  The LLM receives the full function list and can
-        detect semantic duplicates that pure metrics cannot distinguish.
-        """
         return []
 
     # ── Data Clumps ──────────────────────────────────────────────────────────
